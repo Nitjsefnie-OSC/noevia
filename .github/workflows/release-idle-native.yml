@@ -16,6 +16,8 @@ jobs:
     name: Native release idle synthetic Linux qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: dtolnay/rust-toolchain@70dec6087f2cb6bab9fbac4da23160afbe848e91
@@ -31,6 +33,7 @@ jobs:
           git rev-parse HEAD 'HEAD^{tree}' > "$evidence/source.identity"
           sha256sum tools/release-idle/Cargo.toml tools/release-idle/Cargo.lock tools/release-idle/README.md tools/release-idle/src/*.rs tools/release-idle/tests/synthetic.rs > "$evidence/source.sha256"
           rustc -vV > "$evidence/compiler.version"
+          grep -qx 'release: 1.99.0' "$evidence/compiler.version"
           uname -srm > "$evidence/runtime.txt"
           printf '%s\n' 'cargo fmt --manifest-path tools/release-idle/Cargo.toml -- --check' > "$evidence/fmt.command"
           set +e
