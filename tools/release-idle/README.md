@@ -86,7 +86,8 @@ Refusal ceilings: 4096 account directories, 16384 root/users entries, 4096
 entries per jobs directory, 65536 total journals, 8 MiB per journal, 1 MiB per
 tuning file, 65536 events per journal and 256 KiB per event. The 256 MiB retained
 budget includes runtime snapshots, journal/tuning bytes and metadata, a fixed
-metadata reserve, and 8192 bytes reserved per child output. Directory limits
+metadata reserve, 1024 bytes reserved per journal binding record, and 16384 bytes reserved per
+child command/status/stream/snapshot observation records. Directory limits
 are checked while iterating before retaining another name. File size and
 remaining aggregate budget are checked before read/copy; cap+1 reads and
 before/after fstat refuse growth. Large terminal files refuse as well as active
@@ -95,9 +96,19 @@ NOFOLLOW opens, including ancestors. Special files never reach blocking reads.
 Missing descriptors, allocations and OS read failures refuse. Numeric limits
 are not proofs of process RSS or of admissibility at an exact ceiling.
 Source modules have 1 MiB caps, pinned WASM 32 MiB, Node executable 128 MiB.
-Each Node child has a 5 second limit and 4096 byte stdout/stderr limits. Overflow
-or timeout kills and waits for the actual child and retains bounded partial
-output. Overall scan/derivation has a 60 second elapsed limit; OS filesystem IO
+Each Node child has a five-second observation deadline and 4096 byte stdout/stderr
+limits. Every child has a durable fixed command/glue/executable record before spawn,
+capped stream files, actual PID and raw exit/signal or an explicit no-child/
+unavailable-status record. Setup, restoration, pipe/read, cleanup and retention
+faults are distinct. Capture uses nonblocking pipes and a fair finite loop,
+without blocking reader threads or joins. NOWAIT observes the owned leader
+without reaping it; group kill precedes NOHANG actual-leader reaping, including
+normal leader exit with an inherited pipe holder. A further one-second cleanup
+observation window closes pipes and refuses if writers remain or the leader
+cannot be reaped. Group cleanup is attempted, not proof of escaped-descendant
+containment. An ownership-lost wait error refuses without signaling a potentially
+reused PID. Kernel syscalls, process spawn and scheduling have no guaranteed
+wall-clock limit; incomplete cleanup/status remain explicit holds. Overall scan/derivation has a 60 second elapsed limit; OS filesystem IO
 can block independently, so this is not a kernel IO deadline.
 
 Stable persisted state is an observation, not atomic admission exclusion.
@@ -106,7 +117,16 @@ exclusion, startup no-op, consistent DB/WAL/SHM/INI backup, serial overlays and
 exclusive-owner Chrome are separate release holds. This tool cannot authorize
 or perform deployment. Laya must never restart. No model, inference, chat,
 Coding, tuning, account/flag/storage mutation, credential access, SSH, Docker,
-network or cleanup actions are part of this tool.
+network or user-data cleanup actions are part of this tool.
+
+All copied runtime modules/lock/WASM and item/jobs/journal subtrees are
+registered against approved copied-byte digests, original held file identities
+and complete directory namespace manifests. Binding records are private. All
+registered snapshots are rehashed and checked before and after every child,
+including failed children, before its JSON is accepted. Replacement, append,
+extra entries, modes and link changes refuse. This is a finite observation,
+not atomic consumption protection against same-UID/root mutation and restoration,
+or a hermetic OS write denial. The owner-readable 0600 read scope remains explicit.
 
 ## Validation boundary
 
@@ -118,5 +138,8 @@ boundary and child timeout/overflow remain separate finite synthetic controls
 for a later authorized Linux run. Current synthetic test source covers strict
 JSON/torn tails/kinds/statuses/chain shapes and caps, filesystem absence versus
 symlink, bounded enumeration/hardlinks, mutation detection, and private
-non-overwriting evidence. No operator/Node or tests have run yet. Do not treat
+non-overwriting evidence. Additional compiled controls use only this Rust test
+executable as a synthetic child for normal/nonzero status, overflow, deadline,
+pipe-holder and setup failure; dummy synthetic source/journal snapshots cover
+append/extra/replacement/mode/link refusal. None were executed. No operator/Node or tests have run yet. Do not treat
 compilation as behavioral validation or whole-release readiness.

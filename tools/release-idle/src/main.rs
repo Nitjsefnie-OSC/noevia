@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+mod capture;
 mod delegate;
 mod fs;
 mod strict;
@@ -187,6 +188,14 @@ impl Scan<'_> {
                 &format!("journal-{ordinal}"),
                 Some((&sj, name)),
             )?;
+            self.counts.retained += 1024;
+            if self.counts.retained > 256 * 1024 * 1024 {
+                return Err("aggregate-cap");
+            }
+            self.ev.bind(
+                &format!("item-{ordinal}"),
+                vec![(format!("jobs/{name}"), fs::digest(&raw), raw.len())],
+            )?;
             let kind = strict::journal(&raw, id)?;
             self.jobs.push((ordinal, id.to_owned(), kind));
         }
@@ -262,7 +271,8 @@ fn blob(raw: &[u8]) -> String {
     format!("{:x}", h.finalize())
 }
 fn runtime(args: &Args, ev: &Evidence) -> Result<(Tree, Tree, File, usize)> {
-    let mut retained = 4096;
+    let mut approved = Vec::new();
+    let mut retained = 8192;
     let mut source = Tree::open(&args.source)?;
     let root = source.root.try_clone().map_err(|_| "fd-clone")?;
     let server = source
@@ -278,6 +288,7 @@ fn runtime(args: &Args, ev: &Evidence) -> Result<(Tree, Tree, File, usize)> {
             return Err("source-pin");
         }
         retained += raw.len();
+        approved.push(((*name).to_owned(), fs::digest(&raw), raw.len()));
         Evidence::write(&runtime, name, &raw)?;
     }
     let dir = source
@@ -293,6 +304,8 @@ fn runtime(args: &Args, ev: &Evidence) -> Result<(Tree, Tree, File, usize)> {
     retained += raw.len();
     let wd = Evidence::subdir(&runtime, "wasm")?;
     Evidence::write(&wd, "dav-parse.wasm", &raw)?;
+    approved.push(("wasm/dav-parse.wasm".into(), fs::digest(&raw), raw.len()));
+    ev.bind("runtime", approved)?;
     let parent = args.node.parent().ok_or("node-path")?;
     let name = args
         .node
@@ -309,6 +322,7 @@ fn runtime(args: &Args, ev: &Evidence) -> Result<(Tree, Tree, File, usize)> {
         return Err("node-pin");
     }
     Evidence::write(&ev.dir,"authority.json",serde_json::json!({"core":CORE,"tree":"345adfa12da083eb5888ec232dc2d86b9b0383a5","modules":MODULES,"wasmSha256":WASM,"nodeSha256":args.node_hash}).to_string().as_bytes())?;
+    ev.set_node_digest(args.node_hash.clone());
     source.stable()?;
     node.stable()?;
     Ok((source, node, nf, retained))
@@ -344,11 +358,25 @@ fn run(args: &Args, ev: &Evidence, counts: &mut Counts) -> Result<()> {
             source.stable()?;
             node.stable()?;
             ev.tree.stable()?;
-            if scan.counts.retained > 256 * 1024 * 1024 - 8192 {
+            if scan.counts.retained > 256 * 1024 * 1024 - 16384 {
                 return Err("aggregate-cap");
             }
-            scan.counts.retained += 8192; // Reserve bounded stdout/stderr, including failures.
-            let output = delegate::get(&node_file, ev, *ordinal, id)?;
+            scan.counts.retained += 16384; // Reserve command, status, snapshot observations and bounded streams.
+            let pre = ev.verify_snapshots();
+            Evidence::write(
+                &ev.dir,
+                &format!("delegate-{ordinal}.snapshots-before.json"),
+                serde_json::json!({"reason":pre.as_ref().err(),"approvedObservation":pre.is_ok()})
+                    .to_string()
+                    .as_bytes(),
+            )?;
+            pre?;
+            let child = delegate::get(&node_file, ev, *ordinal, id);
+            let post = ev.verify_snapshots();
+            Evidence::write(&ev.dir,&format!("delegate-{ordinal}.snapshots-after.json"),serde_json::json!({"reason":post.as_ref().err(),"approvedObservation":post.is_ok(),"childReason":child.as_ref().err()}).to_string().as_bytes())?;
+            post?;
+            scan.time()?;
+            let output = child?;
             if strict::outcome(&output, id, kind)? {
                 if kind == "code" {
                     scan.counts.coding_active += 1;
@@ -357,6 +385,8 @@ fn run(args: &Args, ev: &Evidence, counts: &mut Counts) -> Result<()> {
                 }
             }
         }
+        ev.verify_snapshots()?;
+        scan.time()?;
         scan.data.stable()?;
         source.stable()?;
         node.stable()?;

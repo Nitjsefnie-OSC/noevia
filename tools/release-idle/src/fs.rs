@@ -2,9 +2,10 @@ use crate::strict::Result;
 use rustix::fs::{mkdirat, openat, statat, AtFlags, Dir, Mode, OFlags, CWD};
 use sha2::{Digest, Sha256};
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
     fs::File,
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     os::unix::fs::MetadataExt,
     path::{Component, Path},
 };
@@ -229,9 +230,15 @@ pub fn bytes(f: &mut File, cap: usize) -> Result<Vec<u8>> {
 pub fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+struct BoundSnapshot {
+    tree: Tree,
+    files: Vec<(File, usize, String, String)>,
+}
 pub struct Evidence {
     pub tree: Tree,
     pub dir: File,
+    snapshots: RefCell<Vec<BoundSnapshot>>,
+    node_hash: RefCell<Option<String>>,
 }
 impl Evidence {
     pub fn create(path: &Path) -> Result<Self> {
@@ -251,7 +258,69 @@ impl Evidence {
         if m.mode & 0o777 != 0o700 {
             return Err("evidence-mode");
         }
-        Ok(Self { tree, dir })
+        Ok(Self {
+            tree,
+            dir,
+            snapshots: RefCell::new(Vec::new()),
+            node_hash: RefCell::new(None),
+        })
+    }
+    pub fn set_node_digest(&self, hash: String) {
+        *self.node_hash.borrow_mut() = Some(hash);
+    }
+    pub fn node_digest(&self) -> Option<String> {
+        self.node_hash.borrow().clone()
+    }
+    pub fn bind(&self, name: &str, expected: Vec<(String, String, usize)>) -> Result<()> {
+        let mut tree = Tree {
+            root: self.dir.try_clone().map_err(|_| "fd-clone")?,
+            edges: Vec::new(),
+            lists: Vec::new(),
+        };
+        let parent = tree.root.try_clone().map_err(|_| "fd-clone")?;
+        let root = tree
+            .child(&parent, name, true, false)?
+            .ok_or("snapshot-missing")?;
+        let mut expected: BTreeMap<String, (String, usize)> =
+            expected.into_iter().map(|(p, h, n)| (p, (h, n))).collect();
+        let mut files = Vec::new();
+        bind_dir(&mut tree, &root, "", &mut expected, &mut files, 0)?;
+        if !expected.is_empty() {
+            return Err("snapshot-missing");
+        }
+        tree.stable()?;
+        let mut registered = Vec::new();
+        for (file, size, hash, path) in &files {
+            registered.push(serde_json::json!({"relativePath":path,"size":size,"sha256":hash,"identity":metadata(&identity(file)?)}));
+        }
+        let record=serde_json::json!({"subtree":name,"files":registered,"directoryIdentity":metadata(&identity(&root)?)}).to_string();
+        let cap = if name == "runtime" { 4096 } else { 1024 };
+        if record.len() > cap {
+            return Err("snapshot-record-cap");
+        }
+        Self::write(
+            &self.dir,
+            &format!("snapshot-{name}.json"),
+            record.as_bytes(),
+        )?;
+        self.snapshots
+            .borrow_mut()
+            .push(BoundSnapshot { tree, files });
+        Ok(())
+    }
+    pub fn verify_snapshots(&self) -> Result<()> {
+        for snapshot in self.snapshots.borrow_mut().iter_mut() {
+            snapshot.tree.stable()?;
+            for (file, size, hash, _) in &mut snapshot.files {
+                file.seek(SeekFrom::Start(0)).map_err(|_| "snapshot-seek")?;
+                let raw = bytes(file, *size)?;
+                if raw.len() != *size || digest(&raw) != *hash {
+                    return Err("snapshot-digest");
+                }
+            }
+            snapshot.tree.stable()?;
+        }
+        Ok(())
     }
     pub fn subdir(parent: &File, name: &str) -> Result<File> {
         mkdirat(parent, name, Mode::from_bits_truncate(0o700)).map_err(|_| "evidence-create")?;
@@ -283,4 +352,47 @@ pub fn is_dir(m: &Identity) -> bool {
 }
 pub fn metadata(m: &Identity) -> String {
     format!("{m:?}")
+}
+
+fn bind_dir(
+    tree: &mut Tree,
+    parent: &File,
+    prefix: &str,
+    expected: &mut BTreeMap<String, (String, usize)>,
+    files: &mut Vec<(File, usize, String, String)>,
+    depth: usize,
+) -> Result<()> {
+    if depth > 2 {
+        return Err("snapshot-depth");
+    }
+    let list = tree.enumerate(parent, 8)?;
+    if identity(parent)?.mode & 0o777 != 0o700 {
+        return Err("snapshot-directory-mode");
+    }
+    for (name, meta) in list {
+        let path = format!("{prefix}{name}");
+        if is_dir(&meta) {
+            if !expected.keys().any(|k| k.starts_with(&format!("{path}/"))) {
+                return Err("snapshot-extra");
+            }
+            let dir = tree
+                .child(parent, &name, true, false)?
+                .ok_or("snapshot-missing")?;
+            bind_dir(tree, &dir, &format!("{path}/"), expected, files, depth + 1)?;
+        } else {
+            let (hash, size) = expected.remove(&path).ok_or("snapshot-extra")?;
+            let mut file = tree
+                .child(parent, &name, false, false)?
+                .ok_or("snapshot-missing")?;
+            if identity(&file)?.mode & 0o777 != 0o600 {
+                return Err("snapshot-file-mode");
+            }
+            let raw = bytes(&mut file, size)?;
+            if raw.len() != size || digest(&raw) != hash {
+                return Err("snapshot-digest");
+            }
+            files.push((file, size, hash, path));
+        }
+    }
+    Ok(())
 }

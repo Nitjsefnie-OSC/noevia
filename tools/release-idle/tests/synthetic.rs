@@ -227,3 +227,163 @@ fn event_ceiling_then_one_over() {
     raw.extend(event("progress", 65537, serde_json::json!({})));
     assert!(strict::journal(&raw, ID).is_err());
 }
+#[path = "../src/capture.rs"]
+#[allow(dead_code)]
+mod capture;
+// Compile-only controls spawn this Rust test executable, never Node or a service.
+#[test]
+fn capture_child_fixture() {
+    use std::io::Write;
+    let Ok(mode) = std::env::var("NOEVIA_SYNTHETIC_CAPTURE_CHILD") else {
+        return;
+    };
+    match mode.as_str() {
+        "normal" => {
+            print!("fixture-normal");
+        }
+        "nonzero" => {
+            print!("fixture-nonzero");
+            std::io::stdout().flush().expect("fixture flush");
+            std::process::exit(7);
+        }
+        "overflow" => {
+            let _ = std::io::stdout().write_all(&vec![b'x'; 5000]);
+        }
+        "deadline" | "hold" => {
+            print!("fixture-start");
+            std::io::stdout().flush().expect("fixture flush");
+            std::thread::sleep(std::time::Duration::from_secs(10));
+        }
+        "pipeholder" => {
+            let exe = std::env::current_exe().expect("fixture executable");
+            let mut command = std::process::Command::new(exe);
+            command
+                .args(["--exact", "capture_child_fixture", "--nocapture", "--quiet"])
+                .env("NOEVIA_SYNTHETIC_CAPTURE_CHILD", "hold")
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit());
+            let _descendant = command.spawn().expect("synthetic pipe holder");
+            std::process::exit(0);
+        }
+        _ => panic!("synthetic fixture mode"),
+    }
+}
+fn captured(mode: &str, deadline: std::time::Duration, pipes: bool) -> capture::Observation {
+    use std::os::unix::process::CommandExt;
+    let mut command =
+        std::process::Command::new(std::env::current_exe().expect("synthetic executable"));
+    command
+        .args(["--exact", "capture_child_fixture", "--nocapture", "--quiet"])
+        .env("NOEVIA_SYNTHETIC_CAPTURE_CHILD", mode)
+        .process_group(0);
+    if pipes {
+        command
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+    } else {
+        command
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+    }
+    capture::observe(command.spawn().expect("synthetic child"), None, deadline)
+}
+#[test]
+fn capture_actual_normal_status() {
+    let o = captured("normal", std::time::Duration::from_secs(2), true);
+    assert!(o.reason.is_none(), "{:?}", o.record());
+    assert_eq!(o.status.and_then(|s| s.exit_status()), Some(0));
+    assert!(o.out_eof && o.err_eof);
+    assert!(String::from_utf8_lossy(&o.stdout).contains("fixture-normal"));
+}
+#[test]
+fn capture_actual_nonzero_status() {
+    let o = captured("nonzero", std::time::Duration::from_secs(2), true);
+    assert_eq!(o.status.and_then(|s| s.exit_status()), Some(7));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("fixture-nonzero"));
+}
+#[test]
+fn capture_overflow_retains_capped_partial() {
+    let o = captured("overflow", std::time::Duration::from_secs(2), true);
+    assert_eq!(o.reason, Some("delegate-output-cap"));
+    assert_eq!(o.stdout.len(), 4096);
+    assert!(o.status.is_some());
+}
+#[test]
+fn capture_deadline_binds_actual_reaped_child() {
+    let o = captured("deadline", std::time::Duration::from_millis(100), true);
+    assert_eq!(o.reason, Some("delegate-timeout"));
+    assert!(o.pid.is_some() && o.status.is_some());
+    assert!(o.stdout.len() <= 4096 && o.stderr.len() <= 4096);
+}
+#[test]
+fn capture_leader_exit_does_not_join_pipe_holder() {
+    let o = captured("pipeholder", std::time::Duration::from_secs(2), true);
+    assert_eq!(o.status.and_then(|s| s.exit_status()), Some(0));
+    assert!(o.out_eof && o.err_eof, "{:?}", o.record());
+    assert!(!o.cleanup.contains(&"pipe-writer-remains"));
+}
+#[test]
+fn capture_setup_failure_still_reaps_actual_child() {
+    let o = captured("deadline", std::time::Duration::from_millis(100), false);
+    assert_eq!(o.reason, Some("delegate-stdout-setup"));
+    assert!(o.status.is_some());
+}
+fn bound_fixture(f: &Fixture, subtree: &str, path: &str) -> fs::Evidence {
+    let e = fs::Evidence::create(&f.0.join("evidence")).expect("synthetic evidence");
+    let sub = fs::Evidence::subdir(&e.dir, subtree).expect("synthetic subtree");
+    let file = if path.starts_with("jobs/") {
+        let jobs = fs::Evidence::subdir(&sub, "jobs").expect("synthetic jobs");
+        fs::Evidence::write(
+            &jobs,
+            path.strip_prefix("jobs/").expect("fixture"),
+            b"synthetic bytes",
+        )
+        .expect("fixture write");
+        path.to_owned()
+    } else {
+        fs::Evidence::write(&sub, path, b"synthetic bytes").expect("fixture write");
+        path.to_owned()
+    };
+    e.bind(subtree, vec![(file, fs::digest(b"synthetic bytes"), 15)])
+        .expect("bind approved synthetic bytes");
+    e.verify_snapshots().expect("initial synthetic binding");
+    e
+}
+#[test]
+fn approved_source_snapshot_append_and_extra_refuse() {
+    use std::io::Write;
+    let f = Fixture::new();
+    let e = bound_fixture(&f, "runtime", "jobs.cjs");
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(f.0.join("evidence/runtime/jobs.cjs"))
+        .expect("synthetic open")
+        .write_all(b"appended")
+        .expect("synthetic append");
+    assert!(e.verify_snapshots().is_err());
+    let f = Fixture::new();
+    let e = bound_fixture(&f, "runtime", "jobs.cjs");
+    std::fs::write(f.0.join("evidence/runtime/extra.cjs"), b"extra").expect("synthetic extra");
+    assert!(e.verify_snapshots().is_err());
+}
+#[test]
+fn approved_journal_snapshot_replace_mode_and_link_refuse() {
+    use std::os::unix::fs::PermissionsExt;
+    for mode in ["replace", "mode", "link"] {
+        let f = Fixture::new();
+        let path = format!("jobs/{ID}.jsonl");
+        let e = bound_fixture(&f, "item-1", &path);
+        let file = f.0.join("evidence/item-1").join(path);
+        match mode {
+            "replace" => {
+                std::fs::remove_file(&file).expect("synthetic unlink");
+                std::fs::write(&file, b"synthetic bytes").expect("synthetic replacement");
+            }
+            "mode" => std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o400))
+                .expect("synthetic mode"),
+            "link" => std::fs::hard_link(&file, f.0.join("extra-link")).expect("synthetic link"),
+            _ => unreachable!("fixed synthetic mode"),
+        };
+        assert!(e.verify_snapshots().is_err());
+    }
+}
