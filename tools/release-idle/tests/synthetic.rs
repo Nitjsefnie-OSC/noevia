@@ -387,3 +387,32 @@ fn approved_journal_snapshot_replace_mode_and_link_refuse() {
         assert!(e.verify_snapshots().is_err());
     }
 }
+
+#[test]
+fn capture_metadata_retains_distinct_first_errors() {
+    let mut o = capture::Observation::default();
+    capture::retain_first(&mut o.os_errors.group, Some(123));
+    capture::retain_first(&mut o.os_errors.group, Some(456));
+    capture::retain_first(&mut o.os_errors.leader, Some(789));
+    capture::retain_first(&mut o.os_errors.leader, Some(987));
+    let r = o.record();
+    assert_eq!(r["osErrors"]["group"]["rawOsError"], 123);
+    assert_eq!(r["osErrors"]["leader"]["rawOsError"], 789);
+    assert!(r["osErrors"]["reap"].is_null());
+}
+#[test]
+fn capture_metadata_distinguishes_missing_code_from_no_error() {
+    let mut o = capture::Observation::default();
+    capture::retain_first(&mut o.os_errors.stdout_setup, None);
+    capture::retain_first(&mut o.os_errors.stdout_setup, Some(123));
+    o.group_target = Some(-42);
+    o.group_signal = Some(9);
+    o.leader_exit_observed = Some(true);
+    let r = o.record();
+    assert!(r["osErrors"]["stdoutSetup"].is_object());
+    assert!(r["osErrors"]["stdoutSetup"]["rawOsError"].is_null());
+    assert!(r["osErrors"]["stderrSetup"].is_null());
+    assert_eq!(r["groupRequest"]["target"], -42);
+    assert_eq!(r["groupRequest"]["signal"], 9);
+    assert_eq!(r["groupRequest"]["leaderExitObserved"], true);
+}

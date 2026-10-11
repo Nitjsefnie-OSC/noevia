@@ -13,6 +13,21 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+/// Fixed slots retain the first returned error, including an explicit missing OS code.
+#[derive(Default)]
+pub struct OsErrors {
+    pub group: Option<Option<i32>>,
+    pub leader: Option<Option<i32>>,
+    pub observe: Option<Option<i32>>,
+    pub reap: Option<Option<i32>>,
+    pub stdout_setup: Option<Option<i32>>,
+    pub stderr_setup: Option<Option<i32>>,
+    pub stdout_read: Option<Option<i32>>,
+    pub stderr_read: Option<Option<i32>>,
+}
+pub fn retain_first(slot: &mut Option<Option<i32>>, code: Option<i32>) {
+    slot.get_or_insert(code);
+}
 #[derive(Default)]
 pub struct Observation {
     pub stdout: Vec<u8>,
@@ -24,6 +39,10 @@ pub struct Observation {
     pub out_eof: bool,
     pub err_eof: bool,
     pub group_cleanup: Option<&'static str>,
+    pub os_errors: OsErrors,
+    pub group_target: Option<i32>,
+    pub group_signal: Option<i32>,
+    pub leader_exit_observed: Option<bool>,
 }
 impl Observation {
     pub fn fault(&mut self, reason: &'static str) {
@@ -32,18 +51,25 @@ impl Observation {
         }
     }
     pub fn record(&self) -> serde_json::Value {
-        serde_json::json!({"pid":self.pid,"reason":self.reason,"cleanupFaults":self.cleanup,"groupCleanup":self.group_cleanup,"status":self.status.map(|s|serde_json::json!({"raw":s.as_raw(),"exit":s.exit_status(),"signal":s.terminating_signal()})),"statusUnavailable":if self.pid.is_none(){Some("no-child")}else if self.status.is_none(){Some("actual-status-unavailable")}else{None},"stdoutBytes":self.stdout.len(),"stderrBytes":self.stderr.len(),"stdoutEof":self.out_eof,"stderrEof":self.err_eof})
+        serde_json::json!({"pid":self.pid,"groupRequest":{"target":self.group_target,"signal":self.group_signal,"leaderExitObserved":self.leader_exit_observed},"osErrors":{
+            "group":self.os_errors.group.map(|code|serde_json::json!({"rawOsError":code})),
+            "leader":self.os_errors.leader.map(|code|serde_json::json!({"rawOsError":code})),
+            "observe":self.os_errors.observe.map(|code|serde_json::json!({"rawOsError":code})),
+            "reap":self.os_errors.reap.map(|code|serde_json::json!({"rawOsError":code})),
+            "stdoutSetup":self.os_errors.stdout_setup.map(|code|serde_json::json!({"rawOsError":code})),
+            "stderrSetup":self.os_errors.stderr_setup.map(|code|serde_json::json!({"rawOsError":code})),
+            "stdoutRead":self.os_errors.stdout_read.map(|code|serde_json::json!({"rawOsError":code})),
+            "stderrRead":self.os_errors.stderr_read.map(|code|serde_json::json!({"rawOsError":code}))},"reason":self.reason,"cleanupFaults":self.cleanup,"groupCleanup":self.group_cleanup,"status":self.status.map(|s|serde_json::json!({"raw":s.as_raw(),"exit":s.exit_status(),"signal":s.terminating_signal()})),"statusUnavailable":if self.pid.is_none(){Some("no-child")}else if self.status.is_none(){Some("actual-status-unavailable")}else{None},"stdoutBytes":self.stdout.len(),"stderrBytes":self.stderr.len(),"stdoutEof":self.out_eof,"stderrEof":self.err_eof})
     }
 }
-fn nonblocking<F: AsFd>(f: &F) -> bool {
-    fcntl_getfl(f)
-        .and_then(|flags| fcntl_setfl(f, flags | OFlags::NONBLOCK))
-        .is_ok()
+fn nonblocking<F: AsFd>(f: &F) -> rustix::io::Result<()> {
+    fcntl_getfl(f).and_then(|flags| fcntl_setfl(f, flags | OFlags::NONBLOCK))
 }
 fn read_once<R: Read>(
     pipe: &mut Option<R>,
     out: &mut Vec<u8>,
     eof: &mut bool,
+    error: &mut Option<Option<i32>>,
 ) -> Option<&'static str> {
     let Some(p) = pipe else { return None };
     let mut buf = [0; 512];
@@ -64,7 +90,8 @@ fn read_once<R: Read>(
             }
         }
         Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => None,
-        Err(_) => {
+        Err(e) => {
+            retain_first(error, e.raw_os_error());
             *pipe = None;
             Some("delegate-read-error")
         }
@@ -79,13 +106,35 @@ pub fn observe(mut child: Child, initial: Option<&'static str>, deadline: Durati
     let pid = Pid::from_raw(child.id() as i32);
     let mut stdout: Option<ChildStdout> = child.stdout.take();
     let mut stderr: Option<ChildStderr> = child.stderr.take();
-    if stdout.as_ref().is_none_or(|p| !nonblocking(p)) {
-        stdout = None;
-        o.reason.get_or_insert("delegate-stdout-setup");
+    for (pipe, slot, reason) in [
+        (
+            stdout.as_ref().map(nonblocking),
+            &mut o.os_errors.stdout_setup,
+            "delegate-stdout-setup",
+        ),
+        (
+            stderr.as_ref().map(nonblocking),
+            &mut o.os_errors.stderr_setup,
+            "delegate-stderr-setup",
+        ),
+    ] {
+        match pipe {
+            Some(Ok(())) => {}
+            Some(Err(e)) => {
+                retain_first(slot, Some(e.raw_os_error()));
+                o.reason.get_or_insert(reason);
+            }
+            None => {
+                retain_first(slot, None);
+                o.reason.get_or_insert(reason);
+            }
+        }
     }
-    if stderr.as_ref().is_none_or(|p| !nonblocking(p)) {
+    if o.os_errors.stdout_setup.is_some() {
+        stdout = None;
+    }
+    if o.os_errors.stderr_setup.is_some() {
         stderr = None;
-        o.reason.get_or_insert("delegate-stderr-setup");
     }
     let Some(pid) = pid else {
         o.reason = Some("delegate-pid");
@@ -94,10 +143,20 @@ pub fn observe(mut child: Child, initial: Option<&'static str>, deadline: Durati
     let start = Instant::now();
     let mut cleanup_start = None;
     loop {
-        if let Some(r) = read_once(&mut stdout, &mut o.stdout, &mut o.out_eof) {
+        if let Some(r) = read_once(
+            &mut stdout,
+            &mut o.stdout,
+            &mut o.out_eof,
+            &mut o.os_errors.stdout_read,
+        ) {
             o.reason.get_or_insert(r);
         }
-        if let Some(r) = read_once(&mut stderr, &mut o.stderr, &mut o.err_eof) {
+        if let Some(r) = read_once(
+            &mut stderr,
+            &mut o.stderr,
+            &mut o.err_eof,
+            &mut o.os_errors.stderr_read,
+        ) {
             o.reason.get_or_insert(r);
         }
         // NOWAIT observes the leader without releasing its PID before group cleanup.
@@ -108,12 +167,14 @@ pub fn observe(mut child: Child, initial: Option<&'static str>, deadline: Durati
             ) {
                 Ok(v) => v.is_some(),
                 Err(rustix::io::Errno::INTR) => false,
-                Err(rustix::io::Errno::CHILD) => {
+                Err(e @ rustix::io::Errno::CHILD) => {
+                    retain_first(&mut o.os_errors.observe, Some(e.raw_os_error()));
                     o.reason = Some("delegate-ownership-lost");
                     o.fault("group-cleanup-unavailable");
                     break;
                 }
-                Err(_) => {
+                Err(e) => {
+                    retain_first(&mut o.os_errors.observe, Some(e.raw_os_error()));
                     o.reason.get_or_insert("delegate-wait-observe");
                     false
                 }
@@ -122,19 +183,25 @@ pub fn observe(mut child: Child, initial: Option<&'static str>, deadline: Durati
                 o.reason.get_or_insert("delegate-timeout");
             }
             if exited || o.reason.is_some() {
+                o.group_target = Some(pid.as_raw_nonzero().get().wrapping_neg());
+                o.group_signal = Some(Signal::KILL.as_raw());
+                o.leader_exit_observed = Some(exited);
                 match kill_process_group(pid, Signal::KILL) {
                     Ok(()) => {
                         o.group_cleanup = Some("signal-requested");
                     }
-                    Err(rustix::io::Errno::SRCH) => {
+                    Err(e @ rustix::io::Errno::SRCH) => {
+                        retain_first(&mut o.os_errors.group, Some(e.raw_os_error()));
                         o.group_cleanup = Some("group-already-absent");
                         o.fault("group-already-absent");
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        retain_first(&mut o.os_errors.group, Some(e.raw_os_error()));
                         o.group_cleanup = Some("signal-request-failed");
                         o.fault("group-kill-error");
                         o.reason.get_or_insert("delegate-cleanup");
-                        if child.kill().is_err() {
+                        if let Err(e) = child.kill() {
+                            retain_first(&mut o.os_errors.leader, e.raw_os_error());
                             o.fault("leader-kill-error");
                         }
                     }
@@ -150,7 +217,8 @@ pub fn observe(mut child: Child, initial: Option<&'static str>, deadline: Durati
                         o.reason.get_or_insert("delegate-wrong-pid");
                     }
                     Ok(None) => {}
-                    Err(_) => {
+                    Err(e) => {
+                        retain_first(&mut o.os_errors.reap, Some(e.raw_os_error()));
                         o.fault("leader-wait-error");
                         o.reason.get_or_insert("delegate-cleanup");
                     }
