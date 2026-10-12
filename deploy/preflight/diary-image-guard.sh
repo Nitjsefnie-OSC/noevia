@@ -6,7 +6,7 @@
 #
 # Sourced by release/build helpers (up.sh, build-web-release.sh), not executed:
 #   guard_diary_image docker <args as they would be passed to docker>   -> 0 allowed, 3 refused
-# Refused: `docker build|buildx build` with a cowork-diary tag, `docker tag` to a cowork-diary
+# Refused: `docker [image] build|buildx build` with a cowork-diary tag, `docker [image] tag` to a cowork-diary
 # target, `docker compose build` with no service list or with diary in it, and any compose
 # command with --build (compose builds dependencies too, and web depends on diary). Anything
 # else, including a compose build of a named non-diary service, is allowed.
@@ -30,6 +30,10 @@ guard_diary_image() {
   [ "${1:-}" = docker ] || return 0
   shift
   local arg last="" sub skip=0
+  # `docker image tag|build ...` are the same commands as `docker tag|build ...`.
+  if [ "${1:-}" = image ]; then
+    case "${2:-}" in tag|build) shift ;; esac
+  fi
   case "${1:-}" in
     tag)
       shift

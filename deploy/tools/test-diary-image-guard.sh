@@ -35,6 +35,12 @@ expect 3 "docker build --tag=cowork-diary:<sha> is refused" docker build --tag=c
 expect 3 "buildx build tagging cowork-diary is refused" docker buildx build -t cowork-diary:x /ctx
 expect 3 "docker tag onto cowork-diary:rollback is refused" docker tag abc123 cowork-diary:rollback-before-diary-overlay
 expect 3 "docker tag onto bare cowork-diary is refused" docker tag abc123 cowork-diary
+expect 3 "docker image tag onto cowork-diary:<sha> is refused" docker image tag abc123 cowork-diary:f6885a55
+expect 3 "docker image tag onto bare cowork-diary is refused" docker image tag abc123 cowork-diary
+expect 3 "docker image build tagging cowork-diary is refused" docker image build -t cowork-diary:x /ctx
+expect 0 "docker image tag of a diary image to another name is allowed" docker image tag cowork-diary:f6885a55 cowork-web:backup
+expect 0 "docker image build tagging cowork-web is allowed" docker image build -t cowork-web:1 /ctx
+expect 0 "docker image ls is allowed" docker image ls
 expect 0 "docker build tagging cowork-web is allowed" docker build -f x -t cowork-web:682a45e --build-arg COWORK_VERSION=682a45e /ctx
 expect 0 "docker tag of a diary image to another name is allowed" docker tag cowork-diary:f6885a55 cowork-web:backup
 expect 0 "a cowork-diary-looking repo name is not a diary tag" docker build -t cowork-diary-tools:1 /ctx
