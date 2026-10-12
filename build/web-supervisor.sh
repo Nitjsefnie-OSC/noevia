@@ -14,7 +14,7 @@ set -uo pipefail
 
 # Only this script may confirm rust-auth / rust-projects / rust-project-chats / rust-free-chats to
 # Node (below); never trust a value from the environment.
-unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED
+unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_FRONT_CLIENT_IP
 front="${NOEVIA_FRONT:-node}"
 case "$front" in
   node) exec node server/index.cjs ;;
@@ -39,6 +39,18 @@ fi
 if ! grep -qx 'code-net-guard' <<<"$features"; then
   echo "web-supervisor: COWORK_CODE_NET_ADDR is set but this noevia-server has no code-net-guard; set NOEVIA_FRONT=node or update the image" >&2
   exit 2
+fi
+# The client address (noevia-core server/auth.cjs, #1578): Node believes X-Noevia-Client-Ip from its
+# loopback peer only when this front drops client copies of it, which a front reports with
+# client-address-header. Node is told so with NOEVIA_FRONT_CLIENT_IP=1; a front that predates the
+# strip (a core/rs pin mismatch or an rs rollback) leaves Node on the socket address, never a
+# header a client chose. Not an error: the address is the proxy's until the image catches up.
+client_features="$("$bin" --features 2>/dev/null || true)"
+client_ip_confirmed=""
+if grep -qx 'client-address-header' <<<"$client_features"; then
+  client_ip_confirmed=1
+else
+  echo "web-supervisor: this noevia-server has no client-address-header; Node ignores X-Noevia-Client-Ip and sees every client as the front" >&2
 fi
 # Rust-owned sign-in (noevia-core server/rust-auth.cjs): with NOEVIA_RUST_AUTH=1 Node refuses to
 # write the account tables, so the front facing the network must answer those routes. Only a front
@@ -166,6 +178,7 @@ stop() {
 trap 'signalled=1; stop' TERM INT
 
 UI_HOST="$node_host" UI_PORT="$legacy" NOEVIA_RUST_AUTH_CONFIRMED="$rust_auth_confirmed" \
+  NOEVIA_FRONT_CLIENT_IP="$client_ip_confirmed" \
   NOEVIA_RUST_PROJECTS_CONFIRMED="$rust_projects_confirmed" NOEVIA_RUST_PROJECT_CHATS_CONFIRMED="$rust_project_chats_confirmed" \
   NOEVIA_RUST_FREE_CHATS_CONFIRMED="$rust_free_chats_confirmed" \
   NOEVIA_RUST_USAGE_CONFIRMED="$rust_usage_confirmed" \
