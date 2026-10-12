@@ -8,6 +8,9 @@
 # requirements.txt and Dockerfile are unchanged): no pip install runs, so no dependency can drift.
 # Keeps cowork-diary:rollback-before-diary-overlay and config/.env.bak.before-diary-<SRC_SHA>.
 set -euo pipefail
+# #1148: the only place allowed to build or tag cowork-diary:* (deploy/preflight/diary-image-guard.sh
+# refuses it everywhere else).
+export NOEVIA_DIARY_OVERLAY=1
 V=${1:?source release sha (becomes DIARY_VERSION)}; base=/mnt/docker/appdata/cowork; config=$base/config/.env
 # $V becomes a path component, an image tag and a sed replacement below: only a hex SHA is allowed.
 [[ $V =~ ^[0-9a-f]{7,40}$ ]] || { echo "source release sha must be 7 to 40 lowercase hex characters, got: $V" >&2; exit 1; }
