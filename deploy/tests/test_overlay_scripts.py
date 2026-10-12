@@ -1,17 +1,18 @@
 """Guards in the live-server overlay scripts that can be exercised without Docker or the server.
 
 The release SHA becomes a path component, an image tag and a sed replacement, so both scripts
-refuse anything but a hex SHA before touching anything. The Diary overlay takes its own appdata
-backup and must verify the folder it then verifies is that backup, not a leftover.
+refuse anything but a hex SHA before touching anything. The Diary overlay archives its own state
+(#1487) and may stop or recreate only the Diary container; it never runs the Appdata Backup plugin.
 """
 import json
 import os
 import pathlib
+import re
 import shutil
 import stat
 import subprocess
+import tarfile
 import tempfile
-import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -183,89 +184,180 @@ class RcloneJsonEscape(unittest.TestCase):
         self.assertEqual(self.escape('gdrive:noevia backups'), 'gdrive:noevia backups')
 
 
-class BackupPick(unittest.TestCase):
-    """Run the `backup-pick` block of diary-overlay.sh against synthetic backup folders."""
+class ScopedDiaryOverlay(unittest.TestCase):
+    """#1487: diary-overlay.sh runs end to end against a synthetic appdata tree.
 
-    def block(self):
-        lines = DIARY.read_text().splitlines()
-        start = next(i for i, l in enumerate(lines) if l.startswith('# BEGIN backup-pick'))
-        end = next(i for i, l in enumerate(lines) if l.startswith('# END backup-pick'))
-        return '\n'.join(lines[start + 1:end])
+    Paths are pointed at a temp tree; docker, php and gzip are stubs on PATH that record their argv
+    (gzip can be told to fail `-t`). The real preflight up.sh runs and reaches the stubbed docker
+    compose. Only cowork-diary-1 may be stopped, restarted or recreated, and the Appdata Backup plugin
+    never runs. Every value is synthetic.
+    """
 
-    def pick(self, root, marker):
-        return subprocess.run(['bash', '-c', 'set -euo pipefail\nmarker=$1\n' + self.block() + '\necho "PICKED $B"', 'x', str(marker)],
-                              env=dict(os.environ, BACKUP_ROOT=str(root)), capture_output=True, text=True)
+    NEW = 'abc1234'
+    OLD = 'def5678'
+    OLD_ID = 'sha256:' + 'a' * 64
+    LIFECYCLE = {'stop', 'start', 'restart', 'kill', 'rm', 'down', 'pause', 'unpause', 'update'}
 
-    def test_picks_the_backup_this_run_took_and_refuses_stale_or_missing_ones(self):
-        with tempfile.TemporaryDirectory(prefix='noevia-backup-pick-') as temp:
-            temp = pathlib.Path(temp)
-            root = temp / 'backups'
-            root.mkdir()
-            marker = temp / 'marker'
-            old = root / 'ab_20260101_000000'
-            old.mkdir()
-            past = time.time() - 3600
-            os.utime(old, (past, past))
-            marker.touch()
-            before = time.time() - 60  # the run started a minute ago; coarse mtimes cannot blur the order
-            os.utime(marker, (before, before))
+    DOCKER_STUB = r"""
+printf 'docker %s\n' "$*" >> "$CALL_LOG"
+case "$*" in
+  "image inspect cowork-diary:@NEW@") exit 1 ;;
+  "image inspect cowork-diary:@OLD@ --format {{.Id}}") echo "@OLD_ID@" ;;
+  "inspect cowork-diary-1 --format {{.Image}}") echo "@OLD_ID@" ;;
+  "inspect cowork-diary-1 --format diary"*) echo "diary healthy restarts=0" ;;
+  "exec cowork-diary-1 python -c"*) exit 1 ;;
+  "run --rm --entrypoint python"*) echo "candidate imports ok" ;;
+  "compose "*" config --format json") echo "{}" ;;
+esac
+exit 0
+"""
+    PHP_STUB = r"""
+printf 'php %s\n' "$*" >> "$CALL_LOG"
+cat >/dev/null
+exit 0
+"""
+    GZIP_STUB = r"""
+for arg in "$@"; do
+  if [ "$arg" = -t ] && [ -n "${INJECT_GZIP_FAILURE:-}" ]; then echo "gzip: injected failure" >&2; exit 1; fi
+done
+exec "@REAL_GZIP@" "$@"
+"""
 
-            none = self.pick(temp / 'absent', marker)
-            self.assertNotEqual(none.returncode, 0)
-            self.assertIn('no appdata backup', none.stderr)
+    # The script's `sed -i EXPR FILE` is GNU syntax (DaServer, CI). BSD sed (macOS) needs `-i ''`, so the
+    # test shim adds it only when the real sed is BSD; the script text is never changed for the test.
+    SED_STUB = r"""
+if [ "$1" = -i ] && ! "@REAL_SED@" --version >/dev/null 2>&1; then shift; exec "@REAL_SED@" -i '' "$@"; fi
+exec "@REAL_SED@" "$@"
+"""
 
-            stale = self.pick(root, marker)
-            self.assertNotEqual(stale.returncode, 0, 'a leftover backup from an earlier run is not this run\'s backup')
-            self.assertIn('older than this run', stale.stderr)
+    def setUp(self):
+        self.temp = pathlib.Path(tempfile.mkdtemp(prefix='noevia-diary-overlay-'))
+        self.addCleanup(shutil.rmtree, self.temp, ignore_errors=True)
+        self.base = self.temp / 'appdata'
+        self.manager = self.temp / 'manager'
+        self.backups = self.temp / 'backups'
+        self.bin = self.temp / 'bin'
+        self.log = self.temp / 'calls.log'
+        for d in [self.base / 'config', self.base / 'state/diary/users/u1', self.base / 'state/web',
+                  self.base / 'tools/preflight', self.base / f'releases/{self.NEW}/services/diary/agent',
+                  self.manager, self.backups, self.bin]:
+            d.mkdir(parents=True)
+        self.config = self.base / 'config/.env'
+        self.config.write_text(f'COWORK_VERSION=0000000\nDIARY_VERSION={self.OLD}\nDIARY_AUTH_TOKEN=synthetic-token\n')
+        (self.base / 'state/diary/users/u1/managed-diary.db').write_bytes(b'synthetic diary state')
+        (self.base / 'state/web/cowork.db').write_bytes(b'synthetic web state')
+        (self.base / f'releases/{self.NEW}/services/diary/agent/app.py').write_text('x = 1\n')
+        (self.base / f'releases/{self.NEW}/services/diary/Dockerfile').write_text('FROM python:3.12-slim\n')
+        (self.manager / 'compose.yaml').write_text('services: {}\n')
+        shutil.copy(ROOT / 'deploy/preflight/up.sh', self.base / 'tools/preflight/up.sh')
+        subst = {'@NEW@': self.NEW, '@OLD@': self.OLD, '@OLD_ID@': self.OLD_ID,
+                 '@REAL_GZIP@': shutil.which('gzip') or '/usr/bin/gzip', '@REAL_SED@': shutil.which('sed') or '/usr/bin/sed'}
+        self.stub('docker', self.DOCKER_STUB, subst)
+        self.stub('php', self.PHP_STUB, subst)
+        self.stub('gzip', self.GZIP_STUB, subst)
+        self.stub('sed', self.SED_STUB, subst)
+        text = DIARY.read_text()
+        for old, new in [('base=/mnt/docker/appdata/cowork;', f"base='{self.base}';"),
+                         ('cd /boot/config/plugins/compose.manager/projects/Cowork', f"cd '{self.manager}'")]:
+            self.assertEqual(text.count(old), 1, old)
+            text = text.replace(old, new)
+        self.script = self.temp / 'diary-overlay.sh'
+        self.script.write_text(text)
 
-            fresh = root / 'ab_20260102_000000'
-            fresh.mkdir()
-            ok = self.pick(root, marker)
-            self.assertEqual(ok.returncode, 0, ok.stderr)
-            self.assertIn(f'PICKED {fresh}', ok.stdout)
+    def stub(self, name, body, subst):
+        for token, value in subst.items():
+            body = body.replace(token, value)
+        path = self.bin / name
+        path.write_text('#!/bin/bash\n' + body)
+        path.chmod(0o755)
 
+    def overlay(self, backups=None, env=None):
+        environ = dict(os.environ, PATH=f'{self.bin}:{os.environ["PATH"]}', CALL_LOG=str(self.log),
+                       BACKUP_ROOT=str(backups or self.backups), COWORK_PROJECT_DIR=str(self.manager))
+        environ.pop('INJECT_GZIP_FAILURE', None)
+        environ.update(env or {})
+        return subprocess.run(['bash', str(self.script), self.NEW], env=environ, capture_output=True, text=True, timeout=60)
 
-class BackupVerify(unittest.TestCase):
-    """Run the `backup-verify` block of diary-overlay.sh: .tar.zst or .tar.gz, never neither."""
+    def calls(self):
+        return self.log.read_text().splitlines() if self.log.exists() else []
 
-    NAMES = ('cowork-diary-1', 'cowork-web-1', 'extra_files')
+    def assert_only_diary_is_disturbed(self, calls):
+        for line in calls:
+            self.assertNotIn('appdata.backup', line, line)
+            argv = line.split()
+            if argv[0] == 'php':
+                continue
+            self.assertEqual(argv[0], 'docker', line)
+            verb = argv[1]
+            if verb == 'compose':
+                self.assertEqual(argv[2:4], ['--env-file', str(self.config)], line)
+                sub = argv[4]
+                if sub == 'up':
+                    self.assertIn('--no-deps', argv, line)
+                    self.assertEqual(argv[-1], 'diary', line)
+                else:
+                    self.assertEqual(sub, 'config', f'compose {sub} is not allowed in the Diary overlay: {line}')
+            elif verb in self.LIFECYCLE:
+                self.assertEqual(argv[-1], 'cowork-diary-1', f'{verb} must name only the Diary container: {line}')
+            if 'cowork-web-1' in line:
+                self.assertEqual(verb, 'exec', f'web may only be read through docker exec: {line}')
 
-    def run_block(self, folder):
-        lines = DIARY.read_text().splitlines()
-        start = next(i for i, l in enumerate(lines) if l.startswith('# BEGIN backup-verify'))
-        end = next(i for i, l in enumerate(lines) if l.startswith('# END backup-verify'))
-        script = 'set -euo pipefail\nB=$1\n' + '\n'.join(lines[start + 1:end])
-        return subprocess.run(['bash', '-c', script, 'x', str(folder)], capture_output=True, text=True)
+    def test_success_stops_and_recreates_only_diary_and_archives_only_diary_state(self):
+        result = self.overlay()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('DIARY_OVERLAY_COMPLETE', result.stdout)
+        calls = self.calls()
+        self.assert_only_diary_is_disturbed(calls)
+        stops = [c for c in calls if c.startswith('docker stop')]
+        self.assertEqual(stops, ['docker stop --time 30 cowork-diary-1'])
+        ups = [c for c in calls if c.startswith('docker compose') and ' up ' in c]
+        self.assertEqual(len(ups), 1, ups)
+        self.assertTrue(ups[0].endswith(' diary'), ups[0])
+        self.assertLess(calls.index(stops[0]), calls.index(ups[0]))
+        self.assertIn(f'DIARY_VERSION={self.NEW}', self.config.read_text())
+        # No Appdata Backup plugin folder, and one diary_<SHA>_<UTC> folder holding only Diary state and .env.
+        self.assertEqual(list(self.backups.glob('ab_*')), [])
+        folders = list(self.backups.iterdir())
+        self.assertEqual(len(folders), 1, folders)
+        self.assertRegex(folders[0].name, rf'^diary_{self.NEW}_\d{{8}}T\d{{6}}Z$')
+        with tarfile.open(folders[0] / 'diary-appdata.tar.gz') as archive:
+            names = archive.getnames()
+        self.assertIn('config/.env', names)
+        self.assertIn('state/diary/users/u1/managed-diary.db', names)
+        self.assertFalse([n for n in names if n.startswith('state/web')], names)
 
-    def test_accepts_gzip_and_zstd_backups_and_refuses_missing_or_corrupt_ones(self):
-        import gzip
-        with tempfile.TemporaryDirectory(prefix='noevia-backup-verify-') as temp:
-            temp = pathlib.Path(temp)
-            gz = temp / 'gz'
-            gz.mkdir()
-            for n in self.NAMES:
-                (gz / f'{n}.tar.gz').write_bytes(gzip.compress(b'x'))
-            ok = self.run_block(gz)
-            self.assertEqual(ok.returncode, 0, ok.stderr)
-            self.assertIn('backup verified', ok.stdout)
+    def test_a_failed_archive_restarts_diary_on_the_old_image_and_leaves_the_env_alone(self):
+        result = self.overlay(env={'INJECT_GZIP_FAILURE': '1'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('restarting cowork-diary-1', result.stderr)
+        calls = self.calls()
+        self.assert_only_diary_is_disturbed(calls)
+        stop = calls.index('docker stop --time 30 cowork-diary-1')
+        ups = [i for i, c in enumerate(calls) if c.startswith('docker compose') and ' up ' in c]
+        self.assertEqual(len(ups), 1, calls)
+        self.assertGreater(ups[0], stop)
+        self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
+        self.assertFalse([c for c in calls if c.startswith('docker tag') and c.endswith(f'cowork-diary:{self.NEW}')])
 
-            (gz / 'extra_files.tar.gz').write_bytes(b'not gzip')
-            self.assertNotEqual(self.run_block(gz).returncode, 0)
+    def test_a_missing_backup_root_fails_before_anything_is_built_or_stopped(self):
+        result = self.overlay(backups=self.temp / 'absent')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('backup root', result.stderr)
+        self.assertIn('not deploying', result.stderr)
+        calls = self.calls()
+        self.assert_only_diary_is_disturbed(calls)
+        self.assertFalse([c for c in calls if c.startswith(('docker stop', 'docker build', 'docker compose'))], calls)
+        self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
 
-            empty = temp / 'empty'
-            empty.mkdir()
-            missing = self.run_block(empty)
-            self.assertNotEqual(missing.returncode, 0)
-            self.assertIn('not deploying', missing.stderr)
-
-            if shutil.which('zstd'):
-                zs = temp / 'zs'
-                zs.mkdir()
-                for n in self.NAMES:
-                    (zs / f'{n}.tar.zst').write_bytes(subprocess.run(['zstd', '-q', '-c'], input=b'x', capture_output=True, check=True).stdout)
-                self.assertEqual(self.run_block(zs).returncode, 0)
-                (zs / 'cowork-web-1.tar.zst').write_bytes(b'not zstd')
-                self.assertNotEqual(self.run_block(zs).returncode, 0)
+    def test_the_script_text_has_no_plugin_call_and_no_stack_wide_command(self):
+        text = DIARY.read_text()
+        self.assertNotIn('backup.php', text)
+        self.assertNotIn('appdata.backup', text)
+        for line in text.splitlines():
+            if line.lstrip().startswith('#'):
+                continue
+            if re.search(r'\bdocker (stop|restart|kill|rm|down|pause)\b', line) or re.search(r'\bcompose\b.*\b(down|stop|restart|kill|rm)\b', line):
+                self.assertIn('cowork-diary-1', line, line)
 
 
 class RsStage(unittest.TestCase):
