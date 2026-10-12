@@ -1484,8 +1484,11 @@ registry over IPv6) instead of rebuilding.
   restoring the `.env` backup, repointing `current` and re-running the same command. Never
   print `.env` values; name keys only.
 - **`deploy/examples/diary-overlay.sh <SRC_SHA>`** replaces only `services/diary/agent` in the
-  running Diary image and recreates only `diary`. It takes an appdata backup first and refuses to
-  continue unless that run produced a new, verified `ab_*` folder.
+  running Diary image and recreates only `diary`. Before the recreate it archives the Diary state
+  and `config/.env` into a new `diary_<SRC_SHA>_<UTC>` folder under `/mnt/disk3/noevia-backups`
+  (#1487: not the Appdata Backup plugin, which stops whichever containers its own configuration
+  selects). Only `cowork-diary-1` is stopped, and only for that archive; it refuses to continue
+  unless the archive verifies.
 - **Docling** has no script; its overlay is documented step by step in "Docling release path" below.
   It builds FROM the running `cowork-docling` image with the six application files replaced and
   recreates only `docling`.
