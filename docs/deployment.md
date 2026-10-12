@@ -478,7 +478,7 @@ grep -qx 'NOEVIA_SHA=$SHA' $SHA/release-refs
 cd /mnt/docker/appdata/cowork && cp config/.env config/.env.bak.\$(date +%Y%m%d%H%M%S)
 cd /boot/config/plugins/compose.manager/projects/Cowork
 bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/build-web-release.sh $SHA /mnt/docker/appdata/cowork/releases/$SHA
-# Stop here if candidate verification fails (see the image-test mounts below).
+# Stop here if candidate verification fails (see "Synthetic candidate boot" below).
 ln -sfn /mnt/docker/appdata/cowork/releases/$SHA /mnt/docker/appdata/cowork/current
 sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=$SHA/' /mnt/docker/appdata/cowork/config/.env
 bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --wait --wait-timeout 120"
@@ -588,6 +588,30 @@ docling, laya, model-manager and ocr in
 - Before the cutover, CI compared the assembled image with `apps/web/Dockerfile`'s file by file;
   that comparison retired with `apps/web/` (its last green run, at the cut SHA `f42f65f1`, is
   linked from the cutover PR).
+
+### Synthetic candidate boot (web image, #1416)
+
+Before a web candidate is switched in, boot it the way the release evidence records it: no network,
+read-only root, all capabilities dropped, tmpfs for everything writable, a throwaway token, and
+nothing from `.env`. On the Docker host:
+
+```sh
+bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/candidate-boot.sh $SHA   # cowork-web:$SHA
+CANDIDATE_FRONT=rust bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/candidate-boot.sh $SHA   # Rust front
+```
+
+The script exits 0 only when `/api/ready` answers `ready:true` with exactly that sha, and it removes
+the candidate container on every exit path. It prints the ready answer and a count of log lines that
+mention error, EROFS or FATAL; it never prints the log lines or the throwaway tokens.
+
+**The candidate needs a writable data dir.** Startup runs `mkdir` on `UI_DATA_DIR` and writes the
+sqlite database and the secrets key there. With `--read-only` the image default
+(`/app/server/ui-data`) is on the read-only root, so a candidate
+booted without `UI_DATA_DIR` exits at startup instead of answering `/api/ready`. The script sets
+`UI_DATA_DIR=/candidate-data/ui-data` on a `--tmpfs /candidate-data` mount. Any hand-written candidate
+recipe needs the same two things: the `UI_DATA_DIR` value and a `--tmpfs` mount that contains it.
+`deploy/tests/test_candidate_boot.py` checks the argv with a stubbed docker, so no image is needed to
+run it.
 
 ## Per-service image tags
 

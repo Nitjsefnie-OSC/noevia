@@ -106,6 +106,26 @@ What changed for you: in Hybrid, when the privacy check cannot give an answer, t
 
 **Rollback.** Repoint `current` and `COWORK_VERSION` at `b44dae9a` and re-run the guarded `up.sh` for `web`; `cowork-web:b44dae9a` is kept.
 
+## Release b44dae9a — 2026-10-10 (native sampling settings wired, default off; M6 with merged runtime pins, #1304)
+
+Nothing is switched on by this entry. `NOEVIA_RUST_SAMPLING_SETTINGS` is passed through `compose.yaml` and the Unraid example with the default `0`, and listed in `deploy/preflight/web-env-keys.txt`. When it is `1`, `build/web-supervisor.sh` refuses to start unless `NOEVIA_RUST_AUTH=1` and the `rust-sampling-settings` feature are both present. The switch value on the live box for this release is not recorded in this repository.
+
+### Services
+
+- **Web:** [#1304](https://github.com/sbstndalton/noevia/pull/1304) (wires the default-off native sampling settings with the merged runtime pins). Pins noevia-web `e80b4493` (unchanged from `c75ec7a`), noevia-core `73120cd6`, noevia-rs `f7c90b8f` and noevia-services `a5161c1d`. Image `cowork-web:b44dae9a`; its image id is not recorded in this repository. `cf521caa` names it as the image it replaced.
+- **Everything else:** the lock file changes only the four pins above. Sidecar image tags and container snapshots for this release are not recorded in this repository.
+- **Deploy/infra:** the evidence for this release is not in this repository and was not re-derived for this entry (the same kind of gap as the other entries reconstructed from git history).
+
+## Release 4e9ca4c2 — 2026-10-10 (default-off native usage preflight key and isolated image qualification, #1291)
+
+Nothing is switched on by this entry. `NOEVIA_RUST_USAGE` is listed in `deploy/preflight/web-env-keys.txt`, so the preflight's env-key drift check expects it. The web image copies the compiled native front into a qualification stage before the code-actions qualification test runs (#1279), and CI runs that test in its own step. The switch value on the live box for this release is not recorded in this repository.
+
+### Services
+
+- **Web:** [#1291](https://github.com/sbstndalton/noevia/pull/1291) (require isolated release-image qualification and the usage preflight key), with the merged pieces [#1290](https://github.com/sbstndalton/noevia/pull/1290) (recognise the default-off native usage preflight key), [#1279](https://github.com/sbstndalton/noevia/pull/1279) (isolated image qualification after Rust compilation) and [#1292](https://github.com/sbstndalton/noevia/pull/1292) (qualification guard matches the checkout condition). Pins noevia-web `e80b4493` (unchanged), noevia-core `b3ad33c9`, noevia-rs `b150831b` and noevia-services `7c7139fa`; only the core pin changes from the `c75ec7a` lock. No image tag or image id for this release is recorded in this repository.
+- **Everything else:** the lock file changes only the core pin. Sidecar image tags and container snapshots for this release are not recorded in this repository.
+- **Deploy/infra:** the evidence for this release is not in this repository and was not re-derived for this entry. `c75ec7a` (#1285, the default-off native usage supervisor) is the lock commit before this one; it has no changelog entry of its own.
+
 ## Release 9e9bdc0f — 2026-10-10 (S3 native OCR acceptance)
 
 ### Services
