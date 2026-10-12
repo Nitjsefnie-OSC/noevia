@@ -14,6 +14,14 @@ for argument in "$@"; do
     compose_args+=("$argument")
   fi
 done
+# #1148: refuse any compose build of the diary image (the running Diary tag must not be retagged).
+if [[ ! -f "$preflight_dir/diary-image-guard.sh" ]]; then
+  echo "error: diary-image-guard.sh is missing next to up.sh; not starting (#1148)" >&2
+  exit 2
+fi
+# shellcheck source=diary-image-guard.sh
+source "$preflight_dir/diary-image-guard.sh"
+guard_diary_image docker compose ${compose_args[@]+"${compose_args[@]}"} up ${up_args[@]+"${up_args[@]}"} || exit $?
 # Compose resolves the project (compose file, .env, project name) from the cwd, so
 # a caller in the wrong directory used to fail closed with a confusing error (#574).
 # Resolve it here: COWORK_PROJECT_DIR, else the Compose Manager default when it

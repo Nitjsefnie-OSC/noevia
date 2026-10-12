@@ -31,6 +31,12 @@ if [[ "$tree_sha" != "$sha" ]]; then
   exit 2
 fi
 image="cowork-web:$sha"
+# #1148: this helper never builds or tags Diary; the guard makes that a refusal, not a convention.
+guard_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../preflight/diary-image-guard.sh"
+[[ -f "$guard_script" ]] || { echo "error: $guard_script is missing; not building (#1148)" >&2; exit 2; }
+# shellcheck source=../preflight/diary-image-guard.sh
+source "$guard_script"
+guard_diary_image docker build -f "$dockerfile" --build-arg "COWORK_VERSION=$sha" -t "$image" "$tree" || exit $?
 docker build -f "$dockerfile" --build-arg "COWORK_VERSION=$sha" --build-arg REQUIRE_RELEASE_VERSION=1 -t "$image" "$tree"
 stamped="$(docker run --rm --entrypoint cat "$image" /app/dist/version.json)"
 if ! grep -q "\"version\":\"$sha\"" <<<"$stamped"; then
