@@ -249,7 +249,10 @@ exec "@REAL_SED@" "$@"
         (self.base / f'releases/{self.NEW}/services/diary/agent/app.py').write_text('x = 1\n')
         (self.base / f'releases/{self.NEW}/services/diary/Dockerfile').write_text('FROM python:3.12-slim\n')
         (self.manager / 'compose.yaml').write_text('services: {}\n')
-        shutil.copy(ROOT / 'deploy/preflight/up.sh', self.base / 'tools/preflight/up.sh')
+        # up.sh sources diary-image-guard.sh from its own directory and fails closed without it (#1148),
+        # so the installed preflight directory is staged whole, as the runbook installs it.
+        for name in ['up.sh', 'diary-image-guard.sh']:
+            shutil.copy(ROOT / 'deploy/preflight' / name, self.base / 'tools/preflight' / name)
         subst = {'@NEW@': self.NEW, '@OLD@': self.OLD, '@OLD_ID@': self.OLD_ID,
                  '@REAL_GZIP@': shutil.which('gzip') or '/usr/bin/gzip', '@REAL_SED@': shutil.which('sed') or '/usr/bin/sed'}
         self.stub('docker', self.DOCKER_STUB, subst)
