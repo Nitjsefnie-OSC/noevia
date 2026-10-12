@@ -113,7 +113,7 @@ Nothing is switched on by this entry. `NOEVIA_RUST_SAMPLING_SETTINGS` is passed 
 ### Services
 
 - **Web:** [#1304](https://github.com/sbstndalton/noevia/pull/1304) (wires the default-off native sampling settings with the merged runtime pins). Pins noevia-web `e80b4493` (unchanged from `c75ec7a`), noevia-core `73120cd6`, noevia-rs `f7c90b8f` and noevia-services `a5161c1d`. Image `cowork-web:b44dae9a`; its image id is not recorded in this repository. `cf521caa` names it as the image it replaced.
-- **Everything else:** the lock file changes only the four pins above. Sidecar image tags and container snapshots for this release are not recorded in this repository.
+- **Everything else:** the lock file changes only the four pins above. The same noevia-rs pin (`f7c90b8f`) is also bumped in the `NOEVIA_RS_REF` and `NOEVIA_RS_SHA256` defaults of `deploy/egress-proxy/Dockerfile`, which CI requires to equal the lock; that image is dark (used only with `CODE_EGRESS_IMPL=rust`). Sidecar image tags and container snapshots for this release are not recorded in this repository.
 - **Deploy/infra:** the evidence for this release is not in this repository and was not re-derived for this entry (the same kind of gap as the other entries reconstructed from git history).
 
 ## Release 4e9ca4c2 — 2026-10-10 (default-off native usage preflight key and isolated image qualification, #1291)
