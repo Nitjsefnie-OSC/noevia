@@ -17,6 +17,13 @@ export NOEVIA_DIARY_OVERLAY=1
 V=${1:?source release sha (becomes DIARY_VERSION)}; base=/mnt/docker/appdata/cowork; config=$base/config/.env
 # $V becomes a path component, an image tag and a sed replacement below: only a hex SHA is allowed.
 [[ $V =~ ^[0-9a-f]{7,40}$ ]] || { echo "source release sha must be 7 to 40 lowercase hex characters, got: $V" >&2; exit 1; }
+# BEGIN preflight-installed (deploy/tests/test_overlay_scripts.py runs this block)
+# #1597: up.sh fails closed unless the rest of deploy/preflight is installed beside it. Check the installed
+# copy before anything is built, stopped or changed, so a partial install cannot strand a service.
+for f in up.sh diary-image-guard.sh check.php; do
+  [ -f "$base/tools/preflight/$f" ] || { echo "$base/tools/preflight/$f is missing; install the whole deploy/preflight directory with deploy/preflight/install.sh; not deploying" >&2; exit 1; }
+done
+# END preflight-installed
 cd /boot/config/plugins/compose.manager/projects/Cowork
 OLD=$(sed -n 's/^DIARY_VERSION=//p' "$config")
 [ -n "$OLD" ] || { echo "DIARY_VERSION is not set in $config; see docs/deployment.md 'Migrating an existing .env'"; exit 1; }
@@ -36,12 +43,22 @@ tmp=$(mktemp -d); ctx=$tmp/ctx; mkdir "$ctx"
 # is the next step, because from then on rollback() owns the Diary container. Any earlier exit
 # starts Diary again on the image .env still names (the old one), so a failed run never leaves it down.
 diary_stopped=0
+# Brings Diary back on the image .env names. If up.sh cannot run at all (#1597: an incomplete preflight
+# install), the container is still the stopped, unchanged one: start it directly, but only while it is
+# still the old image, so a half-recreated new container is never started by accident.
+recover_diary() {
+  bash "$base/tools/preflight/up.sh" --env-file "$config" -- -d --no-build --no-deps --wait --wait-timeout 180 diary >&2 && return 0
+  if [ "$(docker inspect cowork-diary-1 --format '{{.Image}}' 2>/dev/null)" = "$OLD_ID" ]; then
+    echo "up.sh could not run; starting the unchanged cowork-diary-1 directly" >&2
+    docker start cowork-diary-1 >&2 && return 0
+  fi
+  return 1
+}
 on_exit() {
   rm -rf "$tmp"
   if [ "$diary_stopped" = 1 ]; then
     echo "restarting cowork-diary-1 on its previous image after an interrupted run" >&2
-    bash "$base/tools/preflight/up.sh" --env-file "$config" -- -d --no-build --no-deps --wait --wait-timeout 180 diary >&2 \
-      || echo "cowork-diary-1 did not restart; start it by hand (up.sh ... diary)" >&2
+    recover_diary || echo "cowork-diary-1 did not restart; start it by hand (docker start cowork-diary-1)" >&2
   fi
 }
 trap on_exit EXIT
@@ -104,7 +121,7 @@ echo "backup $B"
 echo "backup verified"
 # END diary-backup
 # Rollback: restore the .env (DIARY_VERSION=$OLD, whose image is untouched) and recreate Diary on it.
-rollback() { echo "ROLLING BACK to cowork-diary:$OLD"; cp -p "$config.bak.before-diary-$V" "$config"; docker image rm cowork-diary:$V >/dev/null 2>&1 || true; bash "$base/tools/preflight/up.sh" --env-file "$config" -- -d --no-build --no-deps --wait --wait-timeout 180 diary || true; exit 1; }
+rollback() { echo "ROLLING BACK to cowork-diary:$OLD"; cp -p "$config.bak.before-diary-$V" "$config"; docker image rm cowork-diary:$V >/dev/null 2>&1 || true; recover_diary || echo "cowork-diary-1 is not running on cowork-diary:$OLD; start it by hand" >&2; exit 1; }
 docker tag cowork-diary:$V-candidate cowork-diary:$V
 sed -i "s/^DIARY_VERSION=.*/DIARY_VERSION=$V/" "$config"
 diary_stopped=0

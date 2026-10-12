@@ -203,11 +203,13 @@ printf 'docker %s\n' "$*" >> "$CALL_LOG"
 case "$*" in
   "image inspect cowork-diary:@NEW@") exit 1 ;;
   "image inspect cowork-diary:@OLD@ --format {{.Id}}") echo "@OLD_ID@" ;;
-  "inspect cowork-diary-1 --format {{.Image}}") echo "@OLD_ID@" ;;
+  "inspect cowork-diary-1 --format {{.Image}}")
+    if [ -n "${LATER_IMAGE:-}" ] && [ -e "$CALL_LOG.inspected" ]; then echo "$LATER_IMAGE"; else : > "$CALL_LOG.inspected"; echo "@OLD_ID@"; fi ;;
   "inspect cowork-diary-1 --format diary"*) echo "diary healthy restarts=0" ;;
   "exec cowork-diary-1 python -c"*) exit 1 ;;
   "run --rm --entrypoint python"*) echo "candidate imports ok" ;;
   "compose "*" config --format json") echo "{}" ;;
+  "compose "*" up "*) [ -z "${FAIL_UP:-}" ] || exit 1 ;;
 esac
 exit 0
 """
@@ -250,9 +252,10 @@ exec "@REAL_SED@" "$@"
         (self.base / f'releases/{self.NEW}/services/diary/Dockerfile').write_text('FROM python:3.12-slim\n')
         (self.manager / 'compose.yaml').write_text('services: {}\n')
         # up.sh sources diary-image-guard.sh from its own directory and fails closed without it (#1148),
-        # so the installed preflight directory is staged whole, as the runbook installs it.
-        for name in ['up.sh', 'diary-image-guard.sh']:
-            shutil.copy(ROOT / 'deploy/preflight' / name, self.base / 'tools/preflight' / name)
+        # so the installed preflight directory is staged whole, with the installer the runbook names (#1597).
+        installed = subprocess.run(['bash', str(ROOT / 'deploy/preflight/install.sh'), str(self.base / 'tools/preflight')],
+                                   capture_output=True, text=True, timeout=30)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
         subst = {'@NEW@': self.NEW, '@OLD@': self.OLD, '@OLD_ID@': self.OLD_ID,
                  '@REAL_GZIP@': shutil.which('gzip') or '/usr/bin/gzip', '@REAL_SED@': shutil.which('sed') or '/usr/bin/sed'}
         self.stub('docker', self.DOCKER_STUB, subst)
@@ -352,6 +355,73 @@ exec "@REAL_SED@" "$@"
         self.assertFalse([c for c in calls if c.startswith(('docker stop', 'docker build', 'docker compose'))], calls)
         self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
 
+    def test_a_partial_preflight_install_refuses_before_anything_is_built_stopped_or_tagged(self):
+        # #1597: only up.sh refreshed by hand. up.sh would exit 2 after Diary was stopped, and the
+        # rollback up.sh would exit 2 again; the overlay must refuse up front instead.
+        for missing in ['diary-image-guard.sh', 'check.php', 'up.sh']:
+            with self.subTest(missing=missing):
+                self.log.unlink(missing_ok=True)
+                installed = self.base / 'tools/preflight'
+                backup = installed / missing
+                saved = backup.read_bytes()
+                backup.unlink()
+                try:
+                    result = self.overlay()
+                finally:
+                    backup.write_bytes(saved)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(missing, result.stderr)
+                self.assertIn('not deploying', result.stderr)
+                self.assertEqual(self.calls(), [], 'nothing, not even a docker inspect, ran before the refusal')
+                self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
+
+    def test_only_up_sh_staged_refuses_before_docker_stop(self):
+        for name in ['diary-image-guard.sh', 'check.php', 'web-env-keys.txt']:
+            (self.base / 'tools/preflight' / name).unlink()
+        result = self.overlay()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('diary-image-guard.sh is missing', result.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith(('docker stop', 'docker build', 'docker tag', 'docker compose'))])
+
+    def test_the_installer_refuses_a_partial_source_and_verifies_a_full_one(self):
+        src = self.temp / 'src'
+        src.mkdir()
+        for name in ['up.sh', 'diary-image-guard.sh']:
+            shutil.copy(ROOT / 'deploy/preflight' / name, src / name)
+        shutil.copy(ROOT / 'deploy/preflight/install.sh', src / 'install.sh')
+        dest = self.temp / 'dest'
+        partial = subprocess.run(['bash', str(src / 'install.sh'), str(dest)], capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(partial.returncode, 0)
+        self.assertIn('check.php is missing', partial.stderr)
+        self.assertFalse(dest.exists(), 'nothing is installed from a partial source')
+        shutil.copy(ROOT / 'deploy/preflight/check.php', src / 'check.php')
+        full = subprocess.run(['bash', str(src / 'install.sh'), str(dest)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(full.returncode, 0, full.stderr)
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), ['check.php', 'diary-image-guard.sh', 'up.sh'])
+
+    def test_a_failed_rollback_up_still_starts_the_unchanged_diary_container(self):
+        # The recreate fails and so does the rollback's up.sh; Diary must not be left stopped.
+        result = self.overlay(env={'FAIL_UP': '1'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('ROLLING BACK', result.stdout)
+        calls = self.calls()
+        self.assert_only_diary_is_disturbed(calls)
+        self.assertIn('docker start cowork-diary-1', calls)
+        self.assertGreater(calls.index('docker start cowork-diary-1'), calls.index('docker stop --time 30 cowork-diary-1'))
+        self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
+
+    def test_a_failed_up_after_an_interrupted_archive_still_starts_diary(self):
+        result = self.overlay(env={'INJECT_GZIP_FAILURE': '1', 'FAIL_UP': '1'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('docker start cowork-diary-1', self.calls())
+        self.assertNotIn('did not restart', result.stderr)
+
+    def test_a_recreated_container_on_the_new_image_is_not_started_by_the_fallback(self):
+        result = self.overlay(env={'FAIL_UP': '1', 'LATER_IMAGE': 'sha256:' + 'b' * 64})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('docker start cowork-diary-1', self.calls())
+        self.assertIn('start it by hand', result.stderr)
+
     def test_the_script_text_has_no_plugin_call_and_no_stack_wide_command(self):
         text = DIARY.read_text()
         self.assertNotIn('backup.php', text)
@@ -361,6 +431,41 @@ exec "@REAL_SED@" "$@"
                 continue
             if re.search(r'\bdocker (stop|restart|kill|rm|down|pause)\b', line) or re.search(r'\bcompose\b.*\b(down|stop|restart|kill|rm)\b', line):
                 self.assertIn('cowork-diary-1', line, line)
+
+
+class InstalledPreflightBlock(unittest.TestCase):
+    """#1597: both overlay scripts check the installed preflight directory before they change anything."""
+
+    def run_block(self, script, present):
+        lines = script.read_text().splitlines()
+        start = next(i for i, l in enumerate(lines) if l.startswith('# BEGIN preflight-installed'))
+        end = next(i for i, l in enumerate(lines) if l.startswith('# END preflight-installed'))
+        temp = pathlib.Path(tempfile.mkdtemp(prefix='noevia-preflight-block-'))
+        self.addCleanup(shutil.rmtree, temp, ignore_errors=True)
+        (temp / 'tools/preflight').mkdir(parents=True)
+        for name in present:
+            (temp / 'tools/preflight' / name).write_text('x\n')
+        body = 'set -euo pipefail\nbase=$1\n' + '\n'.join(lines[start + 1:end]) + '\necho BLOCK_PASSED'
+        return subprocess.run(['bash', '-c', body, 'x', str(temp)], capture_output=True, text=True, timeout=30)
+
+    def test_each_script_needs_up_sh_the_guard_and_check_php(self):
+        for script in (DIARY, OVERLAY):
+            for present in (['up.sh'], ['up.sh', 'diary-image-guard.sh'], ['up.sh', 'check.php'], []):
+                with self.subTest(script=script.name, present=present):
+                    result = self.run_block(script, present)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn('BLOCK_PASSED', result.stdout)
+                    self.assertIn('not deploying', result.stderr)
+            with self.subTest(script=script.name, present='all'):
+                result = self.run_block(script, ['up.sh', 'diary-image-guard.sh', 'check.php'])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('BLOCK_PASSED', result.stdout)
+
+    def test_the_check_runs_before_anything_changes(self):
+        overlay = OVERLAY.read_text()
+        self.assertLess(overlay.index('# BEGIN preflight-installed'), overlay.index('docker image inspect'))
+        diary = DIARY.read_text()
+        self.assertLess(diary.index('# BEGIN preflight-installed'), diary.index('docker image inspect'))
 
 
 class RsStage(unittest.TestCase):

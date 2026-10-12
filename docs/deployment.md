@@ -455,7 +455,12 @@ sidecars** during a web-only release (the manual recipe under "Overlay releases"
 
 Before any Compose `up` on Unraid, validate resolved writable mounts with the
 [host-side preflight](../deploy/preflight/README.md). The installed wrapper is
-`/mnt/docker/appdata/cowork/tools/preflight/up.sh`; call it with
+`/mnt/docker/appdata/cowork/tools/preflight/up.sh`. Install and refresh the **whole**
+`deploy/preflight/` directory, never `up.sh` alone: `bash deploy/preflight/install.sh` from the
+release (it copies `up.sh`, `diary-image-guard.sh`, `check.php` and `web-env-keys.txt` into
+`tools/preflight/` and verifies them). `up.sh` refuses to start anything without
+`diary-image-guard.sh` beside it (#1148), and `diary-overlay.sh` and `overlay-release.sh`
+check all three required files before they build or stop anything (#1597). Call it with
 `--env-file ... --` followed by the usual `up` options. It resolves the Compose
 project itself (`COWORK_PROJECT_DIR`, else
 `/boot/config/plugins/compose.manager/projects/Cowork`), so the caller's cwd no
@@ -1675,7 +1680,7 @@ Release runbook: the repo `deploy/preflight/up.sh` runs `--ack` automatically
 after a successful `up` when the script is installed at
 `tools/sidecar-restart-alert.sh` (set `SIDECAR_ALERT_ACK=0` to skip). The copy
 installed at `tools/preflight/up.sh` predates this and must be refreshed from the
-repo; until then, and after any restart done outside `up.sh` (Compose Manager
+repo (the whole `deploy/preflight/` directory, with `deploy/preflight/install.sh`); until then, and after any restart done outside `up.sh` (Compose Manager
 GUI, `docker restart`, Diary overlay), run
 `/mnt/docker/appdata/cowork/tools/sidecar-restart-alert.sh --ack` immediately.
 

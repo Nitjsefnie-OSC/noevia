@@ -5,9 +5,19 @@ other hosts need PHP 8 or later if using this helper. No model, account or stora
 configuration is changed by the check. It inspects resolved Compose JSON and does
 not print environment values, credentials or volume driver options.
 
+Install the whole directory, never `up.sh` alone: `up.sh` refuses to start anything unless
+`diary-image-guard.sh` is beside it (#1148) and pipes the resolved config through `check.php` (#1597).
+
 ```sh
-# From the repository root, using its Compose file and .env:
-bash deploy/preflight/up.sh -- -d --build
+# On the Docker host, from a checkout or unpacked release: copies up.sh, diary-image-guard.sh,
+# check.php and web-env-keys.txt into tools/preflight/ and verifies the copy.
+bash deploy/preflight/install.sh                      # default /mnt/docker/appdata/cowork/tools/preflight
+```
+
+```sh
+# From the repository root, using its Compose file and .env. --build is refused (it would rebuild
+# and retag cowork-diary:*, #1148); build a named non-diary service first if needed.
+bash deploy/preflight/up.sh -- -d --no-build
 
 # DaServer, from any directory (the wrapper cds to the Compose Manager project,
 # or $COWORK_PROJECT_DIR if set):

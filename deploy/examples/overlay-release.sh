@@ -42,6 +42,13 @@ done
 base=/mnt/docker/appdata/cowork; config=$base/config/.env
 manager=/boot/config/plugins/compose.manager/projects/Cowork
 
+# BEGIN preflight-installed (deploy/tests/test_overlay_scripts.py runs this block)
+# #1597: up.sh fails closed unless the rest of deploy/preflight is installed beside it. Check the installed
+# copy before anything is built, stopped or changed, so a partial install cannot strand a service.
+for f in up.sh diary-image-guard.sh check.php; do
+  [ -f "$base/tools/preflight/$f" ] || { echo "$base/tools/preflight/$f is missing; install the whole deploy/preflight directory with deploy/preflight/install.sh; not deploying" >&2; exit 1; }
+done
+# END preflight-installed
 [ "$(readlink -f "$base/current")" = "$base/releases/$OLD" ]
 [ "$(sed -n 's/^COWORK_VERSION=//p' "$config")" = "$OLD" ]
 # Every sidecar tag the .env pins must already exist locally: this release builds none of
