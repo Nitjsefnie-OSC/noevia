@@ -8,6 +8,16 @@
 > release also updates web's build block in the live Compose Manager file (same section).
 > Release records below that mention `apps/web` or `services/` describe the monorepo layout.
 
+## Release d907438b — 2026-10-13 (two-tone icons, visual fixes, #1550; web only)
+
+### Services
+
+- **Web:** #1632/#1633, web `491ec5db` (#1623 #1542 #1626 #1627 #1628 #1629 #1630), core `e83270d3` (core#84, #1550), rs `e7f746d8` unchanged; `cowork-web:d907438b`, image `sha256:d83a5d2e0d8cf39bccd49375091ae3a8503558253b17028d92076ec4c4b20dae`.
+- **Diary, model manager, code sandbox, OCR, Docling, Laya, llama, embed:** no change, not recreated (`DIARY_VERSION`, `MODEL_MANAGER_VERSION` and `MODEL_AUTOCONFIG` untouched).
+- **Deploy/infra:** none; `deploy/` and `tools/preflight/` identical to `ab1445b0`.
+
+Order: assemble on the Mac from a clean detached worktree (tarball `5f4b4f4c…dec8` on both ends), `build-web-release.sh` on the box, `candidate-boot.sh` node and rust plus the rust header check (HSTS, Permissions-Policy), wait for noevia CI green, then `cutover-web-d907438b.sh`: idle gate, web stopped for a scoped web/config/Compose archive in `/mnt/disk3/noevia-backups/web_d907438b_20261013T062504Z` (integrity and compare passed), `current` → `releases/d907438b`, `COWORK_VERSION` by `sed`, web-only `up.sh ... --no-build --no-deps --wait web`. It rolls back by itself on failure (symlink + `sed`, never the `.env.bak`); it did not need to. After: web healthy, restarts 0, ready at `d907438b` on loopback and public, HSTS and Permissions-Policy on four public paths, served `dist` equals the image (143 files), switch listings for web, Diary and model loader unchanged. Five-minute soak: 0 error lines, restart count 0 on all 12 cowork containers. Only `cowork-web-1` changed id. Rollback target: web `ab1445b0` (`cowork-web:ab1445b0` kept), commands in `docs/changelog.md`. Evidence: `/mnt/docker/appdata/cowork/release-prep/d907438b/`.
+
 ## Release ab1445b0 — 2026-10-13 (2026-10-12 integration; MODEL_AUTOCONFIG=rust)
 
 ### Services
