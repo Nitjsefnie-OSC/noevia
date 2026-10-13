@@ -57,6 +57,16 @@ Cutover (no search downtime; web and Diary are not restarted):
    the running containers' command lines (`--model /models/...`) and these variables, and refuses to
    delete a file one of them still names, even after `finish`.
 
+## Release 1aed463c — 2026-10-13 (UI batch, #1635, #1620, #1621; web only; #1400 closed)
+
+### Services
+
+- **Web:** #1651, web `e5540c0e` (web#36 #37 #39 #40: #1623 #1635 #1598 #1599 #1601 #1579 #1610 #1631), rs `14fb71fe` (#1621, #1620), core `e83270d3` unchanged (hold #1647); `cowork-web:1aed463c`, image `sha256:670d3aac57e50841759d35210d7ad125c47696381dac2638daa7e7faa5a20d94`.
+- **Diary, model manager, code sandbox, OCR, Docling, Laya, llama, embed:** no change, not recreated. Services `b3ebfe17` is an rs pin bump only.
+- **Deploy/infra:** whole `deploy/preflight/` installed (`web-env-keys.txt` +`NOEVIA_RUST_ROUTING_DEFAULT`; old copy `tools/preflight.bak.before-1aed463c`). Live `docker-compose.override.yml` web env: `NOEVIA_RUST_USAGE`, `_SAMPLING_SETTINGS`, `_REASONING_SETTINGS`, `_ROUTING_MODE`, `_ROUTING_DEFAULT`, each `${KEY:-0}` after `NOEVIA_RUST_PROJECTS` (#1400); `.env` untouched apart from `COWORK_VERSION`.
+
+Order: assemble on the Mac from a clean detached worktree (tarball `d97ac86c…0d32` on both ends), `build-web-release.sh` on the box, `candidate-boot.sh` node and rust plus a rust probe (headers, 404 shell, API JSON), wait for noevia CI green, then `cutover-web-1aed463c.sh`: idle gate, `.env`/Compose/preflight copies, `install.sh`, override edit validated with `docker compose config -q` and the rendered keys checked at `0`, web stopped for a scoped web/config/Compose archive in `/mnt/disk3/noevia-backups/web_1aed463c_20261013T230318Z` (integrity and compare passed), `current` → `releases/1aed463c`, `COWORK_VERSION` by `sed`, web-only `up.sh ... --no-build --no-deps --wait web`. Its rollback path (override and preflight from their copies, symlink + `sed`, never the `.env.bak`) was not needed. After: web healthy, restarts 0, ready at `1aed463c` on loopback and public, unknown document page 404 HTML shell, served `dist` equals the image, switch listings unchanged except the five new `0` keys; five-minute soak clean on all 12 cowork containers; only `cowork-web-1` changed id. Rollback target: web `d907438b` (commands in `docs/changelog.md`). Evidence: `/mnt/docker/appdata/cowork/release-prep/1aed463c/`.
+
 ## Release d907438b — 2026-10-13 (two-tone icons, visual fixes, #1550; web only)
 
 ### Services
