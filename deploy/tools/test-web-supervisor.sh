@@ -22,6 +22,7 @@ name=$2
 if [ "\${1:-}" = --features ]; then printf '%s\\n' \${STUB_FEATURES-code-net-guard}; exit 0; fi
 echo "\$name UI_HOST=\${UI_HOST:-} UI_PORT=\${UI_PORT:-} UPSTREAM=\${NOEVIA_LEGACY_UPSTREAM:-} ARGS=\$* CCONF=\${NOEVIA_RUST_PROJECT_CHATS_CONFIRMED:-} FCONF=\${NOEVIA_RUST_FREE_CHATS_CONFIRMED:-} RCONF=\${NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED:-} SCONF=\${NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED:-} UCONF=\${NOEVIA_RUST_USAGE_CONFIRMED:-} PCONF=\${NOEVIA_RUST_PROJECTS_CONFIRMED:-} CONF=\${NOEVIA_RUST_AUTH_CONFIRMED:-}" >> "$work/log"
 echo "\$name TCONF=\${NOEVIA_RUST_ROUTING_MODE_CONFIRMED:-}" >> "$work/log"
+echo "\$name DCONF=\${NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED:-}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
 for _ in \$(seq 1 300); do
@@ -236,6 +237,23 @@ check "routing activates only for exact switch 1" 'grep -q "^node TCONF=$" "$wor
 reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_ROUTING_MODE=1 NOEVIA_RUST_ROUTING_MODE_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops inherited routing confirmation" 'grep -q "^node TCONF=$" "$work/log"'
+
+# The routing default (#1305), the same rules.
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_ROUTING_DEFAULT=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-routing-default" >/dev/null 2>"$work/err"; rc=$?
+check "routing default without native auth refuses before startup" '[ $rc -eq 2 ] && grep -q "ROUTING_DEFAULT=1 needs NOEVIA_RUST_AUTH=1" "$work/err" && [ ! -s "$work/log" ]'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_ROUTING_DEFAULT=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth" >/dev/null 2>"$work/err"; rc=$?
+check "routing default missing native feature refuses before startup" '[ $rc -eq 2 ] && grep -q "no rust-routing-default" "$work/err" && [ ! -s "$work/log" ]'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_ROUTING_DEFAULT=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-routing-default" >/dev/null 2>&1; rc=$?
+check "routing default confirmed only to Node after native probe" 'grep -q "^node DCONF=1$" "$work/log" && grep -q "^front DCONF=$" "$work/log"'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-routing-default" >/dev/null 2>&1; rc=$?
+check "default-off Rust mode drops inherited routing default confirmation" 'grep -q "^node DCONF=$" "$work/log" && grep -q "^front DCONF=$" "$work/log"'
+reset; touch "$work/die-node"
+run NOEVIA_FRONT=node NOEVIA_RUST_ROUTING_DEFAULT=1 NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED=1 >/dev/null 2>&1; rc=$?
+check "node mode drops inherited routing default confirmation" 'grep -q "^node DCONF=$" "$work/log"'
 
 # The client address (noevia-core server/auth.cjs, #1578): Node is told to believe X-Noevia-Client-Ip
 # only when the front reports client-address-header (it strips client copies of the header).
