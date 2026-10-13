@@ -65,6 +65,13 @@ services:
       LLM_API_KEY: ${INFERENCE_API_KEY:-}
       LLM_CHAT_MODEL: ${DIARY_CHAT_MODEL:-default}
       LLM_EMBED_MODEL: ${EMBEDDING_MODEL:-default}
+      # #1636: prompt framing of the embedding model (nomic-v1 = text unchanged, the default) and an
+      # optional re-index target. Changing the model is a re-index (web /api/embedding), not an edit.
+      LLM_EMBED_PROFILE: ${EMBEDDING_PROFILE:-nomic-v1}
+      LLM_EMBED_NEXT_MODEL: ${EMBEDDING_NEXT_MODEL:-}
+      LLM_EMBED_NEXT_BASE_URL: ${EMBEDDING_NEXT_BASE_URL:-}
+      LLM_EMBED_NEXT_PROFILE: ${EMBEDDING_NEXT_PROFILE:-}
+      EMBEDDING_REINDEX_DUTY: ${EMBEDDING_REINDEX_DUTY:-0.5}
       LLM_AUX_BASE_URL: ${AUX_INFERENCE_BASE_URL:-${INFERENCE_BASE_URL:-http://host.docker.internal:11434/v1}}
       LLM_AUX_API_KEY: ${AUX_INFERENCE_API_KEY-${INFERENCE_API_KEY:-}}
       LLM_AUX_MODEL: ${DIARY_AUX_MODEL:-${DIARY_CHAT_MODEL:-default}}
@@ -135,6 +142,12 @@ services:
       DEFAULT_PROVIDER_LABEL: ${DEFAULT_PROVIDER_LABEL:-Local inference}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-default}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      # #1636: see the Diary's LLM_EMBED_PROFILE above; the same values seed web's project retrieval.
+      EMBEDDING_PROFILE: ${EMBEDDING_PROFILE:-nomic-v1}
+      EMBEDDING_NEXT_MODEL: ${EMBEDDING_NEXT_MODEL:-}
+      EMBEDDING_NEXT_BASE_URL: ${EMBEDDING_NEXT_BASE_URL:-}
+      EMBEDDING_NEXT_PROFILE: ${EMBEDDING_NEXT_PROFILE:-}
+      EMBEDDING_REINDEX_DUTY: ${EMBEDDING_REINDEX_DUTY:-0.5}
       MODEL_MANAGER_KIND: ${MODEL_MANAGER_KIND:-none}
       MODEL_MANAGER_BASE_URL: ${MODEL_MANAGER_BASE_URL:-http://host.docker.internal:11434}
       MODEL_MANAGER_API_KEY: ${MODEL_MANAGER_API_KEY:-}
