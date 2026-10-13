@@ -8,6 +8,18 @@
 > release also updates web's build block in the live Compose Manager file (same section).
 > Release records below that mention `apps/web` or `services/` describe the monorepo layout.
 
+## Release ab1445b0 — 2026-10-13 (2026-10-12 integration; MODEL_AUTOCONFIG=rust)
+
+### Services
+
+- **Web:** #1622/#1611, core `d2b3b3bf`, web `5cec188f`, rs `e7f746d8`; `cowork-web:ab1445b0`, image `sha256:13f4643aeeed467e676cf91b929b30d172bf839e6eb7991ec23652f15bc28977`.
+- **Diary:** services `d890ab47`; `diary-overlay.sh ab1445b0` FROM `cowork-diary:4746fb83` (agent/ plus tenant-assertion from rs `e7f746d8`); `cowork-diary:ab1445b0`, image `sha256:e3b934c5217418c3f1d3978eca18e5c8e9dd68e81b12a8f4547f2ab033844e60`.
+- **Model manager:** services `d890ab47`; `docker build releases/ab1445b0/services/model-manager`; `cowork-model-loader:ab1445b0`, image `sha256:1a9be4e7eb4f8dd80124e0a3300a3359feb87e0e999c7aa96c74508cad90041d`. `MODEL_AUTOCONFIG=rust` added to `config/.env` afterwards (was absent, so `python`).
+- **Code sandbox, OCR, Docling, Laya, llama, embed:** no change, not recreated.
+- **Deploy/infra:** whole `deploy/preflight/` installed with `install.sh` (first install of `diary-image-guard.sh`; old copy in `tools/preflight.bak.before-ab1445b0`). New `config/llamacpp/models.roles.json` `{"laya_multilingual_f16": "laya"}` (#1596), same owner/mode as `models.ini`, which was not edited.
+
+Order: assemble on the Mac, build web on the box, `candidate-boot.sh` node and rust plus a rust header check, build the model loader, idle gate, scoped web/config/Compose archive in `/mnt/disk3/noevia-backups/web_ab1445b0_20261013T045127Z`, preflight install and roles file, web-only `up.sh ... --no-deps --wait web`, `diary-overlay.sh ab1445b0` (its own scoped `diary_ab1445b0_20261013T045228Z` backup; only Diary stopped), model-loader-only `up.sh`, five-minute soak, then the `MODEL_AUTOCONFIG` flip with a model-loader-only recreate. Each recreate script rolls back on its own failure. Read-only autoconfig answers (8 sections × 3 presets) were identical on `3eab05e3`, on `ab1445b0`/python and on `ab1445b0`/rust; the loaded model stayed `gemma-4-E2B_q4_0-it`. Only web, Diary and the model loader changed container id. The preflight's advisory warning about four `NOEVIA_RUST_*` web keys missing from the live Compose file is #1400. Rollback targets: web `4746fb83`, Diary `4746fb83`, model loader `3eab05e3`, `MODEL_AUTOCONFIG=python`; set each key with `sed`, never by restoring an `.env.bak.*` wholesale (see `docs/changelog.md`). Evidence: `/mnt/docker/appdata/cowork/release-prep/ab1445b0/`.
+
 ## Release 9e9bdc0f — 2026-10-10 (S3 native OCR acceptance)
 
 ### Services
