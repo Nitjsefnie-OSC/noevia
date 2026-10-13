@@ -444,6 +444,16 @@ jobs:
             grep -qx rust-free-chats /tmp/features \
               || { echo "::error::the pinned noevia-rs has rust-free-chats but the web image's noevia-server was built without it"; exit 1; }
           fi
+          # Likewise GET /api/routing-default (cargo feature rust-routing-default, #1305/#1648).
+          if grep -qx 'rust-routing-default = \[\]' "$TREE/rs/bins/noevia-server/Cargo.toml"; then
+            grep -qx rust-routing-default /tmp/features \
+              || { echo "::error::the pinned noevia-rs has rust-routing-default but the web image's noevia-server was built without it"; exit 1; }
+          fi
+          # Likewise GET /api/stats (cargo feature rust-stats, #1650).
+          if grep -qx 'rust-stats = \[\]' "$TREE/rs/bins/noevia-server/Cargo.toml"; then
+            grep -qx rust-stats /tmp/features \
+              || { echo "::error::the pinned noevia-rs has rust-stats but the web image's noevia-server was built without it"; exit 1; }
+          fi
           # core's projects.json.lock is taken with flock(1) from util-linux (#1263).
           docker run --rm --entrypoint flock "cowork-web:$SHA" --version \
             || { echo "::error::the web image has no flock (util-linux)"; exit 1; }
