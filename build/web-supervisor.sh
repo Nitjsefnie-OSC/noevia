@@ -14,7 +14,7 @@ set -uo pipefail
 
 # Only this script may confirm rust-auth / rust-projects / rust-project-chats / rust-free-chats to
 # Node (below); never trust a value from the environment.
-unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_FRONT_CLIENT_IP
+unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_FRONT_CLIENT_IP
 front="${NOEVIA_FRONT:-node}"
 case "$front" in
   node) exec node server/index.cjs ;;
@@ -163,6 +163,20 @@ if [ "${NOEVIA_RUST_ROUTING_DEFAULT:-}" = 1 ]; then
   fi
   rust_routing_default_confirmed=1
 fi
+# The engine statistics (M6, #1650): Node refuses GET /api/stats only once the front has confirmed it
+# owns it. The front itself refuses to start with this switch on a Lemonade or https engine.
+rust_stats_confirmed=""
+if [ "${NOEVIA_RUST_STATS:-}" = 1 ]; then
+  if [ "$rust_auth_confirmed" != 1 ]; then
+    echo "web-supervisor: NOEVIA_RUST_STATS=1 needs NOEVIA_RUST_AUTH=1" >&2
+    exit 2
+  fi
+  if ! grep -qx 'rust-stats' <<<"$rust_features"; then
+    echo "web-supervisor: NOEVIA_RUST_STATS=1 but this noevia-server has no rust-stats" >&2
+    exit 2
+  fi
+  rust_stats_confirmed=1
+fi
 port="${UI_PORT:-8021}"
 if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 64535 ]; then
   echo "web-supervisor: UI_PORT '$port' leaves no room for the legacy port UI_PORT+1000" >&2
@@ -198,7 +212,8 @@ UI_HOST="$node_host" UI_PORT="$legacy" NOEVIA_RUST_AUTH_CONFIRMED="$rust_auth_co
   NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED="$rust_sampling_settings_confirmed" \
   NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED="$rust_reasoning_settings_confirmed" \
   NOEVIA_RUST_ROUTING_MODE_CONFIRMED="$rust_routing_mode_confirmed" \
-  NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED="$rust_routing_default_confirmed" node server/index.cjs &
+  NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED="$rust_routing_default_confirmed" \
+  NOEVIA_RUST_STATS_CONFIRMED="$rust_stats_confirmed" node server/index.cjs &
 node_pid=$!
 NOEVIA_LEGACY_UPSTREAM="http://127.0.0.1:$legacy" "$bin" &
 front_pid=$!
