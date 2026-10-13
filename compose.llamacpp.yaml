@@ -64,6 +64,10 @@ services:
       MODEL_MANAGER_BASE_URL: http://llama:8080
       LLAMACPP_PRESET_PATH: /llamacpp-config/models.ini
       EMBEDDING_MODEL: ${LLAMACPP_EMBED_MODEL:?Set an installed native embedding identity}
+      # #1636: how text is framed for that identity: nomic-v1 (default, unchanged text) or
+      # embeddinggemma-2 (the model card's task prompts). Vectors are stored per (profile, model), so
+      # change both only through a re-index (web /api/embedding, or EMBEDDING_NEXT_* below), never here.
+      EMBEDDING_PROFILE: ${LLAMACPP_EMBED_PROFILE:-${EMBEDDING_PROFILE:-nomic-v1}}
       # Preset suggestions read model file headers read-only and size against this limit.
       LLAMACPP_MODELS_PATH: /models
       LLAMACPP_MEMORY_LIMIT: ${LLAMACPP_MEMORY_LIMIT:-14g}
@@ -100,6 +104,8 @@ services:
       LLM_BASE_URL: http://llama:8080/v1
       LLM_CHAT_MODEL: ${LLAMACPP_CHAT_MODEL:?Set an installed native chat identity}
       LLM_EMBED_MODEL: ${LLAMACPP_EMBED_MODEL}
+      # #1636: the identity's prompt framing (nomic-v1 | embeddinggemma-2); the same value as web's.
+      LLM_EMBED_PROFILE: ${LLAMACPP_EMBED_PROFILE:-${EMBEDDING_PROFILE:-nomic-v1}}
       LLM_AUX_BASE_URL: http://llama:8080/v1
       LLM_AUX_MODEL: ${LLAMACPP_AUX_MODEL:?Set an installed native auxiliary identity}
 

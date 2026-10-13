@@ -50,4 +50,7 @@ compose-check:
 	docker compose $(COMPOSE_ENV) --profile laya -f compose.yaml config --quiet
 	docker compose $(COMPOSE_ENV) -f compose.yaml -f compose.docling.yaml config --quiet
 	env $(COMPOSE_STUBS) docker compose $(COMPOSE_ENV) --profile laya -f compose.yaml -f compose.llamacpp.yaml -f compose.embed.yaml -f compose.rerank.yaml -f compose.docling.yaml config --quiet
+	# #1636: the optional EmbeddingGemma 2 server stays CPU-only and unpublished, and nomic-v1 stays the default profile.
+	env $(COMPOSE_STUBS) docker compose $(COMPOSE_ENV) --profile embed-next -f compose.yaml -f compose.llamacpp.yaml -f compose.embed.yaml config --format json \
+		| jq -e '.services["embed-next"].command[0:2] == ["--device","none"] and .services["embed-next"].devices == null and .services["embed-next"].mem_limit != null and .services["embed-next"].ports == null and .services.embed.ports == null and .services.web.environment.EMBEDDING_PROFILE == "nomic-v1" and .services.diary.environment.LLM_EMBED_PROFILE == "nomic-v1" and (.services.web.environment.EMBEDDING_NEXT_MODEL // "") == ""' >/dev/null
 	docker compose $(COMPOSE_ENV) --profile code -f compose.yaml -f deploy/examples/code-sandbox.override.yml -f deploy/examples/code-egress-rust.override.yml config --quiet

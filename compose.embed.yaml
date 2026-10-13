@@ -86,6 +86,68 @@ services:
     # [live: verify] whether the live `default` network here is this project's
     # own default or the external `lemonade_default` network (docs/deployment.md).
 
+  # #1636: EmbeddingGemma 2 (google/embeddinggemma-2, Apache-2.0; GGUF ggml-org/embeddinggemma-2-GGUF)
+  # as a SECOND CPU embeddings server, so every index can be re-embedded while `embed` (nomic) keeps
+  # serving search. Off unless the `embed-next` profile is enabled:
+  #
+  #   docker compose -f compose.yaml -f compose.embed.yaml --profile embed-next up -d embed-next
+  #
+  # then point the re-index at it (EMBEDDING_NEXT_MODEL=embeddinggemma-2,
+  # EMBEDDING_NEXT_PROFILE=embeddinggemma-2, EMBEDDING_NEXT_BASE_URL=http://embed-next:8080/v1, or
+  # POST /api/embedding set-next). After the switch it serves search; `embed` stays for rollback
+  # until `finish`. Nothing here is started, pulled or downloaded by default.
+  #
+  # Image: the architecture (`gemma-embedding2`) is in llama.cpp from b11452 (#30054, merged
+  # 2026-10-06); the first published server-vulkan image with it is b11459. The default below is
+  # b11580 (2026-10-13), which also has #30416. Neither has #30255/#30445 (merged 2026-10-13): until
+  # then llama-server keeps a logits buffer of vocabulary (262,144) x batch tokens for this model,
+  # about 1 MiB per token of `-ub`, which is why the default memory limit is 3g at -ub 2048. With a
+  # later image that has #30255, 1536m is enough (Q8_0 weights 0.29 GiB plus compute).
+  # The model's own context is 8,192 tokens; one input must fit one ubatch (non-causal model).
+  embed-next:
+    profiles: [embed-next]
+    image: ${EMBED_NEXT_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan-b11580@sha256:ee2ecb9c3a4d6fa00b918b133fd7a2828195593688eeaef6e6516ef833f88f09}
+    restart: unless-stopped
+    command:
+      - "--device"
+      - "none"
+      - "--embedding"
+      - "--pooling"
+      - "mean"    # also the GGUF's own pooling_type (1 = mean); the model card says mean pooling
+      - "--model"
+      # A file under the models folder; noevia never keys anything off this name, only off the alias.
+      - "/models/${EMBED_NEXT_MODEL_FILE:-embeddinggemma-2/embeddinggemma-2-Q8_0.gguf}"
+      - "--alias"
+      - "${EMBED_NEXT_ALIAS:-embeddinggemma-2}"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      # Two slots of 2048 tokens, like `embed`: a chunk up to 2048 tokens fits one ubatch. Raise
+      # -c/-b/-ub together (up to 2 x 8192) only with an image that has #30255.
+      - "-c"
+      - "${EMBED_NEXT_CTX:-4096}"
+      - "-b"
+      - "${EMBED_NEXT_UBATCH:-2048}"
+      - "-ub"
+      - "${EMBED_NEXT_UBATCH:-2048}"
+      - "--parallel"
+      - "2"
+      - "-t"
+      - "${EMBED_NEXT_THREADS:-4}"
+    volumes:
+      - ${LLAMACPP_MODELS_DIR:?Set the existing public models directory}:/models:ro
+    mem_limit: ${EMBED_NEXT_MEMORY_LIMIT:-3g}
+    memswap_limit: ${EMBED_NEXT_MEMORY_LIMIT:-3g}
+    cpus: ${EMBED_NEXT_CPUS:-4}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks: [default, models]
+
   web:
     environment:
       EMBEDDING_BASE_URL: http://embed:8080/v1

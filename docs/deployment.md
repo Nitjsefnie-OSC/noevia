@@ -8,6 +8,55 @@
 > release also updates web's build block in the live Compose Manager file (same section).
 > Release records below that mention `apps/web` or `services/` describe the monorepo layout.
 
+## Pending (owner approval needed): embeddings nomic-embed-text-v1 → EmbeddingGemma 2 (#1636)
+
+Code: noevia-core (profiles, per-model vector slots, `/api/embedding`), noevia-services (the same for
+the Diary, `/api/internal/embedding`; the model manager's delete guard), this repo (`embed-next` in
+`compose.embed.yaml`, env keys, `tools/embed-parity-check.cjs --reference`). Nothing changes until
+the steps below run: the default profile `nomic-v1` sends the same bytes as before, and the existing
+`vec_items` tables are adopted as nomic's slot. **The download, the new image and every step below
+need the owner's per-run approval.**
+
+Facts (checked 2026-10-13): `google/embeddinggemma-2` (Apache 2.0, plus the Gemma prohibited-use
+policy), text tower 270M, 768 dimensions (MRL 512/256/128), mean pooling, 8,192-token context,
+prompts `task: search result | query: …` / `title: none | text: …`, never float16. GGUF
+`ggml-org/embeddinggemma-2-GGUF`, file `embeddinggemma-2-Q8_0.gguf`, 309,855,456 bytes, sha256
+`2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135` (the mmproj files are not needed
+for text). Architecture `gemma-embedding2` from llama.cpp b11452 (#30054); first server-vulkan image
+`server-vulkan-b11459@sha256:815720cb50a090db0c1d48b6e3b2b4ca656c3b99409cf4f31e63ff154ce586c4`;
+compose default `server-vulkan-b11580@sha256:ee2ecb9c3a4d6fa00b918b133fd7a2828195593688eeaef6e6516ef833f88f09`.
+Builds before #30255 (merged 2026-10-13, in no published image yet) keep a ~1 MiB/token logits buffer
+for this model: hence `mem_limit` 3g at `-ub 2048` until an image with #30255 is used (then 1536m).
+
+Cutover (no search downtime; web and Diary are not restarted):
+
+1. Download the GGUF into `ai-models/embeddinggemma-2/` and check its sha256. Add the `embed-next`
+   service from `compose.embed.yaml` to the live Compose Manager override (the third copy, see
+   "Three copies" below) and start only it: `up.sh ... --profile embed-next -d --no-deps embed-next`.
+2. Parity against the original checkpoint, on any machine that may download it (owner approval):
+   `--print-sample`, `tools/embed-reference-vectors.py`, then `--reference` through `cowork-web-1`
+   against `http://embed-next:8080` (min cosine ≥ 0.99, overlap@5 ≥ 0.8; the output also gives the
+   query-to-best-document score range to compare with the 0.30 retrieval minimum).
+3. As an administrator, `POST /api/embedding` `{"action":"set-next","target":{"model":"embeddinggemma-2","profile":"embeddinggemma-2","baseUrl":"http://embed-next:8080/v1"}}`
+   (browser console, with the `X-CSRF-Token` header from the `cowork_csrf` cookie). Web re-embeds
+   project chunks and the Diary its own index files, in the background at ≤ 50 % duty, while search
+   stays on nomic. `GET /api/embedding` shows `coverage.next.ready` for both.
+4. When both are ready: `{"action":"switch"}`. Search uses EmbeddingGemma 2 from the next request;
+   the choice is saved in `embedding-config.json` beside each service's data (web state dir, Diary
+   data dir) and survives restarts. Keep `EMBEDDING_MODEL=nomic-embed-text-v1` in `.env` and `embed`
+   running: they are the rollback.
+5. Rollback at any time: `{"action":"rollback"}` (instant; nomic's vectors were kept and are topped up
+   for anything indexed meanwhile). Before rolling an image back to a release without #1636, roll the
+   embedding back first, so the old code and the saved choice agree.
+6. After a soak: `{"action":"finish"}` drops nomic's vectors; then set `EMBEDDING_MODEL` /
+   `LLM_EMBED_MODEL` / `EMBEDDING_PROFILE` in `.env` to the new model and point `embed` at it (or keep
+   `embed-next`), and delete `embedding-config.json` only once the environment says the same.
+   To delete the nomic GGUF afterwards, first remove or stop the `embed` container and make sure no
+   running container's environment still names nomic (`EMBEDDING_MODEL`, `EMBEDDING_NEXT_MODEL`,
+   `LLM_EMBED_MODEL`, `LLM_EMBED_NEXT_MODEL`, `EMBED_MODEL`): the model manager's delete guard reads
+   the running containers' command lines (`--model /models/...`) and these variables, and refuses to
+   delete a file one of them still names, even after `finish`.
+
 ## Release 1aed463c — 2026-10-13 (UI batch, #1635, #1620, #1621; web only; #1400 closed)
 
 ### Services

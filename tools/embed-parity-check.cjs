@@ -19,6 +19,22 @@
 // The engine request loads its embedding model. Under --models-max 1 that evicts the chat model, so
 // check the router's /models first (nothing loaded or chat idle), and unload the embedding model
 // afterwards (POST /models/unload). Exit 0: parity holds; 1: it does not; 2: usage or HTTP error.
+//
+// #1636 additions (all synthetic, no user data):
+//   --profile=<nomic-v1|embeddinggemma-2>  frame the sample the way noevia sends it (queries and
+//        documents get the profile's prompts; nomic-v1, the default, sends the text unchanged).
+//   --dims=<N>  compare the first N dimensions, re-normalised (Matryoshka truncation, e.g. 256).
+//   Reference mode: compare one server against reference vectors made elsewhere, e.g. the original
+//   checkpoint in sentence-transformers (tools/embed-reference-vectors.py), to check a GGUF build:
+//     node tools/embed-parity-check.cjs --print-sample --profile=embeddinggemma-2 > sample.json
+//     python3 tools/embed-reference-vectors.py google/embeddinggemma-2 sample.json reference.json
+//     node tools/embed-parity-check.cjs --reference=reference.json <base> <model> [min=0.99] [minOverlap=0.8]
+//   Inside the web container the reference file must be readable there first, e.g.
+//     docker cp reference.json cowork-web-1:/tmp/ && docker exec -i cowork-web-1 node - \
+//       --reference=/tmp/reference.json http://embed-next:8080 embeddinggemma-2 < tools/embed-parity-check.cjs
+//   A quantised GGUF is not bit-identical to the checkpoint: the reference default is min cosine 0.99
+//   and overlap@5 0.8, and the output reports the query-to-best-document score distribution so the
+//   retrieval thresholds (0.30 minimum score) can be checked for the new model.
 
 const DOCS = [
   'Went for a long walk by the river this morning; the fog lifted around nine.',
@@ -78,6 +94,23 @@ const QUERIES = [
   'Wetter und Schnee',
 ];
 
+// noevia's embedding profiles (noevia-core server/embedding-profile.cjs; Diary agent/embedding.py).
+const PROFILES = ['nomic-v1', 'embeddinggemma-2'];
+function frame(profile, text, kind) {
+  if (!PROFILES.includes(profile)) throw Error(`unknown profile ${profile} (known: ${PROFILES.join(', ')})`);
+  if (profile === 'nomic-v1') return String(text);
+  return kind === 'query' ? `task: search result | query: ${text}` : `title: none | text: ${text}`;
+}
+function sample(profile = 'nomic-v1', docs = DOCS, queries = QUERIES) {
+  return [...docs.map((t) => frame(profile, t, 'document')), ...queries.map((t) => frame(profile, t, 'query'))];
+}
+function truncate(vec, dims) {
+  if (!dims || dims >= vec.length) return vec;
+  const v = vec.slice(0, dims);
+  const n = Math.sqrt(v.reduce((a, x) => a + x * x, 0)) || 1;
+  return v.map((x) => x / n);
+}
+
 function cosine(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || !a.length) return NaN;
   let dot = 0, na = 0, nb = 0;
@@ -112,11 +145,52 @@ function stats(values) {
   return { min: s[0], median: s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2, mean: s.reduce((a, b) => a + b, 0) / s.length, max: s[s.length - 1] };
 }
 
-async function check({ engine, engineModel, sidecar, sidecarModel, min = 0.997, minOverlap = 0.9, k = 5, docs = DOCS, queries = QUERIES, fetchImpl = fetch }) {
-  const texts = [...docs, ...queries];
+// How strongly each query matches its best document (and its 5th): the numbers the retrieval
+// thresholds are set against, so a new model's score range can be checked before cutover.
+function queryScores(vectors, nDocs) {
+  const top1 = [], top5 = [];
+  for (let q = nDocs; q < vectors.length; q++) {
+    const s = vectors.slice(0, nDocs).map((d) => cosine(vectors[q], d)).sort((x, y) => y - x);
+    top1.push(s[0]); top5.push(s[Math.min(4, s.length - 1)]);
+  }
+  return { top1: stats(top1), top5: stats(top5) };
+}
+
+function compare(a, b, { nDocs, nQueries, k, min, minOverlap }) {
+  const sims = a.map((_, i) => cosine(a[i], b[i]));
+  const cos = stats(sims);
+  const kk = Math.min(k, nDocs);
+  const overlaps = Array.from({ length: nQueries }, (_, q) => {
+    const ta = topK(a[nDocs + q], a.slice(0, nDocs), kk);
+    const tb = new Set(topK(b[nDocs + q], b.slice(0, nDocs), kk));
+    return ta.filter((i) => tb.has(i)).length / kk;
+  });
+  const overlap = nQueries ? overlaps.reduce((x, y) => x + y, 0) / overlaps.length : 1;
+  const ok = sims.every(Number.isFinite) && cos.min >= min && overlap >= minOverlap;
+  return { ok, similarity: cos.min, cosine: cos, overlapAtK: overlap, k: kk, overlaps, strings: a.length, min, minOverlap };
+}
+
+/**
+ * One server against reference vectors made elsewhere. `reference` is the JSON written by
+ * tools/embed-reference-vectors.py: { texts, vectors, docs, queries, profile, source }.
+ */
+async function checkReference({ base, model, reference, min = 0.99, minOverlap = 0.8, k = 5, dims = 0, fetchImpl = fetch }) {
+  const { texts, vectors, docs: nDocs, queries: nQueries } = reference || {};
+  if (!Array.isArray(texts) || !Array.isArray(vectors) || texts.length !== vectors.length || nDocs + nQueries !== texts.length) {
+    throw Error('reference file must hold texts, vectors (one per text), docs and queries counts');
+  }
+  const got = (await embed(base, model, texts, fetchImpl)).map((v) => truncate(v, dims));
+  const ref = vectors.map((v) => truncate(v, dims));
+  if (got[0].length !== ref[0].length) throw Error(`the server returned ${got[0].length} dimensions, the reference has ${ref[0].length} (use --dims)`);
+  const r = compare(got, ref, { nDocs, nQueries, k, min, minOverlap });
+  return { ...r, mode: 'reference', profile: reference.profile || null, source: reference.source || null, dimensions: [got[0].length, ref[0].length], scores: { server: queryScores(got, nDocs), reference: queryScores(ref, nDocs) } };
+}
+
+async function check({ engine, engineModel, sidecar, sidecarModel, min = 0.997, minOverlap = 0.9, k = 5, docs = DOCS, queries = QUERIES, profile = 'nomic-v1', dims = 0, fetchImpl = fetch }) {
+  const texts = sample(profile, docs, queries);
   // Sequential: the engine request may load a model; keep the two servers' load apart.
-  const a = await embed(engine, engineModel, texts, fetchImpl);
-  const b = await embed(sidecar, sidecarModel, texts, fetchImpl);
+  const a = (await embed(engine, engineModel, texts, fetchImpl)).map((v) => truncate(v, dims));
+  const b = (await embed(sidecar, sidecarModel, texts, fetchImpl)).map((v) => truncate(v, dims));
   const sims = texts.map((_, i) => cosine(a[i], b[i]));
   const cos = stats(sims);
   const kk = Math.min(k, docs.length);
@@ -127,18 +201,49 @@ async function check({ engine, engineModel, sidecar, sidecarModel, min = 0.997, 
   });
   const overlap = queries.length ? overlaps.reduce((x, y) => x + y, 0) / overlaps.length : 1;
   const ok = sims.every(Number.isFinite) && cos.min >= min && overlap >= minOverlap;
-  return { ok, similarity: cos.min, cosine: cos, overlapAtK: overlap, k: kk, overlaps, strings: texts.length, dimensions: [a[0].length, b[0].length], min, minOverlap };
+  return { ok, similarity: cos.min, cosine: cos, overlapAtK: overlap, k: kk, overlaps, strings: texts.length, dimensions: [a[0].length, b[0].length], min, minOverlap, profile, scores: { a: queryScores(a, docs.length), b: queryScores(b, docs.length) } };
 }
 
-module.exports = { cosine, check, embed, topK, DOCS, QUERIES };
+module.exports = { cosine, check, checkReference, embed, topK, frame, sample, truncate, queryScores, DOCS, QUERIES, PROFILES };
+
+function parseArgs(argv) {
+  const flags = {}, rest = [];
+  for (const a of argv) {
+    const m = /^--([a-z-]+)(?:=(.*))?$/.exec(a);
+    if (m) flags[m[1]] = m[2] ?? true; else rest.push(a);
+  }
+  return { flags, rest };
+}
 
 if (require.main === module || !module.parent) {
-  const [engine, engineModel, sidecar, sidecarModel, min, minOverlap] = process.argv.slice(2);
-  if (!engine || !engineModel || !sidecar || !sidecarModel) {
-    console.error('usage: embed-parity-check.cjs <engine-base> <engine-model> <sidecar-base> <sidecar-model> [min=0.997] [minOverlap=0.9]');
+  const { flags, rest } = parseArgs(process.argv.slice(2));
+  const profile = typeof flags.profile === 'string' ? flags.profile : 'nomic-v1';
+  const dims = flags.dims ? Number(flags.dims) : 0;
+  const done = (p) => p.then((r) => { console.log(JSON.stringify(r)); process.exit(r.ok ? 0 : 1); })
+    .catch((e) => { console.error(String(e?.message || e)); process.exit(2); });
+  if (!PROFILES.includes(profile) || !(Number.isInteger(dims) && dims >= 0)) {
+    console.error(`--profile must be one of ${PROFILES.join(', ')}; --dims a whole number`);
     process.exit(2);
   }
-  check({ engine, engineModel, sidecar, sidecarModel, min: min ? Number(min) : 0.997, minOverlap: minOverlap ? Number(minOverlap) : 0.9 })
-    .then((r) => { console.log(JSON.stringify(r)); process.exit(r.ok ? 0 : 1); })
-    .catch((e) => { console.error(String(e?.message || e)); process.exit(2); });
+  if (flags['print-sample']) {
+    console.log(JSON.stringify({ profile, docs: DOCS.length, queries: QUERIES.length, texts: sample(profile) }));
+  } else if (flags.reference) {
+    const [base, model, min, minOverlap] = rest;
+    if (!base || !model || typeof flags.reference !== 'string') {
+      console.error('usage: embed-parity-check.cjs --reference=<file.json> <base> <model> [min=0.99] [minOverlap=0.8] [--dims=N]');
+      process.exit(2);
+    }
+    let reference;
+    try { reference = JSON.parse(require('node:fs').readFileSync(flags.reference, 'utf8')); } catch (e) { console.error(`cannot read ${flags.reference}: ${e.message}`); process.exit(2); }
+    done(checkReference({ base, model, reference, dims, min: min ? Number(min) : 0.99, minOverlap: minOverlap ? Number(minOverlap) : 0.8 }));
+  } else {
+    const [engine, engineModel, sidecar, sidecarModel, min, minOverlap] = rest;
+    if (!engine || !engineModel || !sidecar || !sidecarModel) {
+      console.error('usage: embed-parity-check.cjs [--profile=nomic-v1|embeddinggemma-2] [--dims=N] <engine-base> <engine-model> <sidecar-base> <sidecar-model> [min=0.997] [minOverlap=0.9]');
+      console.error('       embed-parity-check.cjs --reference=<file.json> <base> <model> [min=0.99] [minOverlap=0.8]');
+      console.error('       embed-parity-check.cjs --print-sample [--profile=...]');
+      process.exit(2);
+    }
+    done(check({ engine, engineModel, sidecar, sidecarModel, profile, dims, min: min ? Number(min) : 0.997, minOverlap: minOverlap ? Number(minOverlap) : 0.9 }));
+  }
 }
