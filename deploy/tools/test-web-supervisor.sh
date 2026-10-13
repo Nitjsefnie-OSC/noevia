@@ -22,6 +22,7 @@ name=$2
 if [ "\${1:-}" = --features ]; then printf '%s\\n' \${STUB_FEATURES-code-net-guard}; exit 0; fi
 echo "\$name UI_HOST=\${UI_HOST:-} UI_PORT=\${UI_PORT:-} UPSTREAM=\${NOEVIA_LEGACY_UPSTREAM:-} ARGS=\$* CCONF=\${NOEVIA_RUST_PROJECT_CHATS_CONFIRMED:-} FCONF=\${NOEVIA_RUST_FREE_CHATS_CONFIRMED:-} RCONF=\${NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED:-} SCONF=\${NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED:-} UCONF=\${NOEVIA_RUST_USAGE_CONFIRMED:-} PCONF=\${NOEVIA_RUST_PROJECTS_CONFIRMED:-} CONF=\${NOEVIA_RUST_AUTH_CONFIRMED:-}" >> "$work/log"
 echo "\$name TCONF=\${NOEVIA_RUST_ROUTING_MODE_CONFIRMED:-}" >> "$work/log"
+echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
 for _ in \$(seq 1 300); do
   [ -f "$work/die-\$name" ] && { echo "\$name died" >> "$work/log"; exit 3; }
@@ -235,6 +236,21 @@ check "routing activates only for exact switch 1" 'grep -q "^node TCONF=$" "$wor
 reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_ROUTING_MODE=1 NOEVIA_RUST_ROUTING_MODE_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops inherited routing confirmation" 'grep -q "^node TCONF=$" "$work/log"'
+
+# The client address (noevia-core server/auth.cjs, #1578): Node is told to believe X-Noevia-Client-Ip
+# only when the front reports client-address-header (it strips client copies of the header).
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard client-address-header" >/dev/null 2>&1; rc=$?
+check "a front with client-address-header confirms the client address to Node only" 'grep -q "^node KCONF=1$" "$work/log" && grep -q "^front KCONF=$" "$work/log"'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard" >/dev/null 2>"$work/err"; rc=$?
+check "a front without it leaves Node unconfirmed and still starts (pin skew fails closed)" 'grep -q "^node KCONF=$" "$work/log" && grep -q "no client-address-header" "$work/err"'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_FRONT_CLIENT_IP=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard" >/dev/null 2>&1; rc=$?
+check "an inherited NOEVIA_FRONT_CLIENT_IP=1 is dropped when the front lacks the marker" 'grep -q "^node KCONF=$" "$work/log"'
+reset; touch "$work/die-node"
+run NOEVIA_FRONT=node NOEVIA_FRONT_CLIENT_IP=1 >/dev/null 2>&1; rc=$?
+check "node mode drops an inherited client-address confirmation" 'grep -q "^node KCONF=$" "$work/log"'
 
 reset
 run NOEVIA_FRONT=rust NOEVIA_SERVER_BIN="$work/noevia-server" UI_PORT=65000 >/dev/null 2>&1; rc=$?

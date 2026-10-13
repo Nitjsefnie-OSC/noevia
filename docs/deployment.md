@@ -455,7 +455,12 @@ sidecars** during a web-only release (the manual recipe under "Overlay releases"
 
 Before any Compose `up` on Unraid, validate resolved writable mounts with the
 [host-side preflight](../deploy/preflight/README.md). The installed wrapper is
-`/mnt/docker/appdata/cowork/tools/preflight/up.sh`; call it with
+`/mnt/docker/appdata/cowork/tools/preflight/up.sh`. Install and refresh the **whole**
+`deploy/preflight/` directory, never `up.sh` alone: `bash deploy/preflight/install.sh` from the
+release (it copies `up.sh`, `diary-image-guard.sh`, `check.php` and `web-env-keys.txt` into
+`tools/preflight/` and verifies them). `up.sh` refuses to start anything without
+`diary-image-guard.sh` beside it (#1148), and `diary-overlay.sh` and `overlay-release.sh`
+check all three required files before they build or stop anything (#1597). Call it with
 `--env-file ... --` followed by the usual `up` options. It resolves the Compose
 project itself (`COWORK_PROJECT_DIR`, else
 `/boot/config/plugins/compose.manager/projects/Cowork`), so the caller's cwd no
@@ -478,7 +483,7 @@ grep -qx 'NOEVIA_SHA=$SHA' $SHA/release-refs
 cd /mnt/docker/appdata/cowork && cp config/.env config/.env.bak.\$(date +%Y%m%d%H%M%S)
 cd /boot/config/plugins/compose.manager/projects/Cowork
 bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/build-web-release.sh $SHA /mnt/docker/appdata/cowork/releases/$SHA
-# Stop here if candidate verification fails (see the image-test mounts below).
+# Stop here if candidate verification fails (see "Synthetic candidate boot" below).
 ln -sfn /mnt/docker/appdata/cowork/releases/$SHA /mnt/docker/appdata/cowork/current
 sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=$SHA/' /mnt/docker/appdata/cowork/config/.env
 bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --wait --wait-timeout 120"
@@ -588,6 +593,30 @@ docling, laya, model-manager and ocr in
 - Before the cutover, CI compared the assembled image with `apps/web/Dockerfile`'s file by file;
   that comparison retired with `apps/web/` (its last green run, at the cut SHA `f42f65f1`, is
   linked from the cutover PR).
+
+### Synthetic candidate boot (web image, #1416)
+
+Before a web candidate is switched in, boot it the way the release evidence records it: no network,
+read-only root, all capabilities dropped, tmpfs for everything writable, a throwaway token, and
+nothing from `.env`. On the Docker host:
+
+```sh
+bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/candidate-boot.sh $SHA   # cowork-web:$SHA
+CANDIDATE_FRONT=rust bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/candidate-boot.sh $SHA   # Rust front
+```
+
+The script exits 0 only when `/api/ready` answers `ready:true` with exactly that sha, and it removes
+the candidate container on every exit path. It prints the ready answer and a count of log lines that
+mention error, EROFS or FATAL; it never prints the log lines or the throwaway tokens.
+
+**The candidate needs a writable data dir.** Startup runs `mkdir` on `UI_DATA_DIR` and writes the
+sqlite database and the secrets key there. With `--read-only` the image default
+(`/app/server/ui-data`) is on the read-only root, so a candidate
+booted without `UI_DATA_DIR` exits at startup instead of answering `/api/ready`. The script sets
+`UI_DATA_DIR=/candidate-data/ui-data` on a `--tmpfs /candidate-data` mount. Any hand-written candidate
+recipe needs the same two things: the `UI_DATA_DIR` value and a `--tmpfs` mount that contains it.
+`deploy/tests/test_candidate_boot.py` checks the argv with a stubbed docker, so no image is needed to
+run it.
 
 ## Per-service image tags
 
@@ -1484,8 +1513,11 @@ registry over IPv6) instead of rebuilding.
   restoring the `.env` backup, repointing `current` and re-running the same command. Never
   print `.env` values; name keys only.
 - **`deploy/examples/diary-overlay.sh <SRC_SHA>`** replaces only `services/diary/agent` in the
-  running Diary image and recreates only `diary`. It takes an appdata backup first and refuses to
-  continue unless that run produced a new, verified `ab_*` folder.
+  running Diary image and recreates only `diary`. Before the recreate it archives the Diary state
+  and `config/.env` into a new `diary_<SRC_SHA>_<UTC>` folder under `/mnt/disk3/noevia-backups`
+  (#1487: not the Appdata Backup plugin, which stops whichever containers its own configuration
+  selects). Only `cowork-diary-1` is stopped, and only for that archive; it refuses to continue
+  unless the archive verifies.
 - **Docling** has no script; its overlay is documented step by step in "Docling release path" below.
   It builds FROM the running `cowork-docling` image with the six application files replaced and
   recreates only `docling`.
@@ -1648,7 +1680,7 @@ Release runbook: the repo `deploy/preflight/up.sh` runs `--ack` automatically
 after a successful `up` when the script is installed at
 `tools/sidecar-restart-alert.sh` (set `SIDECAR_ALERT_ACK=0` to skip). The copy
 installed at `tools/preflight/up.sh` predates this and must be refreshed from the
-repo; until then, and after any restart done outside `up.sh` (Compose Manager
+repo (the whole `deploy/preflight/` directory, with `deploy/preflight/install.sh`); until then, and after any restart done outside `up.sh` (Compose Manager
 GUI, `docker restart`, Diary overlay), run
 `/mnt/docker/appdata/cowork/tools/sidecar-restart-alert.sh --ack` immediately.
 
