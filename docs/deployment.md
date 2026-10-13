@@ -51,6 +51,11 @@ Cutover (no search downtime; web and Diary are not restarted):
 6. After a soak: `{"action":"finish"}` drops nomic's vectors; then set `EMBEDDING_MODEL` /
    `LLM_EMBED_MODEL` / `EMBEDDING_PROFILE` in `.env` to the new model and point `embed` at it (or keep
    `embed-next`), and delete `embedding-config.json` only once the environment says the same.
+   To delete the nomic GGUF afterwards, first remove or stop the `embed` container and make sure no
+   running container's environment still names nomic (`EMBEDDING_MODEL`, `EMBEDDING_NEXT_MODEL`,
+   `LLM_EMBED_MODEL`, `LLM_EMBED_NEXT_MODEL`, `EMBED_MODEL`): the model manager's delete guard reads
+   the running containers' command lines (`--model /models/...`) and these variables, and refuses to
+   delete a file one of them still names, even after `finish`.
 
 ## Release d907438b — 2026-10-13 (two-tone icons, visual fixes, #1550; web only)
 
