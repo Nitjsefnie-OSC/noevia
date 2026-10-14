@@ -20,7 +20,7 @@ only Docker write path). `EMBEDDING_MODEL` + `EMBED_MODEL_FILE` seed the choice 
 what the service serves or still holds, not the env name; a model the router reports loaded is never
 deletable (#336).
 
-Needs, in one release: noevia-rs (model manager) with `28bb9ca` or later (the #1668 review fixes, incl. #1677/#1678) — **pin bump in the
+Needs, in one release: noevia-rs (model manager) at `0012da3` (rs#103 merge; the #1668 review fixes, incl. #1677/#1678) or later — **pin bump in the
 services Dockerfiles' `RS_REF` + archive sha256, `release/versions.lock` and the egress Dockerfile**;
 noevia-services (`model-manager/app/services.py`); noevia-core; noevia-web; this repo. The
 EmbeddingGemma 2 download (#1636) is not part of it: nomic stays the live model.
