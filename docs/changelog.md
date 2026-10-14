@@ -8,6 +8,60 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 20b07d3f — 2026-10-14 (chat, UI and backend batches, embedding guards; web + model manager + Diary overlay)
+
+What changed for you: the chat batch (core#100) retries a turn that came back with reasoning only or that promised a tool call without making one (#1477, #1552, #1587, #1592, #1604). Engine rows in Settings no longer stay on "Checking", and raw restart errors are now translated (#1545). The Features page has plain text for the Preview and Offline Wikipedia rows (#1580). The Models page now refuses to switch to an embedding model that the embeddings server doesn't serve (core#97). Code for the settings-driven embedding service (#1668) is included but **not active** (see Model manager below). Embeddings still run on `nomic-embed-text-v1`, unchanged. The Diary companion now has the #1636 per-model vector slots, with nomic as the active slot, so nothing was re-indexed. No chat, Diary message, model load, switch, delete, tune or benchmark was run to test this.
+
+### Services
+
+- **Web:** [#1684](https://github.com/sbstndalton/noevia/pull/1684) (pins) with:
+  - noevia-core `668afe05`: core#97 (embedding identity guard, errorIds), core#98 (#1580), core#99 (#1195, #1671, #1672), core#100 (chat batch), core#101 (#1668 web side).
+  - noevia-web `5f0b956a`: web#48 (#1545, #1580) and web#49 (#1668 Models page controls).
+  - noevia-rs `0012da31`: rs#101, rs#102 (#1378, #1385, #1315 slice) and rs#103 (#1668).
+
+  The image is `cowork-web:20b07d3f`, `sha256:e563eb4c084a2cf861a186290ccfae94307a33ac956c6fd5dd31bc8ab6476112`, replacing `cowork-web:d119c502` (`sha256:b5f9fb4d…f57d95`). Switches are unchanged: `NOEVIA_FRONT=rust`, and `NOEVIA_RUST_AUTH`, `_USAGE`, `_SAMPLING_SETTINGS`, `_REASONING_SETTINGS`, `_ROUTING_MODE`, `_ROUTING_DEFAULT`, `_PROJECTS` and `_STATS` are all `1` in the container. `EMBEDDING_SERVICE_URL` is not set, so web keeps the pre-#1668 embedding behaviour.
+- **Model manager:** `cowork-model-loader:20b07d3f` (noevia-services `e8c91b9a` incl. services#41, noevia-rs `0012da31`), replacing `cowork-model-loader:ab1445b0`. It still runs the **python** front, because `MODEL_MANAGER_IMPL` is not set; flags `GGUF_PARSER=rust`, `MODEL_AUTOCONFIG=rust`, `MODEL_FILES_IMPL=rust` and `MODEL_MANAGER_SECTIONS_IMPL=python` are unchanged. The #1668 embedding service (`/api/v1/embedding-service`) exists only in the Rust front (`MODEL_MANAGER_IMPL=rust`), and that is not an approved switch. So the #1668 live migration stopped before step 1: no `EMBED_*` keys were added, the embed command was not changed and embed was not recreated. The Python delete guard now also counts `LLM_EMBED_MODEL` and the `*_NEXT_MODEL` keys (#1636). The #1668 seed-only skip needs `NOEVIA_EMBED_SERVICE_GUARDED`, which only the Rust front sets, so it stays inactive and nomic stays protected.
+- **Diary:** `cowork-diary:20b07d3f` via `diary-overlay.sh` FROM the running `cowork-diary:ab1445b0` (agent/ only, plus tenant-assertion from rs `0012da31`). It ships services `0d7c6ca`/`32d93c9`/`b3ece95` (#1636, #1645). `LLM_EMBED_NEXT_*` is not set, so no re-index started. `TENANT_ASSERTION_IMPL` is unchanged.
+- **Laya:** built `cowork-laya:0.3.5-noevia5` (`sha256:693afb30…c2c1`) FROM the running `cowork-laya:0.3.5-noevia4`, with `REUSE_CPU_RUNTIME=true` (nothing downloaded; it adds the `noevia-laya` entrypoint for #1326 and the #1074 `server.py`). It is **not switched**: `cowork-laya-1` is still `0.3.5-noevia4` and was not restarted. The owner command is below.
+- **Docling:** no change (`cowork-docling:f6885a55`, not recreated). Its only app change since f6885a55 is `isolated_worker.py --stdout-replies`, which the #1322 native binary needs. Per "Native Docling binary overlay (#1322)" that overlay needs an independent review of the exact commands and the candidate first, and native activation is an owner action. So it is merged, not yet deployed.
+- **OCR:** no change (`cowork-ocr:9e9bdc0f`, not recreated). Since services `373f75ba` only the Dockerfile rs pin and a pin test changed. The noevia-ocr and docx-text crates and their resolved dependency versions are identical between rs `7406050a` and `0012da31`, so a rebuild would ship nothing new.
+- **Code sandbox, llama, embed:** no change, not recreated. Embed is still the fixed `-m nomic` command with `--alias nomic-embed-text-v1`.
+- **Deploy/infra:** the preflight was not reinstalled. The release's `web-env-keys.txt` adds `EMBEDDING_SERVICE_URL` (advisory), which belongs with the held #1668 migration. The Compose Manager files were not edited. `.env` changed only `COWORK_VERSION`, `MODEL_MANAGER_VERSION` and `DIARY_VERSION`.
+
+**Evidence.**
+- CI green: noevia `20b07d3f` (8/8 incl. "Assembled release (pinned repos)"), noevia-core `668afe05` (9/9), noevia-web `5f0b956a` (2/2), noevia-rs `0012da31` (20/20), noevia-services `e8c91b9a` (6/6).
+- The release was assembled on the Mac from a clean detached worktree; `release-refs` matches the lock.
+- `candidate-boot.sh` was ready at `20b07d3f` with 0 error lines for both `node` and `rust`.
+- Model-loader candidate (no network, read-only, tmpfs, synthetic token): health 200. Laya candidate: `server.py` matches the release, entrypoint `noevia-laya`, an unknown selector is refused. No model was started.
+- Idle gate before each recreate: 0 generation lines in `cowork-llama-1`'s last 3 minutes; native-autotune job `failed` (2026-10-13), none running. The Appdata Backup plugin's 04:10 EDT run was waited out first.
+- After:
+  - `/api/ready` `{"ready":true,"version":"20b07d3f"}` on loopback and on https://noevia.daserver.work; signed-out `/api/projects` 401.
+  - Served `index.html` sha256 `4ba8ddbc…79d5` (was `d59236b4…16d3`).
+  - Embed: `/v1/models` lists `nomic-embed-text-v1`, and `/v1/embeddings` returns 768-dim vectors from both web's `EMBEDDING_BASE_URL` and the Diary's `LLM_EMBED_BASE_URL` (`http://embed:8080/v1`), before and after the Diary overlay.
+  - Diary health via web 200.
+  - #1379: a synthetic diagnosis in `cowork-model-loader:20b07d3f` returns `api_key=[redacted]`.
+- Containers: only `cowork-web-1`, `cowork-model-loader-1` and `cowork-diary-1` changed id. The other 38, including Laya, embed, llama, Docling, OCR and code-sandbox, kept their ids and start times. Restart count 0 and healthy on all cowork containers. Snapshots: `state/snapshot.{before,after}-20b07d3f.txt`.
+
+**Backups.**
+- `/mnt/disk3/noevia-backups/release_20b07d3f_20261014T082130Z`: web state, SQLite online backup (integrity ok), model-loader state, `.env`, llamacpp config, the Compose project files, and SHA256SUMS.
+- `/mnt/disk3/noevia-backups/diary_20b07d3f_20261014T083307Z`: from the overlay.
+- `config/.env.bak.before-model-loader-20b07d3f`, `.env.bak.before-web-20b07d3f` and `.env.bak.before-diary-20b07d3f`.
+
+**Rollback.** Change only the version keys; don't restore any `.env.bak` wholesale.
+- Web: `ln -sfn /mnt/docker/appdata/cowork/releases/d119c502 /mnt/docker/appdata/cowork/current`, `sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=d119c502/' /mnt/docker/appdata/cowork/config/.env`, then `bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web`. The switches can stay `1`. `2461e63b` is also kept.
+- Model manager: `sed -i 's/^MODEL_MANAGER_VERSION=.*/MODEL_MANAGER_VERSION=ab1445b0/'` on the same `.env`, then the same `up.sh` line with `model-loader`.
+- Diary: `sed -i 's/^DIARY_VERSION=.*/DIARY_VERSION=ab1445b0/'`, then the same `up.sh` line with `diary`. `cowork-diary:ab1445b0` and `:rollback-before-diary-overlay` are kept. No embedding switch was made, so the old code and the Diary data agree.
+
+**Owner actions.**
+- Laya cutover (#1074, #1326), when wanted:
+  1. `cp -a /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml.bak.before-laya-noevia5`
+  2. `sed -i 's#image: cowork-laya:0.3.5-noevia4#image: cowork-laya:0.3.5-noevia5#' /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml`
+  3. `bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env --profile laya -- -d --no-build --no-deps --wait --wait-timeout 180 laya`
+
+  The entrypoint keeps the Python server unless `NOEVIA_LAYA_IMPL=rust`. To roll back, restore the compose backup and rerun step 3.
+- #1668: decide whether to turn on the Rust model-manager front (`MODEL_MANAGER_IMPL=rust`), then run the "Pending (release)" migration in `docs/deployment.md`.
+- #1322: an independent review of the native Docling overlay.
+
 ## Release d119c502 — 2026-10-14 (Models page overhaul, upload fixes; web only)
 
 What changed for you: the Models page was rebuilt around what each model is assigned to (#1660-#1663): deleting a model now also removes its preset, so it no longer lingers as "File missing" (#1661), and the new assignments overview shows which model serves each role (#1662). Uploads got follow-up fixes, and files orphaned by a failed upload are cleaned up (#1653, #1664). Members no longer see environment variable names (#1656). The statistics route got small fixes (#1654). All Rust switches stay on, as before. No chat, Diary message, model load, delete, tune or benchmark was run to test this.

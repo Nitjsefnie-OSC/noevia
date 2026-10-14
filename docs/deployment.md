@@ -63,6 +63,11 @@ Live edits (Compose Manager project `Cowork`; the embed and model-loader blocks 
 4. Override, `web.environment` (next to `EMBEDDING_BASE_URL`, line ~279): add
    `EMBEDDING_SERVICE_URL: http://embed:8080/v1`. Leave `EMBEDDING_BASE_URL` and the Diary's
    `LLM_EMBED_BASE_URL` as they are (same server).
+   **Prerequisite (found at release 20b07d3f):** the embedding-service route exists only in the Rust
+   front. With `MODEL_MANAGER_IMPL` unset (the live default, `python`) the entrypoint runs uvicorn and
+   `GET /api/v1/embedding-service` answers 404, so step 5 cannot pass. Turning on
+   `MODEL_MANAGER_IMPL=rust` is an owner decision and must come first; steps 1-4 change nothing
+   useful before it.
 5. Order: recreate `model-loader` (new image) first and check, with the token from `.env` (never
    print it), `GET http://model-loader:8090/api/v1/embedding-service` from `cowork-web-1`:
    `managed: true`, `models: [{model: nomic-embed-text-v1, file: nomic-embed-text-v1/…}]` (**stop
@@ -135,6 +140,19 @@ Cutover (no search downtime; web and Diary are not restarted):
    `LLM_EMBED_MODEL`, `LLM_EMBED_NEXT_MODEL`, `EMBED_MODEL`): the model manager's delete guard reads
    the running containers' command lines (`--model /models/...`) and these variables, and refuses to
    delete a file one of them still names, even after `finish`.
+
+## Release 20b07d3f — 2026-10-14 (web + model manager + Diary overlay; Laya built, not switched)
+
+### Services
+
+- **Web:** #1684, core `668afe05`, web `5f0b956a`, rs `0012da31`; `cowork-web:20b07d3f`, image `sha256:e563eb4c084a2cf861a186290ccfae94307a33ac956c6fd5dd31bc8ab6476112`. All eight rust switches stay `1`. `EMBEDDING_SERVICE_URL` not set (pre-#1668 behaviour).
+- **Model manager:** `cowork-model-loader:20b07d3f` (services `e8c91b9a`, rs `0012da31`), still the python front (`MODEL_MANAGER_IMPL` unset).
+- **Diary:** `cowork-diary:20b07d3f` via `diary-overlay.sh` (agent/ + tenant-assertion only).
+- **Laya:** `cowork-laya:0.3.5-noevia5` built FROM `0.3.5-noevia4` (`REUSE_CPU_RUNTIME=true`), not switched; Laya not restarted.
+- **Docling, OCR, code sandbox, llama, embed:** no change, not recreated (reasons in `docs/changelog.md`).
+- **Deploy/infra:** no preflight install, no Compose file edit; `.env` changed only `COWORK_VERSION`, `MODEL_MANAGER_VERSION`, `DIARY_VERSION`.
+
+Order: assemble on the Mac, upload, `build-web-release.sh`, `candidate-boot.sh` node and rust, model-loader image `docker build --target production` from `releases/20b07d3f/services/model-manager` plus a synthetic candidate, scoped backup `/mnt/disk3/noevia-backups/release_20b07d3f_20261014T082130Z`, idle gate, model-loader `up.sh ... --no-build --no-deps --wait model-loader`, web cutover (`current`, `COWORK_VERSION`, web-only `up.sh`), Laya build (unswitched), idle gate, `diary-overlay.sh 20b07d3f`. Only `cowork-web-1`, `cowork-model-loader-1` and `cowork-diary-1` changed id. Rollback: commands in `docs/changelog.md`.
 
 ## Release d119c502 — 2026-10-14 (Models page overhaul, upload fixes; web only)
 
