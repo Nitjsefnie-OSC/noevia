@@ -48,6 +48,9 @@ services:
       LLAMACPP_CACHE_RAM_HARD_MAX_MIB: ${LLAMACPP_CACHE_RAM_HARD_MAX_MIB:-2048}
       # Required: this service holds the Docker socket; only web knows this secret.
       MODEL_LOADER_TOKEN: ${MODEL_LOADER_TOKEN:?Set a random MODEL_LOADER_TOKEN (e.g. openssl rand -hex 32)}
+      # #1689/#1717: the model manager's front. python (default) runs uvicorn; rust runs
+      # noevia-model-manager in front of it (needed for /api/v1/embedding-service, #1668).
+      MODEL_MANAGER_IMPL: ${MODEL_MANAGER_IMPL:-python}
       # #1668: the model manager runs the embedding service below from saved settings. It may
       # restart or stop this one container and nothing else. EMBEDDING_MODEL + EMBED_MODEL_FILE
       # seed the choice on first start only (DATA_DIR/embedding-service.json wins afterwards).
