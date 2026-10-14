@@ -19,6 +19,8 @@ KEYS = [
     'COWORK_DECISION_API_KEY',
     'COWORK_SENSITIVITY_DECISION_URL',
     'COWORK_SENSITIVITY_DECISION_MODEL',
+    # #1745: the sensitivity service's own bearer key (noevia-core#110).
+    'COWORK_SENSITIVITY_DECISION_API_KEY',
 ]
 
 
