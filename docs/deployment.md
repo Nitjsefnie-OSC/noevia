@@ -16,10 +16,15 @@
   it from 785643f4). Also, the Rust front mounts `/api/v1/embedding-service` only when `EMBED_CONTAINER`
   is set, so a flip on its own still answers 404. Do the flip together with steps 1-2, in one
   model-loader recreate.
-- Nothing warms the router after an `embed` recreate. The model manager loads the saved model only
-  in the ~3 minutes after its own boot, or after an apply. After step 5's `embed` recreate,
-  `running.loaded` stays `[]` until the first `POST /v1/embeddings`; the llama.cpp router autoloads on
-  that request. Send one synthetic request (768-dim answer) and then check `loaded`.
+- After an `embed` recreate (step 5, a crash or a host reboot) the router comes up with the saved
+  model listed but `loaded: []`. With noevia-rs at 785643f4's pin (`278c84c0`) nothing re-warms it:
+  the model manager warms only in the ~3 minutes after its own boot, or after an apply. From the
+  noevia-rs #1717 fix (rs#106) on, a model-manager watcher probes the router every 30 s and
+  loads the saved models (only those; never during an apply; never when embedding is off; it backs
+  off on repeated failure). Either way the model also loads on the first `POST /v1/embeddings`,
+  because the llama.cpp router autoloads on that request. So after an `embed` recreate, `loaded` fills on the
+  watcher's next probe (usually about 30 s plus load time; longer while a warm-up is already running or the watcher is backing off, up to 16 min) or on the first embedding request. To check right away, send one synthetic
+  request (768-dim answer), then read `loaded`.
 
 
 What changes: `cowork-embed-1` stops loading a fixed `-m <file>`. It becomes a llama.cpp router
@@ -78,8 +83,10 @@ Live edits (Compose Manager project `Cowork`; the embed and model-loader blocks 
    **Prerequisite (found at release 20b07d3f):** the embedding-service route exists only in the Rust
    front. With `MODEL_MANAGER_IMPL` unset (the live default, `python`) the entrypoint runs uvicorn and
    `GET /api/v1/embedding-service` answers 404, so step 5 cannot pass. Turning on
-   `MODEL_MANAGER_IMPL=rust` is an owner decision and must come first; steps 1-4 change nothing
-   useful before it.
+   `MODEL_MANAGER_IMPL=rust` is an owner decision. It must ship **in the same model-loader recreate as
+   steps 1-2** (the `EMBED_CONTAINER` env): the Rust front mounts the route only when
+   `EMBED_CONTAINER` is set, so the flip alone still answers 404, and steps 1-2 alone do nothing on
+   the python front (#1717).
 5. Order: recreate `model-loader` (new image) first and check, with the token from `.env` (never
    print it), `GET http://model-loader:8090/api/v1/embedding-service` from `cowork-web-1`:
    `managed: true`, `models: [{model: nomic-embed-text-v1, file: nomic-embed-text-v1/…}]` (**stop
@@ -87,7 +94,9 @@ Live edits (Compose Manager project `Cowork`; the embed and model-loader blocks 
    recreating `embed` with an empty preset leaves embedding off), and
    `/mnt/docker/appdata/cowork/config/llamacpp/embedding.ini` has the one `[nomic-embed-text-v1]`
    section. Then recreate `embed` (`up.sh ... -d --no-deps embed`), wait for healthy, and check that
-   the same GET reports `running.loaded: ["nomic-embed-text-v1"]` (the model manager loads it) and that
+   the same GET reports `running.loaded: ["nomic-embed-text-v1"]` (the model manager loads it on the
+   watcher's next probe from the rs #1717 fix on (usually about 30 s plus load time; longer while a warm-up runs or during back-off); before that, or to check right away, send
+   one synthetic `POST /v1/embeddings` first) and that
    `POST /v1/embeddings` from web returns 768-dim vectors. Then recreate `web` with the new release.
    The Diary needs no change.
 6. Verify in the browser (Settings → Models): the Embedding row says Running with "Turn embedding
