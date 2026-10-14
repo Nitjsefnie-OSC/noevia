@@ -57,6 +57,16 @@ Cutover (no search downtime; web and Diary are not restarted):
    the running containers' command lines (`--model /models/...`) and these variables, and refuses to
    delete a file one of them still names, even after `finish`.
 
+## Release 2461e63b — 2026-10-14 (core main incl. #1647 gate, rust-routing-default + rust-stats built; web only)
+
+### Services
+
+- **Web:** #1658, core `67452ad3` (#1647 hold lifted: hybrid reaches cloud only via a qualified sensitivity model; none qualified, so hybrid stays local), web `2a62eb5f`, rs `e88e7fa4`; `cowork-web:2461e63b`, image `sha256:58b4691db07c1caffa722389a4edd5e77bc54389f69810046a58112e3f3fd19a`. Front `--features` now include `rust-routing-default` and `rust-stats` (#1655); both switches stay `0`.
+- **Diary, model manager, code sandbox, OCR, Docling, Laya, llama, embed:** no change, not recreated. Services `5f4c318e` (#1636 Diary code) needs a Diary overlay to go live. `embed-next` not added or started; no `EMBEDDING_*` key added.
+- **Deploy/infra:** whole `deploy/preflight/` installed (`web-env-keys.txt` +`NOEVIA_RUST_STATS`; old copy `tools/preflight.bak.before-2461e63b`). Live override web env gained `NOEVIA_RUST_STATS: ${NOEVIA_RUST_STATS:-0}` after `NOEVIA_RUST_ROUTING_DEFAULT`; `.env` untouched apart from `COWORK_VERSION`.
+
+Order: assemble on the Mac from a clean detached worktree (tarball `2e31028c…3cca` on both ends), `build-web-release.sh` on the box, `candidate-boot.sh` node and rust plus a rust probe with `NOEVIA_RUST_AUTH=1` (shell, 404 shell, session 401, setup 200, features), noevia CI green at the merge, then `cutover-web-2461e63b.sh`: idle gate, `.env`/Compose/preflight copies, `install.sh`, override edit validated with `docker compose config -q` and the rendered switches checked, web stopped for a scoped archive in `/mnt/disk3/noevia-backups/web_2461e63b_20261014T003015Z` (integrity and compare passed), `current` → `releases/2461e63b`, `COWORK_VERSION` by `sed`, web-only `up.sh ... --no-build --no-deps --wait web`. After: web healthy, restarts 0, ready at `2461e63b` on loopback and public, switch listings unchanged except the new `NOEVIA_RUST_STATS=0`; five-minute soak clean on all 12 cowork containers; only `cowork-web-1` changed id. Rollback target: web `1aed463c` (commands in `docs/changelog.md`; keep `NOEVIA_RUST_STATS`/`_ROUTING_DEFAULT` at `0`). Evidence: `/mnt/docker/appdata/cowork/release-prep/2461e63b/`.
+
 ## Release 1aed463c — 2026-10-13 (UI batch, #1635, #1620, #1621; web only; #1400 closed)
 
 ### Services
