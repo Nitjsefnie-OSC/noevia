@@ -23,7 +23,7 @@
   loads the saved models (only those; never during an apply; never when embedding is off; it backs
   off on repeated failure). Either way the model also loads on the first `POST /v1/embeddings`,
   because the llama.cpp router autoloads on that request. So after an `embed` recreate, `loaded` fills on the
-  watcher's next probe (≤30 s) or on the first embedding request. To check right away, send one synthetic
+  watcher's next probe (usually about 30 s plus load time; longer while a warm-up is already running or the watcher is backing off, up to 16 min) or on the first embedding request. To check right away, send one synthetic
   request (768-dim answer), then read `loaded`.
 
 
@@ -95,7 +95,7 @@ Live edits (Compose Manager project `Cowork`; the embed and model-loader blocks 
    `/mnt/docker/appdata/cowork/config/llamacpp/embedding.ini` has the one `[nomic-embed-text-v1]`
    section. Then recreate `embed` (`up.sh ... -d --no-deps embed`), wait for healthy, and check that
    the same GET reports `running.loaded: ["nomic-embed-text-v1"]` (the model manager loads it on the
-   watcher's next probe, ≤30 s, from the rs #1717 fix on; before that, or to check right away, send
+   watcher's next probe from the rs #1717 fix on (usually about 30 s plus load time; longer while a warm-up runs or during back-off); before that, or to check right away, send
    one synthetic `POST /v1/embeddings` first) and that
    `POST /v1/embeddings` from web returns 768-dim vectors. Then recreate `web` with the new release.
    The Diary needs no change.
