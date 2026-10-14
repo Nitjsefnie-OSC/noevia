@@ -119,11 +119,6 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBED_MODEL_FILE: ${EMBED_MODEL_FILE:-}
 
-  # web: one known address for the embedding service, used for projects and the Diary alike.
-  web:
-    environment:
-      EMBEDDING_SERVICE_URL: http://embed:8080/v1
-
   # #1636: EmbeddingGemma 2 (google/embeddinggemma-2, Apache-2.0; GGUF ggml-org/embeddinggemma-2-GGUF)
   # as a SECOND CPU embeddings server. #1668: superseded for switching by the settings-driven `embed`
   # above (it serves the next model beside the active one); kept for a manual parity run against a
@@ -191,6 +186,8 @@ services:
   web:
     environment:
       EMBEDDING_BASE_URL: http://embed:8080/v1
+      # #1668: the settings-driven embedding service's one address (projects and the Diary alike).
+      EMBEDDING_SERVICE_URL: http://embed:8080/v1
     depends_on:
       # [live: verify] deployment.md does not record the live depends_on
       # condition; service_started is used here so a healthcheck runner
