@@ -8,6 +8,38 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release a03fbc63 — 2026-10-14 14:09Z (web + model manager; live)
+
+What changed for you: the New chat button works again (#1716). After the embedding container restarts, the model manager now loads the embedding model again by itself (#1717), so search does not wait for a first request.
+
+### Services
+
+- **Web:** #1724, web `92b19d49` (web#56, #1716), core `75f470e0` (no change), services `deb6dbcb`, rs `c74836f5`. `cowork-web:a03fbc63`, `sha256:01e9390de171c15338e056a7a93237015ffaa03871f7088ef49bd1e5955648c5`, replacing `cowork-web:785643f4`. All eight rust switches stay `1`.
+- **Model manager:** `cowork-model-loader:a03fbc63`, `sha256:9a78968ec8205b8b6da4118148e890dc33f8076b55dcbe632ef3f0cd19c3f171` (services#45 rs pin → rs#106 #1717 watcher), replacing `cowork-model-loader:fbb960dd`. `MODEL_MANAGER_IMPL` stays `rust`.
+- **Embed:** same image and config, recreated once (14:13:16Z) as the #1717 proof.
+- **Docling:** no change (`cowork-docling:785643f4`, native mode). The rs diff `278c84c0..c74836f5` touches only `bins/noevia-model-manager`, so it was not rebuilt.
+- **Diary, OCR, Code sandbox, Laya, llama:** no change, not recreated.
+- **Deploy/infra:** `.env` `COWORK_VERSION=a03fbc63` and `MODEL_MANAGER_VERSION=a03fbc63`. Preflight reinstalled from the release.
+
+**Evidence.**
+- CI green: services#45 (6/6), noevia#1724 (all checks, including "Assembled release (pinned repos)"). The rs, web and services tarball checksums were each fetched twice, with identical results.
+- Candidates: `candidate-boot.sh` node and rust were both ready at `a03fbc63` with 0 error lines. The model-loader candidate ran with no network, a read-only root, all capabilities dropped, tmpfs and a throwaway token: healthy, `/api/v1/health` 200, 0 error lines, then removed. The new binary contains the watcher's log string; the `fbb960dd` binary does not.
+- Gates before each recreate: llama idle count 0, no autotune or Appdata Backup, at least 8 GiB available.
+- Web after: `/api/ready` `{"ready":true,"version":"a03fbc63"}` on loopback and on https://noevia.daserver.work. A signed-out `/api/projects` returns 401. The served `dist` equals the image's (143 files). Healthy, restarts 0, 0 error lines. Allow-listed flags are identical before and after.
+- Model manager after: healthy, restarts 0, flags identical. `GET /api/v1/embedding-service` from web returns 200: `managed:true`, nomic listed and loaded.
+- #1717 proof: embed was recreated 3.5 min after the model-manager boot, outside its boot warm-up. Without any embedding request, `nomic-embed-text-v1` was `loaded` within about 3 s and still `loaded` at +75 s. The watcher prints "router models loaded again" only after failed attempts, so a first-try load is silent.
+- Inventory: of 41 containers, only `cowork-web-1`, `cowork-model-loader-1` and `cowork-embed-1` changed id (plus `noevia-eval-decisions`, which the Kev eval run recreated independently). Snapshots: `state/snapshot.{before,after}-a03fbc63.txt`.
+- Backup: `/mnt/disk3/noevia-backups/release_a03fbc63_20261014T140906Z` (compose, llamacpp config, `.env` copy, web and model-loader state, `cowork.db` online backup with integrity `ok`, SHA256SUMS). Also `.env.bak.before-web-a03fbc63` and `.env.bak.before-model-loader-a03fbc63`.
+
+**Rollback.**
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env; UP="bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120"
+ln -sfn $A/releases/785643f4 $A/current
+sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=785643f4/; s/^MODEL_MANAGER_VERSION=.*/MODEL_MANAGER_VERSION=fbb960dd/' $ENV
+$UP model-loader; $UP web
+```
+
 ## Diary switch TENANT_ASSERTION_IMPL=rust — 2026-10-14 13:52Z (Diary only; live)
 
 What changed for you: nothing visible. The Diary now checks every web request's tenant signature twice, once in Python and once in the Rust `tenant-assertion` leaf. A request goes through only when both accept it (owner: "flip TENANT_ASSERTION_IMPL to rust, approved", #1147).

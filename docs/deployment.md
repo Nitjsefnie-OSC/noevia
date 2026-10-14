@@ -162,6 +162,17 @@ Cutover (no search downtime; web and Diary are not restarted):
    the running containers' command lines (`--model /models/...`) and these variables, and refuses to
    delete a file one of them still names, even after `finish`.
 
+## Release a03fbc63 — 2026-10-14 (web + model manager; #1716, #1717)
+
+### Services
+
+- **Web:** #1724, core `75f470e0`, web `92b19d49`, rs `c74836f5`, services `deb6dbcb`; `cowork-web:a03fbc63`, image `sha256:01e9390de171c15338e056a7a93237015ffaa03871f7088ef49bd1e5955648c5`. All eight rust switches stay `1`.
+- **Model manager:** `cowork-model-loader:a03fbc63` (`sha256:9a78968e…f171`, rs#106 watcher), `MODEL_MANAGER_IMPL=rust` unchanged.
+- **Embed:** same image, recreated once for the #1717 proof (nomic re-loaded without a request).
+- **Docling, Diary, OCR, Laya, code sandbox, llama:** no change, not recreated.
+
+Evidence and rollback: `docs/changelog.md`, entry a03fbc63.
+
 ## Release 785643f4 — 2026-10-14 (web; MODEL_MANAGER_IMPL=rust; #1668 embedding migration; Docling candidate built)
 
 ### Services
