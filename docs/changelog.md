@@ -8,6 +8,31 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Docling native mode on — 2026-10-14 13:42Z (`NOEVIA_DOCLING_IMPL=rust`; live)
+
+What changed for you: nothing visible. Document extraction now goes through the native `noevia-docling` server (#1322), with the same results: the synthetic PDF reads correctly and Markdown still gets the 415 "unsupported" answer. Owner-approved: "flip NOEVIA_DOCLING_IMPL to rust, approved".
+
+### Services
+
+- **Docling:** same image `cowork-docling:785643f4` (`sha256:efee3285…5204`), now in rust mode. Recreated 13:42:03Z, healthy, restarts 0. There is no Python fallback: if native fails, the service fails visibly (rollback below).
+- **Web, Diary, Model manager, OCR, Code sandbox, Laya, llama, embed:** no change, not recreated.
+- **Deploy/infra:** `.env` gained one key, `NOEVIA_DOCLING_IMPL=rust` (no other key changed). The override is unchanged: its passthrough `${NOEVIA_DOCLING_IMPL:-python}` now renders `rust` (checked with jq).
+
+**Evidence.**
+- Gates: llama idle 0 (checked again right before the recreate), load <1, no autotune or Appdata Backup process, live image ID `efee3285…` matched, and the key was absent from `.env`. Before the cutover, an isolated rust-mode boot of the same image (`--network none`, read-only, same hardening) went healthy and was then removed.
+- Attempt 1 (13:40:31Z) was rolled back automatically at 13:40:37Z because of a bug in the check script itself (`docker top -eo args` without a PID column errors), not because of the service. The rollback was verified: python mode, `/health` 200, `200 P4 PASS`, `.md` 415, only docling changed. Attempt 2 (13:42:03Z) used the fixed check.
+- P1 `cowork-docling:785643f4` healthy, restarts 0. P2 `NOEVIA_DOCLING_IMPL=rust`; `/sbin/docker-init -- noevia-docling` → child `noevia-docling` (uid 65534), no `python server.py`. After the first conversion, the native server keeps one worker child, `python /app/isolated_worker.py --stdout-replies extract:extract`. P3 `/health` 200 via web (native JSON). **P4** synthetic PDF `200 P4 PASS`; `.md` → 415. 0 zombie processes. P5 only `cowork-docling-1` changed (41 containers). P6 hardening identical (ro, init, cap_drop ALL, no-new-privileges, 6g, 2 CPUs, pids 128, tmpfs /tmp 1g, 65534). P7 at 13:44:41Z, 13:46:24Z and 13:48:09Z: healthy, restarts 0, traceback/error 0, zombies 0.
+- Backups: `/mnt/disk3/noevia-backups/docling_native_20261014T134202Z` (attempt 1: `…T134030Z`), plus `.bak.before-docling-native` beside `.env` and the override. Script and log: `state/docling-native-flip.sh`, `state/docling-native-flip.log` (attempt 1: `docling-native-flip.attempt1.log`).
+
+**Rollback (python mode, same image).**
+
+```sh
+sed -i '/^NOEVIA_DOCLING_IMPL=/d' /mnt/docker/appdata/cowork/config/.env
+bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 300 docling
+```
+
+Then check: `NOEVIA_DOCLING_IMPL=python` in the container, child `python server.py`, `/health` 200, P4 PASS. This exact rollback ran during attempt 1 and passed.
+
 ## Docling cutover 785643f4 — 2026-10-14 13:30Z (native mode off; live)
 
 What changed for you: Markdown files no longer go to Docling. They now get a clear "unsupported" answer (415) instead of the misleading "processing limits" error (#1711). PDF and other document extraction works as before. Native Docling stays off: `NOEVIA_DOCLING_IMPL` is not set, so the service runs `python server.py` (#1322, owner switch).
