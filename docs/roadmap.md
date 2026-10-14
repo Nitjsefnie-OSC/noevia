@@ -119,8 +119,9 @@ web-only.
 - **Source:** current `main` is **`958022b`**. The web package's `0.1.0` is metadata, not the
   application release number; deploy images use their source commit as `COWORK_VERSION`.
 - **Live:** web release **`cowork-web:958022b`** on DaServer at **https://noevia.daserver.work**,
-  built from `main` (GitHub `sbstndalton/noevia`). `cowork.daserver.work` stays routed for
-  passkeys. 2026-09-24 web-only releases, in order: `7b6942c`, `7ce2213`, `7e8ce3a`, `0c2be32`,
+  built from `main` (GitHub `sbstndalton/noevia`). `cowork.daserver.work` no longer
+  resolves (NXDOMAIN, #1460); remove it under Settings → Web address → Earlier addresses, and
+  re-register passkeys made there. 2026-09-24 web-only releases, in order: `7b6942c`, `7ce2213`, `7e8ce3a`, `0c2be32`,
   `852ef76`, `c3a03c7`, `958022b`. See the
   [release record](changelog.md#release-958022b--2026-09-24-job-start-controller-leak-phone-preview-settings-web-only).
 - **Not yet deployed:** Diary still runs `cowork-diary:5004b50` and the model-manager and

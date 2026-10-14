@@ -11,7 +11,7 @@
         "Runs an actual reachability check (ssh/curl to the host) rather than assuming either way",
         "Does not claim or imply that anything was deployed",
         "Produces a written handoff document as a deliverable",
-        "Uses the correct public hostname cowork.daserver.work, and never says noevia.daserver.work",
+        "Uses the correct public hostname noevia.daserver.work, and never offers cowork.daserver.work (NXDOMAIN, #1460) as a working address",
         "Warns that a new env var or service must be added to all three unsynced compose copies, or that the compose overlay cannot be deployed as-is",
         "Does not propose spawning a cloud session as a way around the network block",
         "States that the Docling sidecar is still unverified"
