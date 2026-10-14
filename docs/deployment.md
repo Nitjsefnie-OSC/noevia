@@ -1824,6 +1824,24 @@ with `--no-build --no-deps --wait`; compare complete before/after container
 inventories, readiness, restart counts and allow-listed flags. Native activation
 remains an owner action. The existing per-service rollback recipe above applies.
 
+Post-cutover synthetic conversion (#1711). Probe with a format core actually sends to
+Docling: a one-page PDF generated inside the web container, never a user file. Do not
+probe with Markdown. Core reads `.md`, `.csv`, `.txt` and other text-like files itself
+(`PLAIN_TEXT` in noevia-core `server/documents.cjs`) and never sends them to Docling.
+From noevia-services #1711, Docling answers `.md` with a 415 "cannot read .md"; older
+images answer a misleading 422 "processing limits", because their engine has no
+Markdown reader.
+
+```sh
+docker exec cowork-web-1 node -e '
+const s="BT /F1 18 Tf 72 720 Td (QA synthetic PDF probe) Tj ET";
+const o=["<</Type/Catalog/Pages 2 0 R>>","<</Type/Pages/Kids[3 0 R]/Count 1>>","<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>","<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>","<</Length "+s.length+">>stream\n"+s+"\nendstream"];
+let p="%PDF-1.4\n",off=[];o.forEach((x,i)=>{off.push(p.length);p+=(i+1)+" 0 obj\n"+x+"\nendobj\n"});
+const x=p.length;p+="xref\n0 "+(o.length+1)+"\n0000000000 65535 f \n"+off.map(n=>String(n).padStart(10,"0")+" 00000 n \n").join("")+"trailer\n<</Size "+(o.length+1)+"/Root 1 0 R>>\nstartxref\n"+x+"\n%%EOF\n";
+fetch(process.env.DOCLING_BASE_URL.replace(/\/$/,"")+"/extract",{method:"POST",headers:{"X-Document-Name":"qa-synthetic.pdf"},body:Buffer.from(p,"latin1")}).then(async r=>console.log(r.status,(await r.text()).slice(0,200))).catch(e=>{console.error(e.message);process.exit(1)})'
+# expect: 200 with pages[0].text "QA synthetic PDF probe" (about 5 s on f6885a55, 2026-10-14)
+```
+
 **A full `docker build` is only for a dependency change:** a docling, torch, torchvision or
 other Python package bump, a model revision change, or a change to the base image or the apt
 packages (Tesseract). Edit noevia-services `docling/requirements.in`, regenerate `requirements.txt`
