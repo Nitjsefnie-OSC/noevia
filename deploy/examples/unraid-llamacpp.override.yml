@@ -3,7 +3,7 @@
 # GPU test containers first; disable their automatic restart while native is live.
 services:
   llama:
-    image: ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b
     restart: unless-stopped
     # #697: `--models-max 1` — one resident model. On a shared-memory GPU (AMD APU) weights and KV
     # live in GTT, system RAM this container's mem_limit does not count; two large models plus
@@ -72,7 +72,7 @@ services:
   # llama.cpp router serving exactly what the model manager wrote to /config/embedding.ini: one
   # model, two during a switch, none when embedding is off (then this container is stopped).
   embed:
-    image: ${EMBED_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41}
+    image: ${EMBED_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b}
     restart: unless-stopped
     command: ["--models-preset", "/config/embedding.ini", "--models-max", "2", "--device", "none", "--embedding", "--pooling", "mean", "-c", "4096", "-b", "2048", "-ub", "2048", "--parallel", "2", "-t", "4", "--host", "0.0.0.0", "--port", "8080"]
     volumes:

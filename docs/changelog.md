@@ -8,6 +8,45 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## llama.cpp image b11610 on embed and the chat engine — 2026-10-14 14:22Z / 14:32Z (live)
+
+What changed for you: nothing visible. Both llama.cpp containers now run build 11610 instead of 10920 (owner: "approve the llama.cpp update, I can't imagine it would break anything in any other capacity honestly"). The new build can run EmbeddingGemma 2 (#1636), but the embedding model is **not** switched: nomic stays live. The switch needs its own owner approval.
+
+### Services
+
+- **Embed:** `ghcr.io/ggml-org/llama.cpp:server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b` (image id `904a8885…`), replacing `server-vulkan@sha256:94bd70ef…ea41` (b10920, id `9f88885b…`). Same command, same `embedding.ini` (nomic only), still CPU-only (`--device none`). Recreated 14:21:58Z, healthy, restarts 0.
+- **llama (chat engine):** same new digest, recreated 14:32:45Z, healthy, restarts 0. Same command (`--port 8080` is pinned, so the new 9931 default does not apply), same `models.ini`, same Vulkan devices, memory limit and cache mount.
+- **Web, Diary, Model manager, OCR, Docling, Code sandbox, Laya:** no change, not recreated.
+- **Deploy/infra:** the live override changes in exactly two lines: L41 (embed) and L6 (llama). This PR moves the same digest into `compose.llamacpp.yaml`, `compose.embed.yaml` and `deploy/examples/unraid-llamacpp.override.yml`. `compose.rerank.yaml`, the experiments and the evidence files keep their historical digest.
+
+**Evidence: embed (plan A in #1636).**
+- Pull verified by RepoDigest (`d6404357…475b`); `--version` reports build 11610, commit `091b6a7fc`.
+- Candidate: `--network none`, same args on port 8081, a read-only copy of `embedding.ini`, only the nomic folder mounted read-only. `/health` 200, `/v1/models` lists nomic, and a synthetic "QA synthetic sentence" returns 768 dims. **Cosine against live b10920 is 1.00000000** (max absolute difference 0), so the stored nomic vectors stay valid. Candidate removed.
+- Attempt 1 (14:20:26Z) rolled back automatically at 14:21:18Z because of a bug in the check script (its Diary-path counter missed the first number, so it read 767). The service was fine: web path 200/768. The rollback was verified (override byte-identical to the backup, nomic loaded, embedding-service 200), and the fixed counter read 768 against b10920. Attempt 2 passed.
+- After (attempt 2): healthy, restarts 0. nomic `loaded` without any request. On attempt 1 it went `unloaded` to `loaded` within 45 s: the #1717 watcher at work. The web path returns 200 with 768 dims. A throwaway container on `cowork_default` (the Diary's network; no Diary content touched) gets 768 numbers. `GET /api/v1/embedding-service` 200 (listed and loaded nomic). Embed error lines 0. Only `cowork-embed-1` changed among the cowork containers.
+
+**Evidence: chat engine (plan B).**
+- Gates right before the recreate: the Kev eval container `noevia-eval-decisions` stopped (exited 14:26:40Z, no restart in the following 3.5 min), llama idle count 0, 13 GiB available, no autotune or Appdata Backup.
+- Flag check: every key in `models.ini` (including the per-preset `cache-ram` caps, #697, plus `spec-type`, `flash-attn`, `reasoning-format`, `cache-type-k`/`-v` and `-ngl`) exists in b11610's `--help`.
+- Candidate: `--network none`, `--device none` (CPU), same command on port 8082, a read-only copy of `models.ini`, no model loaded. `/health` 200. All 8 presets parse and list as `unloaded`. The only error line is `gguf_init_from_file` for `laya_multilingual_f16.gguf`, a file that is already missing on disk. b11610 reads GGUF metadata while parsing presets and b10920 did not; it is not fatal, and the preset is still listed. Candidate removed.
+- After: healthy, restarts 0. `/v1/models` lists the same 8 models as before. `--list-devices` in the live container shows `Vulkan0: AMD Radeon 890M Graphics (RADV STRIX1)`. One synthetic chat request on the Fast role model `gemma-4-12b-it-qat-q4_0` ("Reply with the word OK", `max_tokens` 8) returned HTTP 200 in 8.3 s including the model load, with no error and 10.6 tokens/s decode. `content` was empty with `finish_reason: length`: this preset has no `reasoning-format`, so the 8 tokens most likely went to the extracted reasoning. Not a benchmark. Llama error lines 0 (excluding the Laya file above). Web `/api/ready` `a03fbc63`. Only `cowork-llama-1` changed.
+- The old image (`9f88885b…`, b10920) is still on disk. Nothing was pruned.
+
+**Backups.** `/boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml.bak.before-llamacpp-b11610-embed` and `.bak.before-llamacpp-b11610-chat`. Scripts and logs: `state/llamacpp-b11610-{embed,chat}.{sh,log}` (plus `llamacpp-b11610-embed.attempt1.log`).
+
+**Rollback** (either container alone; the b10920 image is local):
+
+```sh
+O=/boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml
+UP="bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 180"
+# chat engine only: put L6 back to b10920
+sed -i '6s#server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b#server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41#' $O; $UP llama
+# embed only: put L41 back
+sed -i '41s#server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b#server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41#' $O; $UP embed
+```
+
+(Or restore both lines at once with `cp -p $O.bak.before-llamacpp-b11610-embed $O`, which predates both edits, then run `$UP embed` and `$UP llama`.) Run the idle gate before the llama recreate.
+
 ## Release a03fbc63 — 2026-10-14 14:09Z (web + model manager; live)
 
 What changed for you: the New chat button works again (#1716). After the embedding container restarts, the model manager now loads the embedding model again by itself (#1717), so search does not wait for a first request.

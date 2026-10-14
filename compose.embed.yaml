@@ -40,7 +40,7 @@ services:
     # live embed image's actual tag/digest; it may not match this one.
     # #1668: EMBED_IMAGE moves the embedding service to another llama.cpp build (EmbeddingGemma 2
     # needs one with `gemma-embedding2`, #1636); the default is the digest recorded above.
-    image: ${EMBED_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41} # [live: verify]
+    image: ${EMBED_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b} # live since 2026-10-14 (b11610, same digest as llama; docs/changelog.md)
     restart: unless-stopped # [live: verify] restart policy is not recorded in deployment.md
     # #1668: settings-driven. This is a llama.cpp ROUTER that serves exactly the models listed in
     # /config/embedding.ini, a file only the model manager writes (noevia-rs noevia-model-manager,
