@@ -105,6 +105,33 @@ bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/app
 
 The override passthrough can stay, since it defaults to python. To restore the override as well: `cp -p /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml.bak.before-tenant-assertion-rust /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml` before the `up.sh`.
 
+## Laya cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (Laya only; live)
+
+What changed for you: nothing visible. Laya now runs the image with the late-answer guards (#1074) and the native front (#1326). Owner-approved: "flip the Laya cutover to noevia too" (one Laya restart).
+
+### Services
+
+- **Laya:** `cowork-laya:0.3.5-noevia4` (`sha256:ee818185…`) → `cowork-laya:0.3.5-noevia5` (`sha256:693afb307cffb529edb83ee588ba83bb02655459431b0b5133609d0f12add2c1`; services `e8c91b9a`, rs `0012da31`, built in release 20b07d3f FROM noevia4 with `REUSE_CPU_RUNTIME=true`). Recreated 15:01:17Z, healthy, restarts 0. `NOEVIA_LAYA_IMPL` is not set, so the `noevia-laya` entrypoint execs `python /service/server.py` (legacy selector, the #1326 default). Native mode (`NOEVIA_LAYA_IMPL=rust`) is in the image and passed an isolated candidate check, but switching it on live is a separate owner switch.
+- **Web, Diary, Model manager, OCR, Docling, Code sandbox, llama, embed:** no change, not recreated.
+- **Deploy/infra:** live `docker-compose.yml` laya `image:` line only (`noevia4` → `noevia5`); the `build.context` still points at the patched `laya/noevia4-70864f26` directory and was not touched (`--no-build`). `.env` unchanged.
+
+**Image diff (noevia4 → noevia5).** File lists differ only by `usr/local/bin/noevia-laya` (new, sha256 `59e26bf5…4763`). `/service/server.py` changed (sha256 `858f3909…c76d` in both the image and the live container): the #1074 guards (no send once an abandoned answer used the whole deadline; late mark only on the worker the request went to) and the #1326 framed engine worker (`--engine-worker`, u32 length + JSON, 16 KiB frames). Entrypoint `noevia-laya`. No dependency layer changed.
+
+**Evidence.**
+- Candidates (same image, `--network none`, read-only, uid 1000, cap_drop ALL, no-new-privileges, 6g, 2 CPUs, pids 128, model mount read-only, removed afterwards). Default mode at 1.8 s: process `python /service/server.py`, `/health` 200, synthetic 3-option decision `200 selected=answer` (answer 0.8878, code 0.0566, search 0.0556), 2.3 GiB. #1074 at the 0.5 s floor: overlapping and follow-up requests returned 503 (deadline), health stayed 200, then the same worker answered `200 answer` with no worker replacement, no traceback, 0 restarts. #1326 rust mode: `noevia-laya` parent + `python /service/server.py --engine-worker` child, `/health` 200, two decisions `200 answer` with identical scores.
+- Gates: the cutover waited for the Kev decision eval (several rounds, including a live-Laya baseline run) and the reranker eval to stop. At 15:01:07Z: llama activity 0 in 3 min, Laya CPU 0, no eval container, harness, `up.sh`, autotune or backup process.
+- After: `cowork-laya-1` id `712f944f…`, image noevia5, healthy, restarts 0, `LAYA_DECISION_TIMEOUT_S=1.8` kept. One synthetic decision from `cowork-web-1` via its `COWORK_DECISION_URL`: `200 selected=answer`, 575 ms. Of 38 running containers only `cowork-laya-1` changed id or start time. Web log soak 15:01:38Z–15:07:25Z: 0 decision/Laya timeout or error lines (no real decision traffic in that window); Laya healthy, restarts 0, 0 traceback lines, 2.2 GiB.
+- Files on DaServer: compose backup `docker-compose.yml.bak.before-laya-noevia5`; script/log `state/laya-noevia5/recreate.sh`, `state/laya-noevia5.log`; identity snapshots `state/laya-noevia5/{before,after}.txt`; image diff `state/laya-noevia5-diff/`.
+
+**Rollback (to noevia4).**
+
+```sh
+cp -a /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml.bak.before-laya-noevia5 /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml
+bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env --profile laya -- -d --no-build --no-deps --wait --wait-timeout 180 laya
+```
+
+Then check: image `cowork-laya:0.3.5-noevia4`, healthy, restarts 0, a synthetic `/v1/decisions` returns `selected` in the options.
+
 ## Docling native mode on — 2026-10-14 13:42Z (`NOEVIA_DOCLING_IMPL=rust`; live)
 
 What changed for you: nothing visible. Document extraction now goes through the native `noevia-docling` server (#1322), with the same results: the synthetic PDF reads correctly and Markdown still gets the 415 "unsupported" answer. Owner-approved: "flip NOEVIA_DOCLING_IMPL to rust, approved".
