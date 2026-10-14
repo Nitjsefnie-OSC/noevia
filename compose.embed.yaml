@@ -38,35 +38,57 @@ services:
     # on record — and relies on `--device none` below to keep this instance
     # CPU-only. # same image as llama by design [live: verify] confirm the
     # live embed image's actual tag/digest; it may not match this one.
-    image: ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41 # [live: verify]
+    # #1668: EMBED_IMAGE moves the embedding service to another llama.cpp build (EmbeddingGemma 2
+    # needs one with `gemma-embedding2`, #1636); the default is the digest recorded above.
+    image: ${EMBED_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41} # [live: verify]
     restart: unless-stopped # [live: verify] restart policy is not recorded in deployment.md
+    # #1668: settings-driven. This is a llama.cpp ROUTER that serves exactly the models listed in
+    # /config/embedding.ini, a file only the model manager writes (noevia-rs noevia-model-manager,
+    # /api/v1/embedding-service) from the admin's choice on the Models page. EMBEDDING_MODEL +
+    # EMBED_MODEL_FILE below seed that choice on first start only; afterwards the saved choice wins.
+    # Normally one model; two while a switch re-indexes (the active one keeps serving search); none
+    # when embedding is off, and then the model manager stops this container. The flags after the
+    # preset are the defaults every model here gets: CPU only (`--device none`, so it never
+    # competes with the chat engine for GPU memory and no chat load can evict it), embeddings,
+    # mean pooling (#697: same as the live nomic section, so stored vectors stay comparable).
     command:
+      - "--models-preset"
+      - "/config/embedding.ini"
+      - "--models-max"
+      - "2"
       - "--device"
       - "none"
-      - "--embedding"  # [live: verify] not spelled out in deployment.md; required for /v1/embeddings
-      # #697: same GGUF file and pooling as the engine's [nomic-embed-text-v1] section (live:
-      # /models/nomic-embed-text-v1/nomic-embed-text-v1.Q8_0.gguf, pooling mean), so Diary's
-      # stored vectors stay comparable when its embeddings move here. tools/embed-parity-check.cjs
-      # checks it (min cosine >= 0.997 over a synthetic sample, top-5 overlap >= 0.9; #720).
+      - "--embedding"
       - "--pooling"
       - "mean"
-      - "--model"
-      - "/models/${EMBED_MODEL_FILE:?Set the embedding model's GGUF filename}"  # [live: verify] exact filename
-      - "--host"
-      - "0.0.0.0"
-      - "--port"
-      - "8080"
       - "-c"
       - "4096"
+      - "-b"
+      - "2048"
       - "-ub"
       - "2048"
       - "--parallel"
       - "2"
+      - "-t"
+      - "4"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
     volumes:
       # [live: verify] deployment.md does not record whether embed shares
       # LLAMACPP_MODELS_DIR or has its own folder; sharing is the safest
       # default since it needs no extra operator-provided variable.
       - ${LLAMACPP_MODELS_DIR:?Set the existing public models directory}:/models:ro
+      # #1668: read-only; the model manager (which mounts it read-write) owns embedding.ini here.
+      - ${LLAMACPP_CONFIG_DIR:?Set the llama.cpp config directory}:/config:ro
+    # The model manager renders embedding.ini before it reports healthy, so a fresh start never
+    # shows the router a missing preset.
+    depends_on:
+      model-loader:
+        condition: service_healthy
+    # Two models are loaded at once only during a switch. nomic (Q8_0) needs ~0.3 GiB; EmbeddingGemma
+    # 2 on an image without llama.cpp #30255 needs ~3 GiB at -ub 2048 (#1636): raise this first.
     mem_limit: ${EMBED_MEMORY_LIMIT:-1g}
     memswap_limit: ${EMBED_MEMORY_LIMIT:-1g} # [live: verify] not recorded in deployment.md; set equal to mem_limit to disable swap
     cpus: ${EMBED_CPUS:-1.0}  # [live: verify] not recorded; chosen to leave headroom next to docling/ocr
@@ -86,8 +108,21 @@ services:
     # [live: verify] whether the live `default` network here is this project's
     # own default or the external `lemonade_default` network (docs/deployment.md).
 
+  # #1668: with this overlay the model manager (compose.llamacpp.yaml) runs the embedding service.
+  # It may restart or stop EMBED_CONTAINER and nothing else (its only Docker write path).
+  model-loader:
+    environment:
+      EMBED_CONTAINER: ${EMBED_CONTAINER:-cowork-embed-1}
+      EMBED_URL: http://embed:8080
+      EMBED_PRESET_PATH: /config/embedding.ini
+      # Seeds, read once when no saved choice exists (DATA_DIR/embedding-service.json).
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBED_MODEL_FILE: ${EMBED_MODEL_FILE:-}
+
   # #1636: EmbeddingGemma 2 (google/embeddinggemma-2, Apache-2.0; GGUF ggml-org/embeddinggemma-2-GGUF)
-  # as a SECOND CPU embeddings server, so every index can be re-embedded while `embed` (nomic) keeps
+  # as a SECOND CPU embeddings server. #1668: superseded for switching by the settings-driven `embed`
+  # above (it serves the next model beside the active one); kept for a manual parity run against a
+  # separate image. As before, so every index can be re-embedded while `embed` (nomic) keeps
   # serving search. Off unless the `embed-next` profile is enabled:
   #
   #   docker compose -f compose.yaml -f compose.embed.yaml --profile embed-next up -d embed-next
@@ -151,6 +186,8 @@ services:
   web:
     environment:
       EMBEDDING_BASE_URL: http://embed:8080/v1
+      # #1668: the settings-driven embedding service's one address (projects and the Diary alike).
+      EMBEDDING_SERVICE_URL: http://embed:8080/v1
     depends_on:
       # [live: verify] deployment.md does not record the live depends_on
       # condition; service_started is used here so a healthcheck runner
