@@ -19,11 +19,10 @@
 # Joining `models` exposes embed to llama/web/model-loader only; the reverse
 # (putting model-loader on `default`) would expose the socket holder to Diary.
 #
-# The live embed image's tag/digest is not recorded, so this overlay pins the
-# `embed` service to the SAME image digest as compose.llamacpp.yaml's `llama`
-# service (the `server-vulkan` build) — the only llama.cpp digest this repo
-# has on record — and relies on `--device none` to run it CPU-only. This is
-# openly the same image as llama by design, not the plain `server` variant.
+# Image: `embed` and `embed-next` both pin llama.cpp `server-vulkan-b11610`
+# (sha256:d64043576ad8…ccb475b), the same digest as the live `llama` and `embed`
+# since 2026-10-14 (#1636, #1732). `--device none` runs it CPU-only. It is the
+# same image as llama by design, not the plain `server` variant.
 #
 # Several fields are not fully recorded in docs/deployment.md. Each is
 # marked "[live: verify]" below with the safest value chosen in its place;
@@ -31,13 +30,8 @@
 
 services:
   embed:
-    # Live notes say only "pinned llama.cpp image" (no tag/digest recorded), and
-    # no plain `server`-tag digest is recorded anywhere in this repo to pin
-    # against. Rather than invent one, this reuses compose.llamacpp.yaml's
-    # `server-vulkan` digest — the only pinned llama.cpp digest this repo has
-    # on record — and relies on `--device none` below to keep this instance
-    # CPU-only. # same image as llama by design [live: verify] confirm the
-    # live embed image's actual tag/digest; it may not match this one.
+    # The live `embed` image: llama.cpp `server-vulkan-b11610`, the same digest as `llama` and as
+    # `embed-next` below (checked on DaServer 2026-10-14). `--device none` keeps it CPU-only.
     # #1668: EMBED_IMAGE moves the embedding service to another llama.cpp build (EmbeddingGemma 2
     # needs one with `gemma-embedding2`, #1636); the default is the digest recorded above.
     image: ${EMBED_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b} # live since 2026-10-14 (b11610, same digest as llama; docs/changelog.md)
@@ -87,8 +81,11 @@ services:
     depends_on:
       model-loader:
         condition: service_healthy
-    # Two models are loaded at once only during a switch. nomic (Q8_0) needs ~0.3 GiB; EmbeddingGemma
-    # 2 on an image without llama.cpp #30255 needs ~3 GiB at -ub 2048 (#1636): raise this first.
+    # Two models are loaded at once during a switch, and until `finish` (the rollback model stays
+    # served). Measured 2026-10-14 on b11610 (#1636), nomic + EmbeddingGemma 2 (Q8_0) in one router,
+    # two parallel ~1,900-token inputs per model: anon peak 463 MiB plus ~0.45 GiB of mmapped
+    # weights. At 1g the cgroup sat at its limit and re-read the weights (53k file refaults), so
+    # set EMBED_MEMORY_LIMIT=2g before a switch (live since 2026-10-14). One model fits in 1g.
     # #1726: with NOEVIA_MULTIMODAL_RAG on, embedding images loads `<model>.vision` beside the text
     # model: a second copy of the weights plus the projector (EmbeddingGemma 2 mmproj ~0.55 GiB F16).
     # Raise this before turning it on; web pauses image embedding while a switch holds two models.
@@ -139,15 +136,14 @@ services:
   # until `finish`. Nothing here is started, pulled or downloaded by default.
   #
   # Image: the architecture (`gemma-embedding2`) is in llama.cpp from b11452 (#30054, merged
-  # 2026-10-06); the first published server-vulkan image with it is b11459. The default below is
-  # b11580 (2026-10-13), which also has #30416. Neither has #30255/#30445 (merged 2026-10-13): until
-  # then llama-server keeps a logits buffer of vocabulary (262,144) x batch tokens for this model,
-  # about 1 MiB per token of `-ub`, which is why the default memory limit is 3g at -ub 2048. With a
-  # later image that has #30255, 1536m is enough (Q8_0 weights 0.29 GiB plus compute).
+  # 2026-10-06). The default below is b11610, the same digest as the live `embed` and `llama`
+  # (#1732). It has #30255 and #30445, so llama-server no longer keeps the ~1 MiB-per-token logits
+  # buffer older builds (b11580 and before) kept for this model. The 3g default dates from those
+  # builds; on b11610 EmbeddingGemma 2 alone needs well under 1 GiB (see `embed` above).
   # The model's own context is 8,192 tokens; one input must fit one ubatch (non-causal model).
   embed-next:
     profiles: [embed-next]
-    image: ${EMBED_NEXT_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan-b11580@sha256:ee2ecb9c3a4d6fa00b918b133fd7a2828195593688eeaef6e6516ef833f88f09}
+    image: ${EMBED_NEXT_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b}
     restart: unless-stopped
     command:
       - "--device"
@@ -164,8 +160,8 @@ services:
       - "0.0.0.0"
       - "--port"
       - "8080"
-      # Two slots of 2048 tokens, like `embed`: a chunk up to 2048 tokens fits one ubatch. Raise
-      # -c/-b/-ub together (up to 2 x 8192) only with an image that has #30255.
+      # Two slots of 2048 tokens, like `embed`: a chunk up to 2048 tokens fits one ubatch. -c/-b/-ub
+      # can be raised together (up to 2 x 8192); the image has #30255.
       - "-c"
       - "${EMBED_NEXT_CTX:-4096}"
       - "-b"
