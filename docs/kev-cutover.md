@@ -96,7 +96,7 @@ only difference is that production opens the database read-write, so this open i
 `createDecisionSettings` only reads the key once when created and writes nothing; the script prints `source` and
 the URL and nothing else:
 ```sh
-docker exec cowork-web-1 node -e '
+docker exec -w /app/server cowork-web-1 node -e '
 const path=require("path"),Database=require("better-sqlite3");
 const dir=process.env.UI_DATA_DIR||"/app/server/ui-data";
 const db=new Database(path.join(dir,"cowork.db"),{readonly:true,fileMustExist:true});
@@ -223,7 +223,7 @@ First the Saved-setting check (the production settings store, read-only): it mus
 the script below runs the shipped code against the live env only (its settings store is a stub, so it cannot see a
 URL saved in Settings; the Saved-setting check does that):
 ```sh
-docker exec cowork-web-1 node -e '
+docker exec -w /app/server cowork-web-1 node -e '
 const s=require("/app/server/decision-settings.cjs").createDecisionSettings({store:{get:()=>null,set(){}},env:process.env});
 const b=s.backend(), z=s.sensitivityBackend();
 console.log("shared",b.model,b.wording,"sensitivity",z.model,z.wording);

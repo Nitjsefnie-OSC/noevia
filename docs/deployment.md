@@ -162,6 +162,17 @@ Cutover (no search downtime; web and Diary are not restarted):
    the running containers' command lines (`--model /models/...`) and these variables, and refuses to
    delete a file one of them still names, even after `finish`.
 
+## Release d37a16e5 — 2026-10-14 (whole stack: web + model manager + Docling; #1726 off, #1639 wording)
+
+### Services
+
+- **Web:** #1746, core `05f24386`, web `92b19d49`, rs `0ad61a35`, services `97ccd8ac`; `cowork-web:d37a16e5`, image `sha256:5907d421e3ce128d2a76c1e22a1c22cd9b5adfce603e89fde331cc9f828c79a4`. `NOEVIA_MULTIMODAL_RAG` and the Kev decision keys are not set.
+- **Model manager:** `cowork-model-loader:d37a16e5` (`sha256:43c37c7d…77af0`, rs#107 `.vision` preset, off), `MODEL_MANAGER_IMPL=rust` unchanged.
+- **Docling:** `cowork-docling:d37a16e5` (`sha256:011b7e6d…1591`), overlay `FROM cowork-docling:785643f4` with the new binary and services#46 files; `NOEVIA_DOCLING_IMPL=rust` unchanged.
+- **OCR, Diary, Laya, code sandbox, llama, embed:** no change, not recreated (only the rs pin line changed in their Dockerfiles, and none of their rs targets depend on the changed crates; core's `code-sandbox/` is untouched).
+
+Order: assembled on the Mac, `build-web-release.sh`, then `candidate-boot.sh` with the node and rust fronts. Then three separate guarded cutovers, each with an idle gate, a scoped backup, a `--no-build --no-deps --wait` recreate of one service, and automatic rollback on a failed post-check: web at 16:45Z, model-loader at 17:37Z after an isolated candidate, and Docling at 17:42Z after an isolated rust-mode candidate with the synthetic probe. Only those three containers changed id. Evidence and rollback commands are in `docs/changelog.md`, entry d37a16e5.
+
 ## Laya cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (Laya only)
 
 ### Services
