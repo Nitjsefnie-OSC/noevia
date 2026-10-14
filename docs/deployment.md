@@ -57,6 +57,16 @@ Cutover (no search downtime; web and Diary are not restarted):
    the running containers' command lines (`--model /models/...`) and these variables, and refuses to
    delete a file one of them still names, even after `finish`.
 
+## Release d119c502 — 2026-10-14 (Models page overhaul, upload fixes; web only)
+
+### Services
+
+- **Web:** #1669, core `618a1d84`, web `b6f41f5a`, rs `b35f9f5a`; `cowork-web:d119c502`, image `sha256:b5f9fb4d9915e8226029c5e7dd4bd138aa386a5d14238f733709c65d48f57d95`. All eight rust switches stay `1`; the front has every matching feature.
+- **Diary, model manager, code sandbox, OCR, Docling, Laya, llama, embed:** no change, not recreated. Services `9e46d0d8` pinned only.
+- **Deploy/infra:** no preflight install or override edit (deploy/ unchanged except the egress-proxy rs pin); `.env` untouched apart from `COWORK_VERSION`.
+
+Order: assemble on the Mac from a clean detached worktree (tarball `049e6aa2…9b14` on both ends), `build-web-release.sh` on the box, `candidate-boot.sh` node and rust plus a rust probe with all eight switches `1`, noevia CI green at the merge, then `cutover-web-d119c502.sh`: env-switch and image-feature gates, idle gate (jobs, tuning, llama slots, no generation in 3 min), web stopped for a scoped archive in `/mnt/disk3/noevia-backups/web_d119c502_20261014T031318Z`, `current` → `releases/d119c502`, `COWORK_VERSION` by `sed`, web-only `up.sh ... --no-build --no-deps --wait web`. The first attempt auto-rolled back on a script bug (see changelog); the rerun passed. Five-minute soak clean; only `cowork-web-1` changed id. Rollback target: web `2461e63b` (commands in `docs/changelog.md`). Evidence: `/mnt/docker/appdata/cowork/release-prep/d119c502/`.
+
 ## Release 2461e63b — 2026-10-14 (core main incl. #1647 gate, rust-routing-default + rust-stats built; web only)
 
 ### Services
