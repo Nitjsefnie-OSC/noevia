@@ -20,7 +20,7 @@ only Docker write path). `EMBEDDING_MODEL` + `EMBED_MODEL_FILE` seed the choice 
 what the service serves or still holds, not the env name; a model the router reports loaded is never
 deletable (#336).
 
-Needs, in one release: noevia-rs (model manager) with `fa48b79` or later — **pin bump in the
+Needs, in one release: noevia-rs (model manager) with `d9fce57` or later (the #1668 review fixes) — **pin bump in the
 services Dockerfiles' `RS_REF` + archive sha256, `release/versions.lock` and the egress Dockerfile**;
 noevia-services (`model-manager/app/services.py`); noevia-core; noevia-web; this repo. The
 EmbeddingGemma 2 download (#1636) is not part of it: nomic stays the live model.
@@ -38,6 +38,15 @@ Live edits (Compose Manager project `Cowork`; the embed and model-loader blocks 
    ```
 1. `.env`: add `EMBED_MODEL_FILE=nomic-embed-text-v1/nomic-embed-text-v1.Q8_0.gguf` (relative to the
    models folder). `EMBEDDING_MODEL=nomic-embed-text-v1` is already there; keep it (it is the seed).
+   `MODEL_LOADER_TOKEN` must be set: with `EMBED_CONTAINER` set the model manager refuses to start
+   without it (its embedding-service route restarts and stops a container).
+
+   **Both seed values must be non-empty on this first boot.** With either one empty or wrong, the
+   service starts off. The review-fixed model manager does not save that, so fixing `.env` and
+   recreating `model-loader` seeds it properly; older builds (`fa48b79`) saved it as "off" for good,
+   and then only the Models page (or deleting `embedding-service.json`) turns it back on. Check the
+   two values without printing anything else: `grep -cE '^(EMBEDDING_MODEL|EMBED_MODEL_FILE)=.+$'
+   /mnt/docker/appdata/cowork/config/.env` must print `2`.
 2. Override, `model-loader.environment`: add
    ```yaml
       EMBED_CONTAINER: cowork-embed-1
@@ -56,7 +65,9 @@ Live edits (Compose Manager project `Cowork`; the embed and model-loader blocks 
    `LLM_EMBED_BASE_URL` as they are (same server).
 5. Order: recreate `model-loader` (new image) first and check, with the token from `.env` (never
    print it), `GET http://model-loader:8090/api/v1/embedding-service` from `cowork-web-1`:
-   `managed: true`, `models: [{model: nomic-embed-text-v1, file: nomic-embed-text-v1/…}]`, and
+   `managed: true`, `models: [{model: nomic-embed-text-v1, file: nomic-embed-text-v1/…}]` (**stop
+   here if `models` is empty or the answer has an `error`**: fix `.env` / the state file first;
+   recreating `embed` with an empty preset leaves embedding off), and
    `/mnt/docker/appdata/cowork/config/llamacpp/embedding.ini` has the one `[nomic-embed-text-v1]`
    section. Then recreate `embed` (`up.sh ... -d --no-deps embed`), wait for healthy, and check that
    the same GET reports `running.loaded: ["nomic-embed-text-v1"]` (the model manager loads it) and that
@@ -71,6 +82,9 @@ web` with the previous image tags in `.env`. The old `embed` command loads nomic
 again; `embedding.ini` and `embedding-service.json` are ignored by the old images and can stay. If
 embedding had been switched to another model meanwhile, roll the embedding back first
 (`POST /api/embedding {"action":"rollback"}`) so the saved configuration and the fixed command agree.
+If embedding had been turned **off**, the model manager stopped `cowork-embed-1` and the old images
+never start it again by themselves: make sure the rollback command names `embed` with `--no-deps`
+(`up.sh ... -d --no-deps embed`) and check `docker ps` shows `cowork-embed-1` healthy afterwards.
 
 ## Pending (owner approval needed): embeddings nomic-embed-text-v1 → EmbeddingGemma 2 (#1636)
 
