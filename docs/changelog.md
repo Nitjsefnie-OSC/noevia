@@ -23,7 +23,7 @@ What changed for you: nothing visible. The Diary now checks every web request's 
 - The recreate was diary-only: `up.sh … -d --no-build --no-deps --wait --wait-timeout 180 diary`, which exited 0 with Healthy. The image ID did not change, so the overlay is kept.
 - `docker compose config` renders `rust` for diary only. `flags.sh cowork-diary-1 TENANT_ASSERTION_IMPL` reads `rust`. `tenant-assertion self-test` prints `ok`.
 - Signed traffic: inside web, a `GET /api/health` signed with web's own `signTenantAssertion` and carrying a synthetic `X-Cowork-User-ID` returns 200 on python before the flip and 200 on rust after it. A tampered signature returned 401 before the flip, which shows the path is checked. Only status codes were read.
-- Soak: 
+- Soak: 6 checks from 13:52 to 13:57:12Z plus one at 14:11:50Z. Each showed healthy, 0 restarts, 0 Diary 401/403/5xx, 0 tenant-assertion warnings, 0 tracebacks and a fresh signed 200. No real Diary use happened in that window, so only health and probe traffic ran under rust.
 
 **Rollback** (Diary only; the key is removed by name, never by restoring `.env.bak` wholesale):
 
@@ -33,6 +33,7 @@ bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/app
 ```
 
 The override passthrough can stay, since it defaults to python. To restore the override as well: `cp -p /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml.bak.before-tenant-assertion-rust /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml` before the `up.sh`.
+
 ## Docling native mode on — 2026-10-14 13:42Z (`NOEVIA_DOCLING_IMPL=rust`; live)
 
 What changed for you: nothing visible. Document extraction now goes through the native `noevia-docling` server (#1322), with the same results: the synthetic PDF reads correctly and Markdown still gets the 415 "unsupported" answer. Owner-approved: "flip NOEVIA_DOCLING_IMPL to rust, approved".
