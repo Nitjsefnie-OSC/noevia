@@ -162,6 +162,27 @@ Cutover (no search downtime; web and Diary are not restarted):
    the running containers' command lines (`--model /models/...`) and these variables, and refuses to
    delete a file one of them still names, even after `finish`.
 
+## Laya cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (Laya only)
+
+### Services
+
+- **Laya:** `cowork-laya:0.3.5-noevia5` (`sha256:693afb30…d2c1`; services `e8c91b9a`, rs `0012da31`) replaces `0.3.5-noevia4`. Python front (`NOEVIA_LAYA_IMPL` unset); native mode in the image but off (owner switch). Makes #1074 and #1326 live.
+- **Web, Diary, Model manager, OCR, Docling, Code sandbox, llama, embed:** no change, not recreated.
+- **Deploy/infra:** live `docker-compose.yml` laya `image:` line only; build context left on `laya/noevia4-70864f26`.
+
+Order: image diff against noevia4 (only `server.py` and the new `noevia-laya` binary), three isolated candidates (default 1.8 s, 0.5 s late-path, `NOEVIA_LAYA_IMPL=rust`), wait for the Kev and reranker evals to stop, idle gate, compose backup `docker-compose.yml.bak.before-laya-noevia5` + `sed` of the image line, detached `state/laya-noevia5/recreate.sh` (Laya-only `up.sh ... --profile laya -- -d --no-build --no-deps --wait laya`, rolls back by itself). Healthy, restarts 0, synthetic decision via web 200; only `cowork-laya-1` changed. Rollback: commands in `docs/changelog.md`.
+
+## Release a03fbc63 — 2026-10-14 (web + model manager; #1716, #1717)
+
+### Services
+
+- **Web:** #1724, core `75f470e0`, web `92b19d49`, rs `c74836f5`, services `deb6dbcb`; `cowork-web:a03fbc63`, image `sha256:01e9390de171c15338e056a7a93237015ffaa03871f7088ef49bd1e5955648c5`. All eight rust switches stay `1`.
+- **Model manager:** `cowork-model-loader:a03fbc63` (`sha256:9a78968e…f171`, rs#106 watcher), `MODEL_MANAGER_IMPL=rust` unchanged.
+- **Embed:** same image, recreated once for the #1717 proof (nomic re-loaded without a request).
+- **Docling, Diary, OCR, Laya, code sandbox, llama:** no change, not recreated.
+
+Evidence and rollback: `docs/changelog.md`, entry a03fbc63.
+
 ## Release 785643f4 — 2026-10-14 (web; MODEL_MANAGER_IMPL=rust; #1668 embedding migration; Docling candidate built)
 
 ### Services

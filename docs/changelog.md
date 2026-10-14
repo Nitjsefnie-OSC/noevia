@@ -8,6 +8,130 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## llama.cpp image b11610 on embed and the chat engine — 2026-10-14 14:22Z / 14:32Z (live)
+
+What changed for you: nothing visible. Both llama.cpp containers now run build 11610 instead of 10920 (owner: "approve the llama.cpp update, I can't imagine it would break anything in any other capacity honestly"). The new build can run EmbeddingGemma 2 (#1636), but the embedding model is **not** switched: nomic stays live. The switch needs its own owner approval.
+
+### Services
+
+- **Embed:** `ghcr.io/ggml-org/llama.cpp:server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b` (image id `904a8885…`), replacing `server-vulkan@sha256:94bd70ef…ea41` (b10920, id `9f88885b…`). Same command, same `embedding.ini` (nomic only), still CPU-only (`--device none`). Recreated 14:21:58Z, healthy, restarts 0.
+- **llama (chat engine):** same new digest, recreated 14:32:45Z, healthy, restarts 0. Same command (`--port 8080` is pinned, so the new 9931 default does not apply), same `models.ini`, same Vulkan devices, memory limit and cache mount.
+- **Web, Diary, Model manager, OCR, Docling, Code sandbox, Laya:** no change, not recreated.
+- **Deploy/infra:** the live override changes in exactly two lines: L41 (embed) and L6 (llama). This PR moves the same digest into `compose.llamacpp.yaml`, `compose.embed.yaml` and `deploy/examples/unraid-llamacpp.override.yml`. `compose.rerank.yaml`, the experiments and the evidence files keep their historical digest.
+
+**Evidence: embed (plan A in #1636).**
+- Pull verified by RepoDigest (`d6404357…475b`); `--version` reports build 11610, commit `091b6a7fc`.
+- Candidate: `--network none`, same args on port 8081, a read-only copy of `embedding.ini`, only the nomic folder mounted read-only. `/health` 200, `/v1/models` lists nomic, and a synthetic "QA synthetic sentence" returns 768 dims. **Cosine against live b10920 is 1.00000000** (max absolute difference 0), so the stored nomic vectors stay valid. Candidate removed.
+- Attempt 1 (14:20:26Z) rolled back automatically at 14:21:18Z because of a bug in the check script (its Diary-path counter missed the first number, so it read 767). The service was fine: web path 200/768. The rollback was verified (override byte-identical to the backup, nomic loaded, embedding-service 200), and the fixed counter read 768 against b10920. Attempt 2 passed.
+- After (attempt 2): healthy, restarts 0. nomic `loaded` without any request. On attempt 1 it went `unloaded` to `loaded` within 45 s: the #1717 watcher at work. The web path returns 200 with 768 dims. A throwaway container on `cowork_default` (the Diary's network; no Diary content touched) gets 768 numbers. `GET /api/v1/embedding-service` 200 (listed and loaded nomic). Embed error lines 0. Only `cowork-embed-1` changed among the cowork containers.
+
+**Evidence: chat engine (plan B).**
+- Gates right before the recreate: the Kev eval container `noevia-eval-decisions` stopped (exited 14:26:40Z, no restart in the following 3.5 min), llama idle count 0, 13 GiB available, no autotune or Appdata Backup.
+- Flag check: every key in `models.ini` (including the per-preset `cache-ram` caps, #697, plus `spec-type`, `flash-attn`, `reasoning-format`, `cache-type-k`/`-v` and `-ngl`) exists in b11610's `--help`.
+- Candidate: `--network none`, `--device none` (CPU), same command on port 8082, a read-only copy of `models.ini`, no model loaded. `/health` 200. All 8 presets parse and list as `unloaded`. The only error line is `gguf_init_from_file` for `laya_multilingual_f16.gguf`, a file that is already missing on disk. b11610 reads GGUF metadata while parsing presets and b10920 did not; it is not fatal, and the preset is still listed. Candidate removed.
+- After: healthy, restarts 0. `/v1/models` lists the same 8 models as before. `--list-devices` in the live container shows `Vulkan0: AMD Radeon 890M Graphics (RADV STRIX1)`. One synthetic chat request on the Fast role model `gemma-4-12b-it-qat-q4_0` ("Reply with the word OK", `max_tokens` 8) returned HTTP 200 in 8.3 s including the model load, with no error and 10.6 tokens/s decode. `content` was empty with `finish_reason: length`: this preset has no `reasoning-format`, so the 8 tokens most likely went to the extracted reasoning. Not a benchmark. Llama error lines 0 (excluding the Laya file above). Web `/api/ready` `a03fbc63`. Only `cowork-llama-1` changed.
+- The old image (`9f88885b…`, b10920) is still on disk. Nothing was pruned.
+
+**Backups.** `/boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml.bak.before-llamacpp-b11610-embed` and `.bak.before-llamacpp-b11610-chat`. Scripts and logs: `state/llamacpp-b11610-{embed,chat}.{sh,log}` (plus `llamacpp-b11610-embed.attempt1.log`).
+
+**Rollback** (either container alone; the b10920 image is local):
+
+```sh
+O=/boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml
+UP="bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 180"
+# chat engine only: put L6 back to b10920
+sed -i '6s#server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b#server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41#' $O; $UP llama
+# embed only: put L41 back
+sed -i '41s#server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b#server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41#' $O; $UP embed
+```
+
+(Or restore both lines at once with `cp -p $O.bak.before-llamacpp-b11610-embed $O`, which predates both edits, then run `$UP embed` and `$UP llama`.) Run the idle gate before the llama recreate.
+
+## Release a03fbc63 — 2026-10-14 14:09Z (web + model manager; live)
+
+What changed for you: the New chat button works again (#1716). After the embedding container restarts, the model manager now loads the embedding model again by itself (#1717), so search does not wait for a first request.
+
+### Services
+
+- **Web:** #1724, web `92b19d49` (web#56, #1716), core `75f470e0` (no change), services `deb6dbcb`, rs `c74836f5`. `cowork-web:a03fbc63`, `sha256:01e9390de171c15338e056a7a93237015ffaa03871f7088ef49bd1e5955648c5`, replacing `cowork-web:785643f4`. All eight rust switches stay `1`.
+- **Model manager:** `cowork-model-loader:a03fbc63`, `sha256:9a78968ec8205b8b6da4118148e890dc33f8076b55dcbe632ef3f0cd19c3f171` (services#45 rs pin → rs#106 #1717 watcher), replacing `cowork-model-loader:fbb960dd`. `MODEL_MANAGER_IMPL` stays `rust`.
+- **Embed:** same image and config, recreated once (14:13:16Z) as the #1717 proof.
+- **Docling:** no change (`cowork-docling:785643f4`, native mode). The rs diff `278c84c0..c74836f5` touches only `bins/noevia-model-manager`, so it was not rebuilt.
+- **Diary, OCR, Code sandbox, Laya, llama:** no change, not recreated.
+- **Deploy/infra:** `.env` `COWORK_VERSION=a03fbc63` and `MODEL_MANAGER_VERSION=a03fbc63`. Preflight reinstalled from the release.
+
+**Evidence.**
+- CI green: services#45 (6/6), noevia#1724 (all checks, including "Assembled release (pinned repos)"). The rs, web and services tarball checksums were each fetched twice, with identical results.
+- Candidates: `candidate-boot.sh` node and rust were both ready at `a03fbc63` with 0 error lines. The model-loader candidate ran with no network, a read-only root, all capabilities dropped, tmpfs and a throwaway token: healthy, `/api/v1/health` 200, 0 error lines, then removed. The new binary contains the watcher's log string; the `fbb960dd` binary does not.
+- Gates before each recreate: llama idle count 0, no autotune or Appdata Backup, at least 8 GiB available.
+- Web after: `/api/ready` `{"ready":true,"version":"a03fbc63"}` on loopback and on https://noevia.daserver.work. A signed-out `/api/projects` returns 401. The served `dist` equals the image's (143 files). Healthy, restarts 0, 0 error lines. Allow-listed flags are identical before and after.
+- Model manager after: healthy, restarts 0, flags identical. `GET /api/v1/embedding-service` from web returns 200: `managed:true`, nomic listed and loaded.
+- #1717 proof: embed was recreated 3.5 min after the model-manager boot, outside its boot warm-up. Without any embedding request, `nomic-embed-text-v1` was `loaded` within about 3 s and still `loaded` at +75 s. The watcher prints "router models loaded again" only after failed attempts, so a first-try load is silent.
+- Inventory: of 41 containers, only `cowork-web-1`, `cowork-model-loader-1` and `cowork-embed-1` changed id (plus `noevia-eval-decisions`, which the Kev eval run recreated independently). Snapshots: `state/snapshot.{before,after}-a03fbc63.txt`.
+- Backup: `/mnt/disk3/noevia-backups/release_a03fbc63_20261014T140906Z` (compose, llamacpp config, `.env` copy, web and model-loader state, `cowork.db` online backup with integrity `ok`, SHA256SUMS). Also `.env.bak.before-web-a03fbc63` and `.env.bak.before-model-loader-a03fbc63`.
+
+**Rollback.**
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env; UP="bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120"
+ln -sfn $A/releases/785643f4 $A/current
+sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=785643f4/; s/^MODEL_MANAGER_VERSION=.*/MODEL_MANAGER_VERSION=fbb960dd/' $ENV
+$UP model-loader; $UP web
+```
+
+## Diary switch TENANT_ASSERTION_IMPL=rust — 2026-10-14 13:52Z (Diary only; live)
+
+What changed for you: nothing visible. The Diary now checks every web request's tenant signature twice, once in Python and once in the Rust `tenant-assertion` leaf. A request goes through only when both accept it (owner: "flip TENANT_ASSERTION_IMPL to rust, approved", #1147).
+
+### Services
+
+- **Diary:** same image `cowork-diary:20b07d3f` (`sha256:51ec0164…501c`, the overlay with agent/ and tenant-assertion), recreated with `TENANT_ASSERTION_IMPL=rust`. Container `1880f5531503` was replaced by `54ad20a66804`, started 13:52:02Z, healthy, restarts 0.
+- **Web, Model manager, OCR, Docling, Code sandbox, Laya, llama, embed:** no change, not recreated. The 41-container inventory diff (id, start time, restarts) shows only `cowork-diary-1`.
+- **Deploy/infra:** `.env` gained `TENANT_ASSERTION_IMPL=rust` (backup `.env.bak.before-tenant-assertion-rust`). No compose copy passed the key to `diary` (#1723), so the live override's diary block gained `TENANT_ASSERTION_IMPL: ${TENANT_ASSERTION_IMPL:-python}` (backup `docker-compose.override.yml.bak.before-tenant-assertion-rust`). This PR adds the same line to `compose.yaml` and `deploy/examples/unraid-compose-manager.yml`, plus `deploy/tests/test_tenant_assertion_impl_passthrough.py`, which fails on the old copies.
+
+**Evidence.**
+- Gates before the recreate: no other `up.sh` or `docker compose` running, llama idle count 0, no autotune or Appdata Backup.
+- The recreate was diary-only: `up.sh … -d --no-build --no-deps --wait --wait-timeout 180 diary`, which exited 0 with Healthy. The image ID did not change, so the overlay is kept.
+- `docker compose config` renders `rust` for diary only. `flags.sh cowork-diary-1 TENANT_ASSERTION_IMPL` reads `rust`. `tenant-assertion self-test` prints `ok`.
+- Signed traffic: inside web, a `GET /api/health` signed with web's own `signTenantAssertion` and carrying a synthetic `X-Cowork-User-ID` returns 200 on python before the flip and 200 on rust after it. A tampered signature returned 401 before the flip, which shows the path is checked. Only status codes were read.
+- Soak: 6 checks from 13:52 to 13:57:12Z plus one at 14:11:50Z. Each showed healthy, 0 restarts, 0 Diary 401/403/5xx, 0 tenant-assertion warnings, 0 tracebacks and a fresh signed 200. No real Diary use happened in that window, so only health and probe traffic ran under rust.
+
+**Rollback** (Diary only; the key is removed by name, never by restoring `.env.bak` wholesale):
+
+```sh
+sed -i '/^TENANT_ASSERTION_IMPL=/d' /mnt/docker/appdata/cowork/config/.env
+bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 180 diary
+```
+
+The override passthrough can stay, since it defaults to python. To restore the override as well: `cp -p /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml.bak.before-tenant-assertion-rust /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml` before the `up.sh`.
+
+## Laya cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (Laya only; live)
+
+What changed for you: nothing visible. Laya now runs the image with the late-answer guards (#1074) and the native front (#1326). Owner-approved: "flip the Laya cutover to noevia too" (one Laya restart).
+
+### Services
+
+- **Laya:** `cowork-laya:0.3.5-noevia4` (`sha256:ee818185…`) → `cowork-laya:0.3.5-noevia5` (`sha256:693afb307cffb529edb83ee588ba83bb02655459431b0b5133609d0f12add2c1`; services `e8c91b9a`, rs `0012da31`, built in release 20b07d3f FROM noevia4 with `REUSE_CPU_RUNTIME=true`). Recreated 15:01:17Z, healthy, restarts 0. `NOEVIA_LAYA_IMPL` is not set, so the `noevia-laya` entrypoint execs `python /service/server.py` (legacy selector, the #1326 default). Native mode (`NOEVIA_LAYA_IMPL=rust`) is in the image and passed an isolated candidate check, but switching it on live is a separate owner switch.
+- **Web, Diary, Model manager, OCR, Docling, Code sandbox, llama, embed:** no change, not recreated.
+- **Deploy/infra:** live `docker-compose.yml` laya `image:` line only (`noevia4` → `noevia5`); the `build.context` still points at the patched `laya/noevia4-70864f26` directory and was not touched (`--no-build`). `.env` unchanged.
+
+**Image diff (noevia4 → noevia5).** File lists differ only by `usr/local/bin/noevia-laya` (new, sha256 `59e26bf5…4763`). `/service/server.py` changed (sha256 `858f3909…c76d` in both the image and the live container): the #1074 guards (no send once an abandoned answer used the whole deadline; late mark only on the worker the request went to) and the #1326 framed engine worker (`--engine-worker`, u32 length + JSON, 16 KiB frames). Entrypoint `noevia-laya`. No dependency layer changed.
+
+**Evidence.**
+- Candidates (same image, `--network none`, read-only, uid 1000, cap_drop ALL, no-new-privileges, 6g, 2 CPUs, pids 128, model mount read-only, removed afterwards). Default mode at 1.8 s: process `python /service/server.py`, `/health` 200, synthetic 3-option decision `200 selected=answer` (answer 0.8878, code 0.0566, search 0.0556), 2.3 GiB. #1074 at the 0.5 s floor: overlapping and follow-up requests returned 503 (deadline), health stayed 200, then the same worker answered `200 answer` with no worker replacement, no traceback, 0 restarts. #1326 rust mode: `noevia-laya` parent + `python /service/server.py --engine-worker` child, `/health` 200, two decisions `200 answer` with identical scores.
+- Gates: the cutover waited for the Kev decision eval (several rounds, including a live-Laya baseline run) and the reranker eval to stop. At 15:01:07Z: llama activity 0 in 3 min, Laya CPU 0, no eval container, harness, `up.sh`, autotune or backup process.
+- After: `cowork-laya-1` id `712f944f…`, image noevia5, healthy, restarts 0, `LAYA_DECISION_TIMEOUT_S=1.8` kept. One synthetic decision from `cowork-web-1` via its `COWORK_DECISION_URL`: `200 selected=answer`, 575 ms. Of 38 running containers only `cowork-laya-1` changed id or start time. Web log soak 15:01:38Z–15:07:25Z: 0 decision/Laya timeout or error lines (no real decision traffic in that window); Laya healthy, restarts 0, 0 traceback lines, 2.2 GiB.
+- Files on DaServer: compose backup `docker-compose.yml.bak.before-laya-noevia5`; script/log `state/laya-noevia5/recreate.sh`, `state/laya-noevia5.log`; identity snapshots `state/laya-noevia5/{before,after}.txt`; image diff `state/laya-noevia5-diff/`.
+
+**Rollback (to noevia4).**
+
+```sh
+cp -a /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml.bak.before-laya-noevia5 /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml
+bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env --profile laya -- -d --no-build --no-deps --wait --wait-timeout 180 laya
+```
+
+Then check: image `cowork-laya:0.3.5-noevia4`, healthy, restarts 0, a synthetic `/v1/decisions` returns `selected` in the options.
+
 ## Docling native mode on — 2026-10-14 13:42Z (`NOEVIA_DOCLING_IMPL=rust`; live)
 
 What changed for you: nothing visible. Document extraction now goes through the native `noevia-docling` server (#1322), with the same results: the synthetic PDF reads correctly and Markdown still gets the 415 "unsupported" answer. Owner-approved: "flip NOEVIA_DOCLING_IMPL to rust, approved".

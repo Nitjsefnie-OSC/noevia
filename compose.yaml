@@ -58,6 +58,8 @@ services:
       # 1 = run with neither token nor key (LAN-only). Unset + both empty: refuses to start.
       DIARY_ALLOW_OPEN: ${DIARY_ALLOW_OPEN:-}
       DIARY_LEGACY_USER_ID: ${DIARY_LEGACY_USER_ID:-}
+      # Tenant check: python (default) or rust (adds the noevia-rs leaf, AND-composed, fails closed; #1147, #1723).
+      TENANT_ASSERTION_IMPL: ${TENANT_ASSERTION_IMPL:-python}
       # Operator-only mapping; add matching bind mounts in an override.
       DIARY_LOCAL_VOLUMES: ${DIARY_LOCAL_VOLUMES:-}
       DB_PATH: /app/data/index.db
