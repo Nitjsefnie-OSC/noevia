@@ -51,6 +51,9 @@ services:
       # #1689/#1717: the model manager's front. python (default) runs uvicorn; rust runs
       # noevia-model-manager in front of it (needed for /api/v1/embedding-service, #1668).
       MODEL_MANAGER_IMPL: ${MODEL_MANAGER_IMPL:-python}
+      # #1747: idle chat models unload themselves (llama.cpp sleep-idle-seconds in models.ini [*]).
+      # Blank = 900 s (15 min); 0 disables. The chat router only; embedding.ini and Laya are untouched.
+      CHAT_MODEL_IDLE_UNLOAD_SECONDS: ${CHAT_MODEL_IDLE_UNLOAD_SECONDS:-}
       # #1668: the model manager runs the embedding service below from saved settings. It may
       # restart or stop this one container and nothing else. EMBEDDING_MODEL + EMBED_MODEL_FILE
       # seed the choice on first start only (DATA_DIR/embedding-service.json wins afterwards).
