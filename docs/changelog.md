@@ -8,6 +8,96 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 785643f4 — 2026-10-14 13:04-13:20Z (web; model manager Rust front; settings-driven embedding live; Docling candidate built)
+
+What changed for you:
+- Cloud chats only see history from turns that went to that route (#1703).
+- Summaries name only tools that exist (#1704).
+- Performance → Memory budget shows estimates again, as do Will it fit?, the load-budget guard and calibration starting settings (#1708).
+- A fetch where every URL failed shows a red ✕ (#1707).
+- Projects shows a loading skeleton and an error with Retry (#1709).
+
+Behind the scenes:
+- The model manager runs its Rust front (owner-approved, #1689).
+- The embedding service is now driven by Settings (#1668). It still serves the same model, nomic-embed-text-v1, so retrieval did not change and nothing was re-indexed.
+- No model was switched, turned off, loaded beyond nomic, or deleted.
+- No chat, tune or benchmark was run.
+
+### Services
+
+- **Web:** [#1715](https://github.com/sbstndalton/noevia/pull/1715) (pins) with:
+  - noevia-core `75f470e0`: core#105 (#1703), core#106 (#1704), core#107 (#1708).
+  - noevia-web `1df91eee`: web#53 (#1697), web#54 (#1707), web#55 (#1709).
+  - noevia-rs `278c84c0`: rs#105, Docling only.
+  - noevia-services `a0a5b6dc`: services#43 and services#44.
+
+  The image is `cowork-web:785643f4`, `sha256:913b489d0b0c8a738dc7661e55e3cf7e50623b567f971ff877b9a997232e37f6`, replacing `cowork-web:fbb960dd`. `NOEVIA_FRONT=rust`, and all eight `NOEVIA_RUST_*` are `1`. The allow-listed flags are identical apart from `COWORK_VERSION`. New env: `EMBEDDING_SERVICE_URL: http://embed:8080/v1` (#1668 step 4).
+- **Model manager:** still `cowork-model-loader:fbb960dd` (`sha256:7d006f40…`). It was not rebuilt: the only model-manager input change is the rs pin, and the rs diff (`0cfe6736..278c84c0`) touches Docling only.
+  - `.env` gains `MODEL_MANAGER_IMPL=rust` (owner: "flip MODEL_MANAGER_IMPL to rust, approved") and `EMBED_MODEL_FILE`.
+  - The override's model-loader environment gains the `MODEL_MANAGER_IMPL` passthrough (#1717) plus `EMBED_CONTAINER`, `EMBED_URL`, `EMBED_PRESET_PATH`, `EMBEDDING_MODEL` and `EMBED_MODEL_FILE`.
+  - PID 1 is `noevia-model-manager`.
+- **Embed:** same image (`server-vulkan@sha256:94bd70ef…`), recreated as a router: `--models-preset /config/embedding.ini --models-max 2`, plus the `LLAMACPP_CONFIG_DIR:/config:ro` volume and `depends_on: model-loader healthy`. `embedding.ini` has the one `[nomic-embed-text-v1]` section.
+- **Docling:** no live change (`cowork-docling:f6885a55`). The candidate `cowork-docling:785643f4` was built: `sha256:efee32859ad5eed0b8b3b630e9d5b6904e94d4e126bf253d392a82401d8c5204`.
+  - It is the native overlay on f6885a55 with `NOEVIA_DOCLING_IMPL=python` in the image, and it includes #1711 (`.md` → 415).
+  - It was health-booted in isolation and then removed: PID 1 `docker-init -- noevia-docling`, child `python server.py`.
+  - Cutover waits for an independent review.
+- **Diary, OCR, Laya, code sandbox, llama:** no change, not recreated. Diary's companion did not change, because only its rs pin moved.
+- **Deploy/infra:**
+  - Preflight was reinstalled from the release. `web-env-keys.txt` now lists `EMBEDDING_SERVICE_URL`, and the web key check passes.
+  - Both compose copies pass `MODEL_MANAGER_IMPL` with the default `python`, with a new test (#1717).
+  - The egress-proxy pin is rs `278c84c0` (dark, not built).
+
+**Evidence.**
+- **CI and source:**
+  - CI is green on main `785643f4` (CI, Deep research gate, Framing eval, Offline skills MCP) and on noevia-services `a0a5b6dc`.
+  - Every archive sha256 matched `versions.lock` twice.
+  - The interrupted agent's `releases/785643f4` tree was byte-identical to a fresh Mac assembly (tarball `bb3c0aca…4c96`), and its image `version.json` = `785643f4`, web `1df91eee`, core `75f470e0`.
+  - `candidate-boot.sh` was ready at `785643f4` with 0 error lines for both node and rust.
+- **Gates:** before each recreate, llama idle = 0 generation lines in 3 min. No autotune was running (the last state file is from 2026-10-13), and no Appdata Backup was running.
+- **Web after cutover:**
+  - `/api/ready` `{"ready":true,"version":"785643f4"}` on loopback and public. Signed-out `/api/projects` returns 401 (loopback and public).
+  - The served `dist` hash equals the image (`6fd39b1d…1128`).
+  - #1708 read-only probe in the web container (`GGUF_META_IMPL=wasm`): `readSummaryWasm` succeeded for **13/13** present GGUF files (5 models + 8 mmproj), each with a `parameterCount`.
+- **Flip:**
+  - A first flip on its own was healthy (listing 5 models, 2 backends) but `/api/v1/embedding-service` stayed 404. The Rust front mounts it only with `EMBED_CONTAINER`, so the guard rolled it back automatically, and the `.env` was byte-identical to its backup (#1717).
+  - The combined flip plus steps 0-2 then passed: health 200, models 5, backends 2, sections 200. `embedding-service` returned 200 `managed:true`, `models:[{model:nomic-embed-text-v1,file:nomic-embed-text-v1/nomic-embed-text-v1.Q8_0.gguf}]`, `running.loaded:["nomic-embed-text-v1"]`.
+- **Embed:**
+  - The first router recreate was healthy, but `loaded` stayed `[]` for over 60 s. Nothing warms after an embed restart (#1717), so the guard rolled embed back to the fixed command (healthy).
+  - On the rerun, one synthetic request autoloaded nomic. After that:
+    - `/v1/models` = `["nomic-embed-text-v1"]`.
+    - `POST /v1/embeddings` returned 768-dim vectors from web (`EMBEDDING_BASE_URL`, and after step 4 `EMBEDDING_SERVICE_URL`) and from the Diary network namespace via `http://embed:8080/v1`, using a throwaway container with no Diary content touched.
+    - `embedding-service` reports nomic `loaded`.
+  - Web, model-loader and embed logs had 0 error lines afterwards.
+- **Inventory:** across all 41 containers, only `cowork-web-1`, `cowork-model-loader-1` and `cowork-embed-1` changed id. All are healthy with restarts 0. Laya, llama, Diary, OCR and Docling keep their StartedAt.
+- **Backups:**
+  - `/mnt/disk3/noevia-backups/release_785643f4_20261014T130331Z`: compose, config, `.env` copy, web and model-loader state, `cowork.db` online backup with integrity `ok`, and container inventories.
+  - `/mnt/disk3/noevia-backups/embed_1668_785643f4_20261014-090939`.
+  - `.bak-1668-20261014-090939` beside `docker-compose.yml`, the override, `.env`, `state/model-loader` and `config/llamacpp`.
+  - `.env.bak.before-flip-model-manager-impl` and `docker-compose.override.yml.bak.before-flip-model-manager-impl`.
+  - Override `.bak.before-1668-embed-20261014-091400` and `.bak.before-1668-web-20261014-091400`.
+- **Docling candidate:** `/mnt/disk3/noevia-backups/docling_prep_785643f4_20261014T131643Z`.
+
+**Rollback.** Run on DaServer with `base=/mnt/docker/appdata/cowork; env=$base/config/.env; ovr=/boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml; UP="bash $base/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 180"`. Run the idle gate before each `up`.
+
+- **#1668 and the flip together.** Restore by key, not a whole `.env` copy:
+
+  ```sh
+  sed -i '/^MODEL_MANAGER_IMPL=/d;/^EMBED_MODEL_FILE=/d' $env
+  cp -p $ovr.bak-1668-20261014-090939 $ovr
+  $UP model-loader; $UP embed; $UP web
+  ```
+
+  The old embed command loads nomic from its fixed path. `embedding.ini` and `embedding-service.json` are ignored by the python front and can stay.
+- **Web to fbb960dd:**
+
+  ```sh
+  ln -sfn $base/releases/fbb960dd $base/current
+  sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=fbb960dd/' $env
+  $UP web
+  ```
+
+  Preflight copy: `tools/preflight.bak.before-785643f4`.
+
 ## Docling cutover attempt fbb960dd — 2026-10-14 10:45Z (rolled back; no live change)
 
 What changed for you: nothing. Docling stays on `cowork-docling:f6885a55`. The cutover to the native-off candidate was rolled back after the post-check P4 conversion failed. The same check also fails on the existing image, so this is filed as #1711.

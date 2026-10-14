@@ -8,7 +8,19 @@
 > release also updates web's build block in the live Compose Manager file (same section).
 > Release records below that mention `apps/web` or `services/` describe the monorepo layout.
 
-## Pending (release): settings-driven embedding service (#1668)
+## Settings-driven embedding service (#1668): live since release 785643f4 (2026-10-14)
+
+**As run at 785643f4 (#1717).** Two things differ from the steps below; follow these notes:
+- The flip needs a Compose passthrough. `MODEL_MANAGER_IMPL` has to reach the container: add
+  `MODEL_MANAGER_IMPL: ${MODEL_MANAGER_IMPL:-python}` to `model-loader.environment` (both repo copies have
+  it from 785643f4). Also, the Rust front mounts `/api/v1/embedding-service` only when `EMBED_CONTAINER`
+  is set, so a flip on its own still answers 404. Do the flip together with steps 1-2, in one
+  model-loader recreate.
+- Nothing warms the router after an `embed` recreate. The model manager loads the saved model only
+  in the ~3 minutes after its own boot, or after an apply. After step 5's `embed` recreate,
+  `running.loaded` stays `[]` until the first `POST /v1/embeddings`; the llama.cpp router autoloads on
+  that request. Send one synthetic request (768-dim answer) and then check `loaded`.
+
 
 What changes: `cowork-embed-1` stops loading a fixed `-m <file>`. It becomes a llama.cpp router
 (`--models-preset /config/embedding.ini --models-max 2`, still `--device none`, same image) that serves
@@ -140,6 +152,18 @@ Cutover (no search downtime; web and Diary are not restarted):
    `LLM_EMBED_MODEL`, `LLM_EMBED_NEXT_MODEL`, `EMBED_MODEL`): the model manager's delete guard reads
    the running containers' command lines (`--model /models/...`) and these variables, and refuses to
    delete a file one of them still names, even after `finish`.
+
+## Release 785643f4 — 2026-10-14 (web; MODEL_MANAGER_IMPL=rust; #1668 embedding migration; Docling candidate built)
+
+### Services
+
+- **Web:** #1715, core `75f470e0`, web `1df91eee`, rs `278c84c0`, services `a0a5b6dc`; `cowork-web:785643f4`, image `sha256:913b489d0b0c8a738dc7661e55e3cf7e50623b567f971ff877b9a997232e37f6`. All eight rust switches stay `1`. New env `EMBEDDING_SERVICE_URL=http://embed:8080/v1` (#1668 step 4).
+- **Model manager:** same image `cowork-model-loader:fbb960dd` (its inputs changed only by the rs pin, and the rs diff is Docling-only). **`MODEL_MANAGER_IMPL=rust`** (owner-approved, #1689), with the #1668 `EMBED_*` env.
+- **Embed:** same llama.cpp image, now a router (`--models-preset /config/embedding.ini --models-max 2`) serving `nomic-embed-text-v1` from `embedding.ini`, which the model manager writes.
+- **Docling:** held at `f6885a55`. Candidate `cowork-docling:785643f4` (`sha256:efee3285…5204`) is built and health-booted only; cutover waits for an independent review.
+- **Diary, OCR, Laya, code sandbox, llama:** no change, not recreated.
+
+Order: re-assembled on the Mac (identical to the box tree), reused `cowork-web:785643f4` from the interrupted build after checking its stamp, `candidate-boot.sh` node and rust, scoped backup `/mnt/disk3/noevia-backups/release_785643f4_20261014T130331Z`, idle gate, preflight install, web cutover. Then idle gate, flip plus #1668 steps 0-2 (model-loader only), embed router (step 3), and web env (step 4). Only `cowork-web-1`, `cowork-model-loader-1` and `cowork-embed-1` changed id. Rollback: commands in `docs/changelog.md`.
 
 ## Release fbb960dd — 2026-10-14 (web + model manager; Docling held)
 
