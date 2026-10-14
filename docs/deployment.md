@@ -1857,6 +1857,14 @@ with `--no-build --no-deps --wait`; compare complete before/after container
 inventories, readiness, restart counts and allow-listed flags. Native activation
 remains an owner action. The existing per-service rollback recipe above applies.
 
+Native activation (done 2026-10-14 13:42Z, owner-approved): append `NOEVIA_DOCLING_IMPL=rust` to `.env`
+(the override passthrough `${NOEVIA_DOCLING_IMPL:-python}` must render `rust`; check with `jq`, DaServer has no
+`python3`), then recreate only Docling as above. In rust mode PID 1 `docker-init` has the child
+`noevia-docling` and no `python server.py`; conversions run in a `python /app/isolated_worker.py
+--stdout-replies` child. There is no Python fallback. Rollback: delete the `NOEVIA_DOCLING_IMPL` line from
+`.env` and recreate Docling the same way. Use `docker top <c> -eo pid,args`: `docker top` errors without a
+PID column.
+
 Post-cutover synthetic conversion (#1711). Probe with a format core actually sends to
 Docling: a one-page PDF generated inside the web container, never a user file. Do not
 probe with Markdown. Core reads `.md`, `.csv`, `.txt` and other text-like files itself
