@@ -76,7 +76,7 @@ No other key changes. `NOEVIA_FEATURE_*` switches are unchanged; Hybrid routing 
 
 The **decision settings saved in Settings** override `COWORK_DECISION_URL`, and the model id belongs to
 `COWORK_DECISION_URL` only. A saved URL survives both the cutover and the rollback, so it is checked with the
-real endpoint (the "Admin check" below) before the cutover and again after the rollback.
+real endpoint (the "Saved-setting check" below) before the cutover and again after the rollback.
 
 ## 3. Procedure
 
@@ -88,20 +88,28 @@ web recreate and every rollback recreate; stop and retry later if one fails):
 - no `up.sh`, backup, release or eval process; `noevia-eval-decisions` is stopped and stays stopped (it mounts the same model store);
 - Laya CPU near 0 and `MemAvailable` >= 8 GiB: `MIN_AVAILABLE_GB=8 /mnt/docker/appdata/cowork/eval/decisions/harness/gate.sh`.
 
-**Admin check** (`GET /api/admin/decision-settings`, the real endpoint, from inside web). It needs an admin
-session. The owner signs in as an administrator in the browser and puts that session's `Cookie` header value
-into `/mnt/docker/appdata/cowork/config/admin-session.env` as one line `ADMIN_COOKIE=<value>` (mode 600, written in
-an editor, never typed on a command line; delete the file when the rollback check or the soak is over):
+**Saved-setting check** (what `GET /api/admin/decision-settings` would report, read without any login or cookie).
+It opens the web container's own database read-only (`better-sqlite3` with `readonly: true`; `cowork.db` in
+`UI_DATA_DIR`, default `/app/server/ui-data`) and passes the same `settingsStore(db)` object that
+`server/index.cjs` hands to `createDecisionSettings` in production. The store object is the production code; the
+only difference is that production opens the database read-write, so this open is the read-only variant of it.
+`createDecisionSettings` only reads the key once when created and writes nothing; the script prints `source` and
+the URL and nothing else:
 ```sh
-docker exec --env-file /mnt/docker/appdata/cowork/config/admin-session.env cowork-web-1 node -e '
-fetch("http://127.0.0.1:8021/api/admin/decision-settings",{headers:{cookie:process.env.ADMIN_COOKIE}})
- .then(async r=>{const j=await r.json();console.log(r.status,j.source,j.url)}).catch(e=>{console.error("FAIL",e.message);process.exit(1)})'
+docker exec cowork-web-1 node -e '
+const path=require("path"),Database=require("better-sqlite3");
+const dir=process.env.UI_DATA_DIR||"/app/server/ui-data";
+const db=new Database(path.join(dir,"cowork.db"),{readonly:true,fileMustExist:true});
+const s=require("/app/server/decision-settings.cjs").createDecisionSettings({store:require("/app/server/features.cjs").settingsStore(db),env:process.env}).get();
+console.log(s.source,s.url);db.close()'
 ```
-It must print `200 deployment <url>`: `http://laya:8040` before the cutover, `http://kev:11435` after it,
-`http://laya:8040` after the rollback. `source` `admin` means a URL saved in Settings is overriding the env: stop,
-and have the owner **clear it** in Settings (Settings, Decision service; if there is no clear button, **re-save**
-the value this stage needs: `http://kev:11435` for the cutover, `http://laya:8040` for the rollback), then
-run the check again until it prints `deployment`. A `403` or `401` means the cookie is stale: sign in again.
+It must print `deployment <url>`: `http://laya:8040` before the cutover, `http://kev:11435` after it,
+`http://laya:8040` after the rollback. `admin` as the first word means a URL saved in Settings is overriding the env:
+stop, and have the owner **clear it** in Settings (Settings, Decision service; if there is no clear button,
+**re-save** the value this stage needs: `http://kev:11435` for the cutover, `http://laya:8040` for the rollback),
+then run the check again until it prints `deployment`. A failure to open the database (`SQLITE_CANTOPEN`, or the
+module or file not found) means the paths above differ in this image: stop and ask; do not fall back to opening it
+read-write.
 
 **Network checks** (before the Kev start, and again after it):
 ```sh
@@ -109,9 +117,10 @@ docker network inspect cowork_laya --format '{{.Internal}}'   # must print true;
 docker exec cowork-web-1 getent hosts kev                       # after the Kev start: must print an address
 ```
 
-**Soak log copy** (install at least 24 h **before** the cutover, so the baseline exists). The decision log keeps
-only the current 1 MiB plus one rotated file, so it is copied every 6 h by a cron line (`crontab -e` as root on
-DaServer; the `%` signs are escaped for cron):
+**Soak log copy** (install **at the cutover**, for the soak only; there is no pre-cutover cron). The decision log
+keeps only the current 1 MiB plus one rotated file, so during the soak it is copied every 6 h by a cron line
+(`crontab -e` as root on DaServer; the `%` signs are escaped for cron). Install it right after the web recreate in
+"Switch web":
 ```sh
 mkdir -p /mnt/docker/appdata/cowork/state/kev-soak
 # kev-soak-log-copy
@@ -121,11 +130,13 @@ At the end of the soak (pass or rollback) remove it: `crontab -l | grep -v 'kev-
 (this drops the marker comment and the line), then check with `crontab -l`. The copies hold text-free lines only;
 keep them mode 600 and do not open them in a chat or issue.
 
-**Counting without printing content.** The summary tool prints counts only, never rows. Over copies, count
-the entries inside a time window with this (set `FROM` and `TO` as UTC ISO strings; copies overlap, so it
-de-duplicates identical lines):
+**Counting without printing content.** The commands print counts only, never rows. Over a set of log files, count
+the entries inside a time window with this (set `FROM` and `TO` as UTC ISO strings, and `FILES` to the files to
+read; overlapping copies are de-duplicated as identical lines). Before the cutover `FILES` is the two files on disk,
+`/mnt/docker/appdata/cowork/state/web/system-one-decisions.jsonl.1` and `.jsonl`; during the soak it also includes
+`/mnt/docker/appdata/cowork/state/kev-soak/*.jsonl*`:
 ```sh
-cat /mnt/docker/appdata/cowork/state/kev-soak/*.jsonl* | sort -u | docker exec -i -e FROM="$FROM" -e TO="$TO" cowork-web-1 node -e '
+cat $FILES 2>/dev/null | sort -u | docker exec -i -e FROM="$FROM" -e TO="$TO" cowork-web-1 node -e '
 const [from,to]=[process.env.FROM,process.env.TO].map(String);const c={};
 require("fs").readFileSync(0,"utf8").split("\n").filter(Boolean).forEach(l=>{let e;try{e=JSON.parse(l)}catch{return}
  if(!(e.at>=from&&e.at<to))return; const k=[e.kind,e.action||e.selected||e.source||e.event,e.fellBack||"-",e.cause||"-"].join("|");c[k]=(c[k]||0)+1});
@@ -133,14 +144,22 @@ console.log(JSON.stringify(c,null,1))'
 ```
 (`FROM` and `TO` are timestamps, not secrets; the output is counts keyed by kind, action, fallback and cause.)
 
-**Baseline (Laya, the 24 h before cutover).** Run it with `FROM` = cutover minus 24 h and `TO` = the cutover time.
-Record, in `/mnt/docker/appdata/cowork/state/kev-soak/baseline.txt`:
+**Baseline (Laya, from the log files already on disk).** Use only the current and the rotated decision log
+(`FILES` as above), with no cron and no waiting. First find the window they actually cover, as two timestamps and
+no content:
+```sh
+cat /mnt/docker/appdata/cowork/state/web/system-one-decisions.jsonl.1 /mnt/docker/appdata/cowork/state/web/system-one-decisions.jsonl 2>/dev/null \
+ | docker exec -i cowork-web-1 node -e 'const a=require("fs").readFileSync(0,"utf8").split("\n").filter(Boolean).map(l=>{try{return JSON.parse(l).at}catch{}}).filter(Boolean).sort();console.log(a[0],a[a.length-1],a.length)'
+```
+Set `FROM` to the first timestamp and `TO` to just after the last one, run the counting command, and record in
+`/mnt/docker/appdata/cowork/state/kev-soak/baseline.txt` the window (`FROM`, `TO`) and:
 - `S` = the number of `supervise` entries; `E` = those with `action` `escalate` and no `fellBack` (the pauses
   Laya caused); `W` = `supervise` entries with `fellBack` `weak-escalate`;
 - per purpose, requests `N` and failures (`cause` in `http-*`, `network`, `aborted`, `invalid-result`, `parse`, `deadline`);
 - `B` = benign pauses on Laya: the pauses in that window the owner reviews and marks as unneeded (the log is
   text-free, so only the owner can tell; use 0 if the owner marks none).
-If `S` is under 20, extend the baseline window back to the earliest copy, and state the window used.
+If `S` is under 20, say so in `baseline.txt` and use the whole window anyway; the supervision criteria in section 5 then
+rest on a thin baseline, and the owner decides whether to start anyway or to wait for more Laya traffic.
 
 **Backup (and record the pre-cutover decision URL):**
 ```sh
@@ -152,7 +171,7 @@ docker inspect cowork-web-1 cowork-laya-1 --format '{{.Name}} {{.Id}} {{.Image}}
 # the decision URL is not a secret; no other .env value is read or printed
 sed -n 's/^COWORK_DECISION_URL=//p' $E | tee /mnt/docker/appdata/cowork/state/kev-cutover-decision-url-before.txt   # expect http://laya:8040
 ```
-Run the Admin check now (expect `200 deployment http://laya:8040`).
+Run the Saved-setting check now (expect `200 deployment http://laya:8040`).
 
 **Start Kev (web untouched).** Run the idle gate first: the 5 GiB container start is the heaviest step.
 ```sh
@@ -196,12 +215,13 @@ Expect `load`, then check `docker stats --no-stream cowork-kev` (under 5 GiB) an
 docker logs --since 3m cowork-llama-1 2>&1 | grep -ciE "launch_slot|print_timing|prompt eval"   # must print 0
 bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web
 ```
+Then install the soak log-copy cron line (above); this is the start of the soak.
 
 ## 4. Post-checks (synthetic only; one decision per purpose)
 
-First the Admin check (real endpoint): it must print `200 deployment http://kev:11435`. Then, from inside web,
+First the Saved-setting check (the production settings store, read-only): it must print `200 deployment http://kev:11435`. Then, from inside web,
 the script below runs the shipped code against the live env only (its settings store is a stub, so it cannot see a
-URL saved in Settings; the Admin check does that):
+URL saved in Settings; the Saved-setting check does that):
 ```sh
 docker exec cowork-web-1 node -e '
 const s=require("/app/server/decision-settings.cjs").createDecisionSettings({store:{get:()=>null,set(){}},env:process.env});
@@ -232,7 +252,7 @@ Save the output as `/mnt/docker/appdata/cowork/state/kev-cutover-after.txt`.
 
 ## 5. Seven-day soak
 
-The log copy cron line (section 3) keeps running. Once a day record
+The log copy cron line (installed at the cutover, section 3) keeps running. Once a day record
 `docker inspect cowork-kev --format '{{.RestartCount}} {{.State.OOMKilled}}'` and
 `docker stats --no-stream cowork-kev` next to the soak notes. At the end, count each window with the counting
 command (day by day for the failure rates, the whole soak for the pause counts) and compare with
@@ -253,7 +273,6 @@ Kev stays only if, over all 7 days, **every** line holds:
 - `MemAvailable` never below 4 GiB while a chat model is loaded (the #697 livelock guard).
 
 Any breach is a rollback, not a tuning session. When the soak ends, remove the cron line (command in section 3)
-and delete `admin-session.env`.
 
 ## 6. Rollback to Laya (exact)
 
@@ -275,6 +294,6 @@ Laya's wording and contract: byte for byte what it sent before #1639. The new co
 they default to empty. To restore the compose file as well, run
 `cp -a $P/docker-compose.yml.bak.before-kev $P/docker-compose.yml` before the `up.sh`.
 
-Check afterwards: run the Admin check (it must print `200 deployment http://laya:8040`; if `source` is `admin`,
+Check afterwards: run the Saved-setting check (it must print `200 deployment http://laya:8040`; if `source` is `admin`,
 clear or re-save as described there), the post-check script must print `shared laya laya sensitivity laya laya`,
-and every purpose must report `convaiinnovations/laya`. Remove the cron line and `admin-session.env`.
+and every purpose must report `convaiinnovations/laya`. Remove the cron line.
