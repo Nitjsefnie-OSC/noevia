@@ -8,6 +8,34 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Docling cutover 785643f4 — 2026-10-14 13:30Z (native mode off; live)
+
+What changed for you: Markdown files no longer go to Docling. They now get a clear "unsupported" answer (415) instead of the misleading "processing limits" error (#1711). PDF and other document extraction works as before. Native Docling stays off: `NOEVIA_DOCLING_IMPL` is not set, so the service runs `python server.py` (#1322, owner switch).
+
+### Services
+
+- **Docling:** `cowork-docling:785643f4`, `sha256:efee32859ad5eed0b8b3b630e9d5b6904e94d4e126bf253d392a82401d8c5204`, replacing `cowork-docling:f6885a55` (`sha256:e3980cb3…09d9`, kept as the rollback image). Overlay `FROM cowork-docling:f6885a55`: the `noevia-docling` binary (rs `278c84c0`) as `CMD`, `NOEVIA_DOCLING_IMPL=python`, services `a0a5b6dc` (services#43 #1711 `.md` out of `SUPPORTED`; `isolated_worker.py` `--stdout-replies`). Started 13:30:22Z, healthy, restarts 0.
+- **Web, Diary, Model manager, OCR, Code sandbox, Laya, llama, embed:** no change, not recreated. The 41-container inventory diff shows only `cowork-docling-1`.
+- **Deploy/infra:** `.env` `DOCLING_VERSION` set to `785643f4` (key names unchanged). The live override's docling block gained `NOEVIA_DOCLING_IMPL: ${NOEVIA_DOCLING_IMPL:-python}` (noevia#1691); it renders `python`.
+
+**Evidence.**
+- Before §0: `/app/isolated_worker.py` sha256 is identical in `fbb960dd` and `785643f4` (`543fc179…b281`), so the worker code reviewed for fbb960dd is what shipped.
+- Gates: llama idle count 0 (and 0 again right before the recreate), load ~2, no autotune, no Appdata Backup running; candidate and rollback image IDs matched.
+- Preflight 3x PASS; docling-only `--no-build --no-deps --wait` → Healthy, `up rc=0`.
+- P1 identity/healthy/restarts 0. P2 `NOEVIA_DOCLING_IMPL=python`, `/sbin/docker-init -- noevia-docling` → `python server.py` (uid 65534). P3 `/health` 200 via web. **P4** synthetic one-page PDF generated in the web container (self-checking, prints no text): `200 P4 PASS`, rc 0, ~9 s. P5 only docling changed. P6 hardening identical (ro, init, cap_drop ALL, no-new-privileges, 6g, 2 CPUs, pids 128, tmpfs /tmp 1g, 65534). P7 healthy, restarts 0, traceback/error count 0.
+- Backup: `/mnt/disk3/noevia-backups/docling_785643f4_20261014T133020Z`, plus `.bak.before-docling-785643f4` beside `.env` and the compose files.
+- The stale candidate `cowork-docling:fbb960dd` (`8ec7b0bd…`) was removed after the cutover (no container used it).
+
+**Rollback.** Redefine `base=/mnt/docker/appdata/cowork; config=$base/config/.env; proj=/boot/config/plugins/compose.manager/projects/Cowork; ovr=$proj/docker-compose.override.yml; NEW=785643f4; OLD=f6885a55`, then:
+
+```sh
+sed -i "s/^DOCLING_VERSION=.*/DOCLING_VERSION=$OLD/" "$config"
+cp -p "$ovr.bak.before-docling-$NEW" "$ovr"
+bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 300 docling
+```
+
+Note that rolling back brings back the #1711 `.md` 422.
+
 ## Release 785643f4 — 2026-10-14 13:04-13:20Z (web; model manager Rust front; settings-driven embedding live; Docling candidate built)
 
 What changed for you:
