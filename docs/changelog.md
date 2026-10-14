@@ -8,6 +8,94 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release a6de6203 — 2026-10-14 19:33Z / 19:40Z / 19:50Z (web + model manager + chat-engine restart; #1747 idle unload live)
+
+What changed for you: a chat model that sits unused for 15 minutes now unloads itself, which gives its memory back (about 6.6 GiB GTT for Gemma 4 12B). The next message wakes it in about 12–15 seconds, and noevia keeps treating a sleeping model as available. Vision descriptions now use only the default provider, a missing sensitivity key logs a startup warning, and service addresses (embedding, rerank, System One) follow one on-this-network rule, checked when they connect.
+
+### Services
+
+- **Web:** #1763 (noevia `a6de6203`).
+  - core `573b95c8`:
+    - core#110: #1741 vision describe on the default provider only, #1742, #1745 sensitivity key and startup warning
+    - core#111: EG2 `title: none` document prompt (#1636; the prompt only, EG2 is not switched)
+    - core#112: #1755/#1753 modular service endpoints
+    - core#113: #1758 `sleeping` counts as available; calibration and autotune unload sleeping models
+    - core#114: #1760 embedding/rerank via the connect-time-checked `ragFetch`
+  - web `92b19d49` (no change), services `b87f0a30`, rs `ed793085`.
+  - Image: `cowork-web:a6de6203`, `sha256:a1d3ec11d89fa0cdf59128a066890635a7ae2925eb4ee3aaaab8012d6bec3ed6`, replacing `cowork-web:d37a16e5`.
+- **Model manager:** `cowork-model-loader:a6de6203`, `sha256:025feeaac34a1506bc9d825e87d901c3eb4a8a5ab02d0eb66b7a151cc1799c10`, replacing `cowork-model-loader:d37a16e5`.
+  - rs#108 (#1747): writes `[*]` `sleep-idle-seconds` into the chat `models.ini` from `CHAT_MODEL_IDLE_UNLOAD_SECONDS` (blank means 900, `0` disables). It never touches `embedding.ini`.
+  - `/api/v1/host` `gtt_used_gb` is only served by the native host route (`MODEL_MANAGER_HOST_IMPL=rust`, an owner switch that stays off).
+  - `MODEL_MANAGER_IMPL` stays `rust`.
+- **llama (chat engine):** same image (b11610), recreated once so the router reads the new `[*]` key.
+- **Docling:** no change (`cowork-docling:d37a16e5`), not recreated. Only the rs pin line changed in services, and `noevia-docling`/`crates/docling-service` are not in the rs diff (which is `bins/noevia-model-manager` only). The oracle fixtures pinning services `b45a122c` are unchanged.
+- **OCR:** no change (`cowork-ocr:9e9bdc0f`), not recreated; pin line only.
+- **Diary:** no change (`cowork-diary:20b07d3f`), not recreated; pin line only.
+- **Laya:** no change (`cowork-laya:0.3.5-noevia5`), not recreated; pin line only.
+- **Code sandbox:** no change (`cowork-code-sandbox:pi-0.87.0-21c6cb3d`), not recreated; the core diff is `server/` only.
+- **embed:** no change, not recreated.
+- **Deploy/infra:**
+  - `.env`: `COWORK_VERSION` and `MODEL_MANAGER_VERSION` set to `a6de6203`; no other key changed. `CHAT_MODEL_IDLE_UNLOAD_SECONDS` is not set (blank means 900).
+  - Live override: one line added to model-loader, `CHAT_MODEL_IDLE_UNLOAD_SECONDS: ${CHAT_MODEL_IDLE_UNLOAD_SECONDS:-}`. `COWORK_SENSITIVITY_DECISION_API_KEY` was not added.
+  - Preflight reinstalled from the release; `current` now points to `releases/a6de6203`.
+  - services#47 also makes the model-manager qualification image probes pass `CHAT_MODEL_IDLE_UNLOAD_SECONDS=0`, so their synthetic `models.ini` fixtures stay byte-exact. That is test-stage only.
+
+**Evidence.**
+- Pins:
+  - services#47 and #1763 CI green; #1763 includes "Assembled release (pinned repos)".
+  - Tarballs fetched twice each with identical results: core `67cadcba…518d`, rs `e16a8932…653c`, services `81f521e1…728a`.
+  - The release tarball `7206e4df…5e02` matched on the Mac and on the box.
+- Candidates:
+  - Web: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"a6de6203"}` with 0 error lines. Stamp `{"version":"a6de6203","web":"92b19d49…","core":"573b95c8…"}`.
+  - Model manager (no network, read-only, cap_drop ALL, tmpfs stores): healthy, 0 error lines. Its binary contains `sleep-idle-seconds` and the d37a16e5 one does not.
+  - A second isolated candidate with `MODEL_MANAGER_HOST_IMPL=rust` returned `gtt_used_gb: 0.01` on `/api/v1/host`.
+- Gates before each step: llama idle count 0, GTT 14 MB (≤ 1 GiB), at least 17 GiB available, no autotune, Appdata Backup, compose or build running.
+- Web after:
+  - healthy, restarts 0; `/api/ready` `{"ready":true,"version":"a6de6203"}` on loopback and on https://noevia.daserver.work; signed-out `/api/projects` 401 on both
+  - served `dist` equals the image's (143 files); allow-listed flags identical
+  - `/api/v1/embedding-service` 200 (`managed:true`, nomic loaded); a synthetic decision via web reached Laya (200, `selected=answer`, 0.39 s)
+  - 0 error or warn lines
+- Model manager:
+  - The first attempt at 19:36Z rolled back by itself. Its post-check expected `gtt_used_gb` on the live `/api/v1/host`, which is served by Python while `MODEL_MANAGER_HOST_IMPL` is off. The check was dropped.
+  - The re-run at 19:40Z passed: healthy, restarts 0, pid 1 `noevia-model-manager`, `MODEL_MANAGER_IMPL=rust`, `embedding-service` 200, `embedding.ini` byte-identical.
+  - The chat `models.ini` diff is exactly `+[*]`, `+sleep-idle-seconds = 900` and one blank separator line, with no lines removed.
+- llama restart:
+  - The first two attempts rolled back by themselves, and each left `models.ini` without the key; model-loader was force-recreated each time to write it again. The first attempt changed nothing: `up --no-deps` without `--force-recreate` does not recreate an unchanged service. The second recreated llama but failed the Vulkan check because `llama-server` is not on PATH (the binary is `/app/llama-server`).
+  - The third, at 19:50Z, passed: healthy, restarts 0, the same 8 presets listed, `Vulkan0: AMD Radeon 890M Graphics (RADV STRIX1)` present. The router log shows `--sleep-idle-seconds`.
+- Idle-unload proof (`gemma-4-12b-it-qat-q4_0`, the Fast role; synthetic prompt; max_tokens 64; web → llama):
+
+  | Time | Event | Status | GTT |
+  |---|---|---|---|
+  | 19:52:45Z | before | `unloaded` | 14 MB |
+  | 19:52:45Z | request 1: 200 `"OK"` in 15.0 s (cold load) | `loaded` | 7.09 GB |
+  | 20:09:01Z | +16 min | `sleeping` | 16 MB |
+  | 20:09:06Z | web `health()`: `loaded:true, sleeping:true, backend_alive:true`; the read did not wake it | `sleeping` | 16 MB |
+  | 20:09:06Z | request 2: 200 `"OK"` in 11.9 s (woke) | `loaded` | 7.09 GB |
+  | 20:25:18Z | +16 min, end state | `sleeping` | 16 MB |
+
+  The router logged `entering sleeping state` about 15 minutes after each request, and `exiting sleeping state` on request 2.
+- Inventory: only `cowork-web-1`, `cowork-model-loader-1` and `cowork-llama-1` changed id. Laya, Diary, embed, Docling, OCR, code-sandbox, code-verify, kiwix and dav kept their ids and start times with 0 restarts. The approved `rr2-*` reranker eval ran alongside, untouched, and was finished by the end.
+- Backups:
+  - `/mnt/disk3/noevia-backups/release_a6de6203_20261014T193344Z`: compose, `.env` copy, web state, and a `cowork.db` online backup with integrity `ok`.
+  - `model-loader_a6de6203_20261014T194042Z`: compose, llamacpp config, `.env` copy and model-loader state.
+  - `.bak.before-{web,model-loader}-a6de6203` copies beside `.env` and the override.
+  - `config/llamacpp/{models,embedding}.ini.bak.before-a6de6203`.
+- Scripts and logs are in `state/`: `build-`, `cutover-web-`, `cutover-ml-` (and `.attempt1.log`), `fix-ml-reconcile-`, `restart-llama-` (and `.attempt{1,2}.log`) and `idle-proof-a6de6203`.
+
+**Rollback.** One service at a time, in reverse order:
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env; CFG=$A/config/llamacpp
+OVR=/boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml
+UP="bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 180"
+# idle unload off without a rollback: set CHAT_MODEL_IDLE_UNLOAD_SECONDS=0 in .env, then $UP --force-recreate model-loader and $UP --force-recreate llama
+cp -p $OVR.bak.before-model-loader-a6de6203 $OVR; sed -i 's/^MODEL_MANAGER_VERSION=.*/MODEL_MANAGER_VERSION=d37a16e5/' $ENV; $UP model-loader
+cp -p $CFG/models.ini.bak.before-a6de6203 $CFG/models.ini; $UP --force-recreate llama   # only when the chat engine is idle
+ln -sfn $A/releases/d37a16e5 $A/current; sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=d37a16e5/' $ENV; $UP web
+```
+
+The rollback images `cowork-web:d37a16e5` (`5907d421…`) and `cowork-model-loader:d37a16e5` (`43c37c7d…`) are kept.
+
 ## EmbeddingGemma 2 switch: preparation — 2026-10-14 17:59Z (embed memory limit live; model not switched yet)
 
 What changed for you: nothing visible. Search still uses nomic-embed-text-v1. The embedding service can now hold nomic and EmbeddingGemma 2 together, which the owner-approved switch (#1636) needs. The switch itself is not done yet. It waits on core#111 being released in web, then on the administrator steps in `docs/deployment.md` ("Approved, in progress: embeddings …").

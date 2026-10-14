@@ -209,6 +209,19 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release a6de6203 — 2026-10-14 (web + model manager + chat-engine restart; #1747 idle unload live)
+
+### Services
+
+- **Web:** #1763, core `573b95c8`, web `92b19d49`, rs `ed793085`, services `b87f0a30`; `cowork-web:a6de6203`, image `sha256:a1d3ec11d89fa0cdf59128a066890635a7ae2925eb4ee3aaaab8012d6bec3ed6`.
+- **Model manager:** `cowork-model-loader:a6de6203` (`sha256:025feeaa…9c10`, rs#108 idle unload), `MODEL_MANAGER_IMPL=rust` unchanged, `MODEL_MANAGER_HOST_IMPL` unset (python).
+- **llama:** same b11610 image, recreated once to read `[*]` `sleep-idle-seconds = 900`.
+- **Docling, OCR, Diary, Laya, code sandbox, embed:** no change, not recreated (only the rs pin line changed in their Dockerfiles; the rs diff is `bins/noevia-model-manager` only).
+
+Idle unload: the model manager owns `[*]` `sleep-idle-seconds` in the chat `models.ini` and sets it from `CHAT_MODEL_IDLE_UNLOAD_SECONDS` (blank means 900, `0` disables and removes the key). The live override passes it to model-loader. The llama router reads presets only at start, so a changed value needs a model-loader recreate and then an idle llama recreate, both with `up.sh ... --no-deps --force-recreate`. Without `--force-recreate`, `up` leaves an unchanged service alone. A sleeping model is `sleeping` in `/models`, holds about 16 MB GTT instead of about 7 GB, counts as available in web, and wakes on the next request.
+
+Order: assembled on the Mac, `build-web-release.sh`, model-loader `docker build --target production` from `releases/a6de6203/services/model-manager`, `candidate-boot.sh` with the node and rust fronts, an isolated model-loader candidate. Then guarded cutovers, each with an idle and GTT gate, a scoped backup and automatic rollback: web at 19:33Z, model-loader at 19:40Z (override line added first; a first attempt at 19:36Z rolled back on a `gtt_used_gb` check that only applies to the native host route), and llama at 19:50Z. After that, the idle-unload proof. Evidence and rollback commands are in `docs/changelog.md`, entry a6de6203.
+
 ## Release d37a16e5 — 2026-10-14 (whole stack: web + model manager + Docling; #1726 off, #1639 wording)
 
 ### Services
