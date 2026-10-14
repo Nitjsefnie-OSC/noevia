@@ -8,6 +8,50 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release d37a16e5 — 2026-10-14 16:45Z / 17:37Z / 17:42Z (whole stack: web + model manager + Docling; live)
+
+What changed for you: decision prompts now use the wording tuned for Kev-0.8B, follow the configured decision model, and keep the Code route label (#1639, #1739, #1740). The decision model in use is unchanged until the separate Kev cutover. Multimodal RAG (#1726) is shipped in web, the model manager and Docling but stays off (`NOEVIA_MULTIMODAL_RAG` is not set). Docling can now return a document's figures and mark OCR-read pages, but only when it is asked to.
+
+### Services
+
+- **Web:** #1746 (noevia `d37a16e5`), core `05f24386` (core#108 Kev decision wording and routing, core#109 multimodal RAG behind `NOEVIA_MULTIMODAL_RAG`, off), web `92b19d49` (no change), services `97ccd8ac`, rs `0ad61a35`. `cowork-web:d37a16e5`, `sha256:5907d421e3ce128d2a76c1e22a1c22cd9b5adfce603e89fde331cc9f828c79a4`, replacing `cowork-web:a03fbc63`.
+- **Model manager:** `cowork-model-loader:d37a16e5`, `sha256:43c37c7da21469060616bfaaaca3b7bc2dc7ee57660f36fdf42d86c723777af0` (rs#107: on-demand `<model>.vision` preset, rendered only when `NOEVIA_MULTIMODAL_RAG` is on), replacing `cowork-model-loader:a03fbc63`. `MODEL_MANAGER_IMPL` stays `rust`.
+- **Docling:** `cowork-docling:d37a16e5`, `sha256:011b7e6df27e6d962bcb928416cfea34d094e2350877afaf46a2abb8b2ae1591`, replacing `cowork-docling:785643f4`. Overlay `FROM cowork-docling:785643f4` (a full build would download the engine models): a new `noevia-docling` binary (rs `0ad61a35`, docling-service figures opt-in) plus services#46 `server.py`, `extract.py`, `isolation.py` and `isolated_worker.py`. `NOEVIA_DOCLING_IMPL` stays `rust`.
+- **OCR:** no change (`cowork-ocr:9e9bdc0f`), not recreated. In services only the rs pin line changed, and its rs targets (`docx-text-cli`, `noevia-ocr`) do not depend on the changed crates (`bins/noevia-model-manager`, `crates/docling-service`).
+- **Diary:** no change (`cowork-diary:20b07d3f`), not recreated. Only the rs pin line changed, and `tenant-assertion-cli` does not depend on the changed crates.
+- **Laya:** no change (`cowork-laya:0.3.5-noevia5`), not recreated. Only the rs pin line changed, and `noevia-laya` does not depend on the changed crates.
+- **Code sandbox:** no change (`cowork-code-sandbox:pi-0.87.0-21c6cb3d`), not recreated. The core diff touches only `server/` and `tools/decision-eval/`, not `code-sandbox/`.
+- **llama, embed:** no change, not recreated.
+- **Deploy/infra:** `.env` `COWORK_VERSION`, `MODEL_MANAGER_VERSION` and `DOCLING_VERSION` set to `d37a16e5` (no other key changed). No `NOEVIA_MULTIMODAL_RAG`, `COWORK_*DECISION_MODEL` or sensitivity key was added. Preflight was reinstalled from the release. `current` now points to `releases/d37a16e5`.
+
+**Evidence.**
+- Pins: #1746 CI green (8/8, including "Assembled release (pinned repos)"). Each tarball was fetched twice from codeload with identical results: core `6a9d45d1…bdfd`, web `9e2e2b10…11b0`, services `e68afc36…f378`, rs `ff41f5ff…3f08f3d`. The rs value equals `NOEVIA_RS_SHA256` in all five services Dockerfiles. The release tarball checksum (`4aa46e39…3ca7`) matched on the Mac and on the box.
+- Web candidate: `candidate-boot.sh` node and rust fronts were both `{"ready":true,"version":"d37a16e5"}` with 0 error lines. The image stamp is `{"version":"d37a16e5","web":"92b19d49…","core":"05f24386…"}`.
+- Model-manager candidate: no network, read-only root, all capabilities dropped, tmpfs stores and a throwaway token. It was healthy with 0 restarts and 0 error lines, `/api/v1/health` returned 200, and it was removed afterwards. The new binary contains the `NOEVIA_MULTIMODAL_RAG` switch; the `a03fbc63` binary does not.
+- Docling candidate (rust mode, same hardening, no network): healthy, 0 restarts, 0 zombies. The self-checking synthetic PDF probe read correctly with no `figures` key. With `X-Document-Figures: 1` it returned a `figures` array and `ocr:false`. `.md` returned 415. The first probe run reported `ocr:true` because its probe text had 19 visible characters, under the service's 20-character text-layer threshold, so the page was correctly treated as scanned. The probe text was lengthened and the check rerun.
+- Gates before each recreate: llama idle count 0, no autotune or Appdata Backup, no other `up.sh` or compose run, at least 12 GiB available.
+- Web after: healthy, restarts 0. `/api/ready` returned `{"ready":true,"version":"d37a16e5"}` on loopback and on https://noevia.daserver.work, and a signed-out `/api/projects` returned 401 on both. The served `dist` equals the image's (143 files). Allow-listed flags were identical before and after.
+- Model manager after: healthy, restarts 0, flags identical, pid 1 is `noevia-model-manager`. `GET /api/v1/embedding-service` from web returned 200 with `managed:true`, nomic listed and loaded, 0 vision presets and no `.vision` model loaded. `embedding.ini` and `models.ini` are byte-identical, and embed was not touched.
+- Docling after: healthy, restarts 0, `NOEVIA_DOCLING_IMPL=rust`, `noevia-docling` running, `/health` 200 via web, and the same probe passed (PDF read, figures only on request, `.md` 415). Hardening is unchanged: ro, init, cap_drop ALL, 6g, 2 CPUs, pids 128, 65534. There were 0 traceback or panic lines.
+- Inventory: of 41 containers, only `cowork-web-1`, `cowork-model-loader-1` and `cowork-docling-1` changed id. Laya, Diary, llama, embed, OCR, code-sandbox and code-verify kept their start times, with 0 restarts. Snapshots: `state/snapshot.before-web-d37a16e5.txt` and `state/snapshot.after-d37a16e5.txt`.
+- Backups:
+  - `/mnt/disk3/noevia-backups/release_d37a16e5_20261014T164547Z`: compose, `.env` copy, web state, and a `cowork.db` online backup with integrity `ok`.
+  - `model-loader_d37a16e5_20261014T173733Z`: compose, llamacpp config, `.env` copy and model-loader state.
+  - `docling_d37a16e5_20261014T174255Z`.
+  - `.bak.before-{web,model-loader,docling}-d37a16e5` beside `.env` and the override.
+- Scripts and logs are in `state/cutover-{web,ml,docling}-d37a16e5.{sh,log}`, `state/docling-probe.py` and `state/docling-candidate-d37a16e5.log`.
+
+**Rollback.** One service at a time, in reverse order:
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env; UP="bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 300"
+sed -i 's/^DOCLING_VERSION=.*/DOCLING_VERSION=785643f4/' $ENV; $UP docling
+sed -i 's/^MODEL_MANAGER_VERSION=.*/MODEL_MANAGER_VERSION=a03fbc63/' $ENV; $UP model-loader
+ln -sfn $A/releases/a03fbc63 $A/current; sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=a03fbc63/' $ENV; $UP web
+```
+
+The rollback images `cowork-web:a03fbc63` (`01e9390d…`), `cowork-model-loader:a03fbc63` (`9a78968e…`) and `cowork-docling:785643f4` (`efee3285…`) are kept.
+
 ## llama.cpp image b11610 on embed and the chat engine — 2026-10-14 14:22Z / 14:32Z (live)
 
 What changed for you: nothing visible. Both llama.cpp containers now run build 11610 instead of 10920 (owner: "approve the llama.cpp update, I can't imagine it would break anything in any other capacity honestly"). The new build can run EmbeddingGemma 2 (#1636), but the embedding model is **not** switched: nomic stays live. The switch needs its own owner approval.
