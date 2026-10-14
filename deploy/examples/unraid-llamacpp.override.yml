@@ -59,6 +59,9 @@ services:
       EMBED_PRESET_PATH: /config/embedding.ini
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBED_MODEL_FILE: ${EMBED_MODEL_FILE:-}
+      # #1726: with multimodal RAG on, a served model with one mmproj*.gguf beside it also gets a
+      # `<model>.vision` preset, loaded only while images are embedded. Same switch as web.
+      NOEVIA_MULTIMODAL_RAG: ${NOEVIA_MULTIMODAL_RAG:-0}
     volumes:
       - ${LLAMACPP_MODELS_DIR}:/models
       - ${LLAMACPP_CONFIG_DIR}:/config

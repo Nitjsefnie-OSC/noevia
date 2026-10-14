@@ -89,6 +89,9 @@ services:
         condition: service_healthy
     # Two models are loaded at once only during a switch. nomic (Q8_0) needs ~0.3 GiB; EmbeddingGemma
     # 2 on an image without llama.cpp #30255 needs ~3 GiB at -ub 2048 (#1636): raise this first.
+    # #1726: with NOEVIA_MULTIMODAL_RAG on, embedding images loads `<model>.vision` beside the text
+    # model: a second copy of the weights plus the projector (EmbeddingGemma 2 mmproj ~0.55 GiB F16).
+    # Raise this before turning it on; web pauses image embedding while a switch holds two models.
     mem_limit: ${EMBED_MEMORY_LIMIT:-1g}
     memswap_limit: ${EMBED_MEMORY_LIMIT:-1g} # [live: verify] not recorded in deployment.md; set equal to mem_limit to disable swap
     cpus: ${EMBED_CPUS:-1.0}  # [live: verify] not recorded; chosen to leave headroom next to docling/ocr
@@ -118,6 +121,9 @@ services:
       # Seeds, read once when no saved choice exists (DATA_DIR/embedding-service.json).
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBED_MODEL_FILE: ${EMBED_MODEL_FILE:-}
+      # #1726: with multimodal RAG on, a served model with one mmproj*.gguf beside it also gets a
+      # `<model>.vision` preset, loaded only while images are embedded. Same switch as web.
+      NOEVIA_MULTIMODAL_RAG: ${NOEVIA_MULTIMODAL_RAG:-0}
 
   # #1636: EmbeddingGemma 2 (google/embeddinggemma-2, Apache-2.0; GGUF ggml-org/embeddinggemma-2-GGUF)
   # as a SECOND CPU embeddings server. #1668: superseded for switching by the settings-driven `embed`
