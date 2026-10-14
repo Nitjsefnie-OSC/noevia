@@ -48,6 +48,14 @@ services:
       LLAMACPP_CACHE_RAM_HARD_MAX_MIB: ${LLAMACPP_CACHE_RAM_HARD_MAX_MIB:-2048}
       # Required: this service holds the Docker socket; only web knows this secret.
       MODEL_LOADER_TOKEN: ${MODEL_LOADER_TOKEN:?Set a random MODEL_LOADER_TOKEN (e.g. openssl rand -hex 32)}
+      # #1668: the model manager runs the embedding service below from saved settings. It may
+      # restart or stop this one container and nothing else. EMBEDDING_MODEL + EMBED_MODEL_FILE
+      # seed the choice on first start only (DATA_DIR/embedding-service.json wins afterwards).
+      EMBED_CONTAINER: ${EMBED_CONTAINER:-cowork-embed-1}
+      EMBED_URL: http://embed:8080
+      EMBED_PRESET_PATH: /config/embedding.ini
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBED_MODEL_FILE: ${EMBED_MODEL_FILE:-}
     volumes:
       - ${LLAMACPP_MODELS_DIR}:/models
       - ${LLAMACPP_CONFIG_DIR}:/config
@@ -57,9 +65,34 @@ services:
     # Not on the default network: the Diary sidecar must not reach a Docker-socket holder.
     networks: [models]
 
+  # #1668: CPU-only embeddings, settings-driven (compose.embed.yaml has the full commentary). A
+  # llama.cpp router serving exactly what the model manager wrote to /config/embedding.ini: one
+  # model, two during a switch, none when embedding is off (then this container is stopped).
+  embed:
+    image: ${EMBED_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41}
+    restart: unless-stopped
+    command: ["--models-preset", "/config/embedding.ini", "--models-max", "2", "--device", "none", "--embedding", "--pooling", "mean", "-c", "4096", "-b", "2048", "-ub", "2048", "--parallel", "2", "-t", "4", "--host", "0.0.0.0", "--port", "8080"]
+    volumes:
+      - ${LLAMACPP_MODELS_DIR:?Set existing public model directory}:/models:ro
+      - ${LLAMACPP_CONFIG_DIR:?Set the llama.cpp config directory}:/config:ro
+    depends_on:
+      model-loader:
+        condition: service_healthy
+    mem_limit: ${EMBED_MEMORY_LIMIT:-1g}
+    networks: [default, models]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+    labels:
+      net.unraid.docker.managed: composeman
+
   web:
     networks: [models]
     environment:
+      # #1668: web's one address for the settings-driven embedding service (projects and Diary).
+      EMBEDDING_SERVICE_URL: http://embed:8080/v1
       LLAMACPP_PRESET_PATH: /llamacpp-config/models.ini
       # Preset suggestions read model file headers read-only and size against this limit.
       LLAMACPP_MODELS_PATH: /models

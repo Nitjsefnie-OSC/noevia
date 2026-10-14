@@ -144,6 +144,9 @@ services:
       DEFAULT_PROVIDER_LABEL: ${DEFAULT_PROVIDER_LABEL:-Local inference}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-default}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      # #1668: the settings-driven embedding service (compose.embed.yaml `embed`, run by the model
+      # manager). Empty: web does not manage it and keeps the pre-#1668 behaviour.
+      EMBEDDING_SERVICE_URL: ${EMBEDDING_SERVICE_URL:-}
       # #1636: see the Diary's LLM_EMBED_PROFILE above; the same values seed web's project retrieval.
       EMBEDDING_PROFILE: ${EMBEDDING_PROFILE:-nomic-v1}
       EMBEDDING_NEXT_MODEL: ${EMBEDDING_NEXT_MODEL:-}
