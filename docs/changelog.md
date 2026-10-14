@@ -8,6 +8,31 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Docling cutover attempt fbb960dd — 2026-10-14 10:45Z (rolled back; no live change)
+
+What changed for you: nothing. Docling stays on `cowork-docling:f6885a55`. The cutover to the native-off candidate was rolled back after the post-check P4 conversion failed. The same check also fails on the existing image, so this is filed as #1711.
+
+### Services
+
+- **Docling:** the candidate was `cowork-docling:fbb960dd`, `sha256:8ec7b0bd23aea3a661ff28e96b01f74a66d586d8e5e7b4865ef33b1304b7abb5`: an overlay `FROM cowork-docling:f6885a55` that adds the `noevia-docling` binary with `CMD noevia-docling`, `NOEVIA_DOCLING_IMPL=python`, and the `isolated_worker.py` `--stdout-replies` branch. It was live from 10:45:13Z to 10:45:45Z and was then **rolled back** to `cowork-docling:f6885a55` (`sha256:e3980cb3beec25c385995c27e005f10b49cdf3500f98d52142fb87ad940709d9`), which is healthy with 0 restarts. The candidate image is kept for diagnosis. `NOEVIA_DOCLING_IMPL` was never set (owner switch, #1322).
+- **Web, Diary, Model manager, OCR, Code sandbox, Laya, llama, embed:** no change, not recreated. The 41-container inventory diff shows only `cowork-docling-1`.
+- **Deploy/infra:** the live override passthrough (noevia#1691) was added and then removed again in the rollback. `.env` `DOCLING_VERSION` was set and then set back by key, and the file is byte-identical to its backup.
+
+**Evidence.**
+- Pre-checks: `isolated_worker.diff` only adds the `--stdout-replies` branch (the `int(argv[1])` python path is unchanged). Live `tools/preflight/up.sh` sha256 `a72bf073d8acdddfbd106e0dd16e638728f851172861edfae80305660abe2b89` matches `deploy/preflight/up.sh` at main `d224b8a2`. Gates: llama idle count 0 (checked again just before the recreate), no autotune running, the nightly Appdata Backup finished at 04:20 local, and the candidate image ID matched.
+- Post-checks on the candidate: P1 healthy, restarts 0. P2 in-container `NOEVIA_DOCLING_IMPL=python`, `/sbin/docker-init -- noevia-docling` → `python server.py`. P3 `/health` 200 through the web container. P5 only docling changed. P6 hardening (ro, init, cap_drop ALL, no-new-privileges, 6g, 2 CPUs, pids 128, tmpfs, 65534) is identical.
+- **P4** was a synthetic 3-line `.md` (`qa-synthetic.md`, no user data) sent through the web container's `DOCLING_BASE_URL/extract`. It is allowed because the runbook's "do not convert a document" covers the *candidate* check before cutover, and P4 runs once *after* cutover against the live service in python mode, after P1–P3 pass. It returned **422** "could not be read within its processing limits", which is a rollback trigger. After the rollback, the same request against `f6885a55` also returned 422 (#1711).
+- The doc's rendered-value check used `jq` because DaServer has no `python3`. It still fails closed.
+- Backup: `/mnt/disk3/noevia-backups/docling_fbb960dd_20261014T104508Z` (`containers-before/after/after-rollback.txt`, the `.env` and override copies, one docling log line). There are also `.bak.before-docling-fbb960dd` copies beside `.env` and the compose files.
+
+**Rollback (as run).** Redefine the variables (`base=/mnt/docker/appdata/cowork; config=$base/config/.env; proj=/boot/config/plugins/compose.manager/projects/Cowork; ovr=$proj/docker-compose.override.yml; NEW=fbb960dd; OLD=f6885a55`), then:
+
+```sh
+sed -i "s/^DOCLING_VERSION=.*/DOCLING_VERSION=$OLD/" "$config"
+cp -p "$ovr.bak.before-docling-$NEW" "$ovr"
+bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 300 docling
+```
+
 ## Release fbb960dd — 2026-10-14 (tool-call follow-ups, Models page prune, embedding warm-up; web + model manager)
 
 What changed for you: an Auto (Fast) follow-up turn keeps its web search tools again (#1692), and a Code route turn that only produced reasoning now gets a final-answer round (#1693). A failed reply's private tool output is no longer sent to a cloud model on the next turn (#1700, #1702), and the Nextcloud rate limit is now per user (#1701). Tool calls that returned an error, including plain-text `ERROR:` results, no longer show a green check (#1694, #1699). Deleting a model now reloads the engine's preset list, and the Models page removes leftover presets for files that are gone when an admin opens it (#1695). It refuses to remove anything if the folder scan is empty or more than half would go (#1698). The model manager has the rs#104 embedding warm-up fixes (#1682, #1685, #1696); it still runs the python front, so the #1668 embedding service stays inactive. No chat, model load, switch, delete, prune, tune or benchmark was run to test this.
