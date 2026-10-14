@@ -19,10 +19,13 @@ keys_only=0
 [ $# -ge 1 ] || usage
 container="$1"; shift
 case "$container" in -*|"") usage ;; esac
-printf '%s' "$container" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]*$' || { echo "flags.sh: bad container name" >&2; exit 2; }
+# [[ =~ ]] matches the whole string; grep -E would match line by line, so a value with a newline
+# could pass on one good line (#1195 nit).
+name_re='^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+[[ $container =~ $name_re ]] || { echo "flags.sh: bad container name" >&2; exit 2; }
 want=()
 for k in "$@"; do
-  if ! printf '%s' "$k" | grep -Eq "$allow"; then
+  if ! [[ $k =~ $allow ]]; then
     echo "flags.sh: refusing key not on the allow-list: $k" >&2   # the name only; never a value
     exit 2
   fi
