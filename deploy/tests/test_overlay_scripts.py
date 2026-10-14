@@ -208,6 +208,11 @@ case "$*" in
   "inspect cowork-diary-1 --format diary"*) echo "diary healthy restarts=0" ;;
   "exec cowork-diary-1 python -c"*) exit 1 ;;
   "run --rm --entrypoint python"*) echo "candidate imports ok" ;;
+  "run --rm --network none --entrypoint sh cowork-diary:@NEW@-candidate -c"*)
+    # The candidate's /app/agent: the release's files, plus a stale one when the test asks (#1624).
+    (cd "@AGENT_DIR@" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum)
+    [ -z "${STALE_AGENT_FILE:-}" ] || echo "$(printf x | sha256sum | cut -d' ' -f1)  ./$STALE_AGENT_FILE"
+    [ -z "${MISSING_AGENT_LISTING:-}" ] || exit 1 ;;
   "compose "*" config --format json") echo "{}" ;;
   "compose "*" up "*) [ -z "${FAIL_UP:-}" ] || exit 1 ;;
 esac
@@ -257,6 +262,7 @@ exec "@REAL_SED@" "$@"
                                    capture_output=True, text=True, timeout=30)
         self.assertEqual(installed.returncode, 0, installed.stderr)
         subst = {'@NEW@': self.NEW, '@OLD@': self.OLD, '@OLD_ID@': self.OLD_ID,
+                 '@AGENT_DIR@': str(self.base / f'releases/{self.NEW}/services/diary/agent'),
                  '@REAL_GZIP@': shutil.which('gzip') or '/usr/bin/gzip', '@REAL_SED@': shutil.which('sed') or '/usr/bin/sed'}
         self.stub('docker', self.DOCKER_STUB, subst)
         self.stub('php', self.PHP_STUB, subst)
@@ -331,6 +337,31 @@ exec "@REAL_SED@" "$@"
         self.assertIn('config/.env', names)
         self.assertIn('state/diary/users/u1/managed-diary.db', names)
         self.assertFalse([n for n in names if n.startswith('state/web')], names)
+
+    def test_a_stale_agent_file_in_the_candidate_stops_before_anything_is_stopped_or_tagged(self):
+        # #1624: COPY never deletes, so an old static/ file would survive; the overlay must refuse it.
+        result = self.overlay(env={'STALE_AGENT_FILE': 'static/app.js'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('differs from releases', result.stderr)
+        self.assertIn('static/app.js', result.stderr)
+        calls = self.calls()
+        self.assertFalse([c for c in calls if c.startswith(('docker stop', 'docker compose', 'docker tag cowork-diary:abc'))], calls)
+        self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
+        self.assertEqual(list(self.backups.iterdir()), [])
+
+    def test_an_unlistable_candidate_stops_before_anything_is_stopped(self):
+        result = self.overlay(env={'MISSING_AGENT_LISTING': '1'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('could not list /app/agent', result.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith('docker stop')])
+
+    def test_the_candidate_agent_listing_is_checked_and_reported(self):
+        result = self.overlay()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('candidate agent/ matches the release (1 files)', result.stdout)
+        listing = [c for c in self.calls() if '--entrypoint sh cowork-diary:abc1234-candidate' in c]
+        self.assertEqual(len(listing), 1, self.calls())
+        self.assertIn('cd /app/agent', listing[0])
 
     def test_a_failed_archive_restarts_diary_on_the_old_image_and_leaves_the_env_alone(self):
         result = self.overlay(env={'INJECT_GZIP_FAILURE': '1'})
@@ -502,7 +533,8 @@ class RsStage(unittest.TestCase):
         self.assertRegex(df, r'(?m)^FROM rust:1\.99-slim-bookworm@sha256:[0-9a-f]{64} AS tenant-assertion$')
         self.assertNotRegex(df, r'(?m)^FROM rust:[^@\n]* AS')
         self.assertIn('COPY --from=tenant-assertion /src/target/release/tenant-assertion /usr/local/bin/tenant-assertion', df)
-        self.assertTrue(df.rstrip().endswith('COPY agent/ ./agent/'))
+        # agent/ is replaced whole, so files the release dropped do not survive (#1624).
+        self.assertTrue(df.rstrip().endswith('RUN rm -rf ./agent\nCOPY agent/ ./agent/'))
         # Only the pins are taken from the release's Dockerfile; never its text, and no pip.
         self.assertNotIn('pip', df)
         self.assertEqual(df.count('FROM cowork-diary:rollback-before-diary-overlay'), 1)
@@ -513,7 +545,7 @@ class RsStage(unittest.TestCase):
                 result, df = self.stage(dockerfile)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn('STAGE 0', result.stdout)
-                self.assertEqual(df, 'FROM cowork-diary:rollback-before-diary-overlay\nCOPY agent/ ./agent/\n')
+                self.assertEqual(df, 'FROM cowork-diary:rollback-before-diary-overlay\nRUN rm -rf ./agent\nCOPY agent/ ./agent/\n')
 
     def test_a_malformed_pin_stops_before_any_build(self):
         for ref, digest in [('a' * 39, self.SUM), (self.REF, 'B' * 64), (self.REF + ';id', self.SUM), (self.REF, ''),

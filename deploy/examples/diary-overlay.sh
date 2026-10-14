@@ -4,6 +4,7 @@
 # Usage (on DaServer, as root): bash diary-overlay.sh <SRC_SHA>. SRC_SHA is an unpacked release
 # under releases/ whose services/diary/agent is shipped; it also becomes the new Diary tag
 # (cowork-diary:<SRC_SHA>) and DIARY_VERSION in .env. COWORK_VERSION and the web image are untouched.
+# agent/ is replaced whole: files the release no longer has are removed (#1624).
 # Use when only files under services/diary/agent changed since the running image (check
 # requirements.txt and Dockerfile are unchanged): no pip install runs, so no dependency can drift.
 # Keeps cowork-diary:rollback-before-diary-overlay and config/.env.bak.before-diary-<SRC_SHA>.
@@ -75,7 +76,7 @@ rs_ref=$(sed -n 's/^ARG NOEVIA_RS_REF=//p' "$diary_df" 2>/dev/null | head -1 || 
 rs_sum=$(sed -n 's/^ARG NOEVIA_RS_SHA256=//p' "$diary_df" 2>/dev/null | head -1 || true)
 if [ -z "$rs_ref$rs_sum" ]; then
   echo "release Diary Dockerfile pins no noevia-rs: no tenant-assertion binary (TENANT_ASSERTION_IMPL must stay python)"
-  printf 'FROM cowork-diary:rollback-before-diary-overlay\nCOPY agent/ ./agent/\n' > "$ctx/Dockerfile"
+  printf 'FROM cowork-diary:rollback-before-diary-overlay\nRUN rm -rf ./agent\nCOPY agent/ ./agent/\n' > "$ctx/Dockerfile"
   rs_stage=0
 else
   [[ $rs_ref =~ ^[0-9a-f]{40}$ && $rs_sum =~ ^[0-9a-f]{64}$ ]] || { echo "release Diary Dockerfile noevia-rs pin is not a 40-hex ref and 64-hex sha256" >&2; exit 1; }
@@ -91,6 +92,7 @@ RUN echo "$rs_sum  /tmp/noevia-rs.tar.gz" | sha256sum -c - \\
  && ./target/release/tenant-assertion self-test | grep -qx ok
 FROM cowork-diary:rollback-before-diary-overlay
 COPY --from=tenant-assertion /src/target/release/tenant-assertion /usr/local/bin/tenant-assertion
+RUN rm -rf ./agent
 COPY agent/ ./agent/
 DOCKERFILE
   rs_stage=1
@@ -99,6 +101,21 @@ fi
 # END rs-stage
 docker build -q -t cowork-diary:$V-candidate "$ctx" >/dev/null
 docker run --rm --entrypoint python cowork-diary:$V-candidate -c "import agent.app, agent.workspace_files as w, agent.workspace_ops as o; assert hasattr(w,'_modified'); print('candidate imports ok')"
+# BEGIN agent-exact (#1624: deploy/tests/test_overlay_scripts.py runs this through the whole script)
+# COPY only adds and replaces, so the Dockerfile above deletes ./agent first. This proves the result: the
+# candidate's /app/agent must hold exactly the release's files (names and sha256), nothing stale or missing.
+agent_listing='find . -type f ! -path "*/__pycache__/*" -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum'
+want=$(cd "$ctx/agent" && sh -c "$agent_listing")
+got=$(docker run --rm --network none --entrypoint sh cowork-diary:$V-candidate -c "cd /app/agent && $agent_listing") \
+  || { echo "could not list /app/agent in the candidate; not deploying" >&2; exit 1; }
+if [ "$want" != "$got" ]; then
+  echo "candidate /app/agent differs from releases/$V/services/diary/agent; not deploying:" >&2
+  diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") >&2 || true
+  docker image rm cowork-diary:$V-candidate >/dev/null 2>&1 || true
+  exit 1
+fi
+echo "candidate agent/ matches the release ($(printf '%s\n' "$want" | grep -c .) files)"
+# END agent-exact
 if [ "$rs_stage" = 1 ]; then
   docker run --rm --network none --entrypoint tenant-assertion cowork-diary:$V-candidate self-test | grep -qx ok || { echo "candidate tenant-assertion self-test failed; not deploying" >&2; exit 1; }
   echo "candidate tenant-assertion ok"
