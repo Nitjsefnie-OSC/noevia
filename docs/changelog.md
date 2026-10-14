@@ -8,6 +8,31 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Diary switch TENANT_ASSERTION_IMPL=rust — 2026-10-14 13:52Z (Diary only; live)
+
+What changed for you: nothing visible. The Diary now checks every web request's tenant signature twice, once in Python and once in the Rust `tenant-assertion` leaf. A request goes through only when both accept it (owner: "flip TENANT_ASSERTION_IMPL to rust, approved", #1147).
+
+### Services
+
+- **Diary:** same image `cowork-diary:20b07d3f` (`sha256:51ec0164…501c`, the overlay with agent/ and tenant-assertion), recreated with `TENANT_ASSERTION_IMPL=rust`. Container `1880f5531503` was replaced by `54ad20a66804`, started 13:52:02Z, healthy, restarts 0.
+- **Web, Model manager, OCR, Docling, Code sandbox, Laya, llama, embed:** no change, not recreated. The 41-container inventory diff (id, start time, restarts) shows only `cowork-diary-1`.
+- **Deploy/infra:** `.env` gained `TENANT_ASSERTION_IMPL=rust` (backup `.env.bak.before-tenant-assertion-rust`). No compose copy passed the key to `diary` (#1723), so the live override's diary block gained `TENANT_ASSERTION_IMPL: ${TENANT_ASSERTION_IMPL:-python}` (backup `docker-compose.override.yml.bak.before-tenant-assertion-rust`). This PR adds the same line to `compose.yaml` and `deploy/examples/unraid-compose-manager.yml`, plus `deploy/tests/test_tenant_assertion_impl_passthrough.py`, which fails on the old copies.
+
+**Evidence.**
+- Gates before the recreate: no other `up.sh` or `docker compose` running, llama idle count 0, no autotune or Appdata Backup.
+- The recreate was diary-only: `up.sh … -d --no-build --no-deps --wait --wait-timeout 180 diary`, which exited 0 with Healthy. The image ID did not change, so the overlay is kept.
+- `docker compose config` renders `rust` for diary only. `flags.sh cowork-diary-1 TENANT_ASSERTION_IMPL` reads `rust`. `tenant-assertion self-test` prints `ok`.
+- Signed traffic: inside web, a `GET /api/health` signed with web's own `signTenantAssertion` and carrying a synthetic `X-Cowork-User-ID` returns 200 on python before the flip and 200 on rust after it. A tampered signature returned 401 before the flip, which shows the path is checked. Only status codes were read.
+- Soak: 
+
+**Rollback** (Diary only; the key is removed by name, never by restoring `.env.bak` wholesale):
+
+```sh
+sed -i '/^TENANT_ASSERTION_IMPL=/d' /mnt/docker/appdata/cowork/config/.env
+bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 180 diary
+```
+
+The override passthrough can stay, since it defaults to python. To restore the override as well: `cp -p /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml.bak.before-tenant-assertion-rust /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml` before the `up.sh`.
 ## Docling native mode on — 2026-10-14 13:42Z (`NOEVIA_DOCLING_IMPL=rust`; live)
 
 What changed for you: nothing visible. Document extraction now goes through the native `noevia-docling` server (#1322), with the same results: the synthetic PDF reads correctly and Markdown still gets the 415 "unsupported" answer. Owner-approved: "flip NOEVIA_DOCLING_IMPL to rust, approved".
