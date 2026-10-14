@@ -8,6 +8,43 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release fbb960dd — 2026-10-14 (tool-call follow-ups, Models page prune, embedding warm-up; web + model manager)
+
+What changed for you: an Auto (Fast) follow-up turn keeps its web search tools again (#1692), and a Code route turn that only produced reasoning now gets a final-answer round (#1693). A failed reply's private tool output is no longer sent to a cloud model on the next turn (#1700, #1702), and the Nextcloud rate limit is now per user (#1701). Tool calls that returned an error, including plain-text `ERROR:` results, no longer show a green check (#1694, #1699). Deleting a model now reloads the engine's preset list, and the Models page removes leftover presets for files that are gone when an admin opens it (#1695). It refuses to remove anything if the folder scan is empty or more than half would go (#1698). The model manager has the rs#104 embedding warm-up fixes (#1682, #1685, #1696); it still runs the python front, so the #1668 embedding service stays inactive. No chat, model load, switch, delete, prune, tune or benchmark was run to test this.
+
+### Services
+
+- **Web:** [#1705](https://github.com/sbstndalton/noevia/pull/1705) (pins) with:
+  - noevia-core `91f18f4f`: core#102 (#1681, #1683, #1686, #1687), core#103 (#1695, #1698), core#104 (#1692, #1693, #1700–#1702).
+  - noevia-web `d6e85e96`: web#50 (#1694, #1699), web#51 (#1695), web#52 (#1692).
+  - noevia-rs `0cfe6736` (rs#104, model manager only; the web image's Rust front has no change from it).
+
+  The image is `cowork-web:fbb960dd`, `sha256:ad29f6b21dd70a7869183bec8e92662b29552e76a38727eb011dadf1de7091ef`, replacing `cowork-web:20b07d3f` (`sha256:e563eb4c…6112`). Switches are unchanged: `NOEVIA_FRONT=rust`, and all eight `NOEVIA_RUST_*` switches are `1` in the container. The allow-listed flags are identical apart from `COWORK_VERSION`.
+- **Model manager:** `cowork-model-loader:fbb960dd` (`sha256:7d006f40…a663e`; noevia-services `55f930b3`, services#42, noevia-rs `0cfe6736`), replacing `cowork-model-loader:20b07d3f`. It still runs the **python** front (`MODEL_MANAGER_IMPL` unset, owner decision #1689), and its allow-listed flags are unchanged.
+- **Docling:** no change (`cowork-docling:f6885a55`, not recreated). "Native Docling binary overlay (#1322)" requires an independent review of this release's exact commands and candidate image before cutover. The #1322 review covered the code and cleared native-off, but it did not review this release's commands or candidate, and this release ran without a second reviewer. The live Compose Manager file therefore did **not** get the noevia#1691 `NOEVIA_DOCLING_IMPL` passthrough either, and `NOEVIA_DOCLING_IMPL` is not in `.env`. Merged, not yet deployed.
+- **OCR, Diary, Laya, code sandbox, llama, embed:** no change, not recreated. OCR and Diary changed only by the rs pin (services#42); their crates are not touched by rs#104. Laya is still `0.3.5-noevia4` (`0.3.5-noevia5` is built, waiting on the owner).
+- **Deploy/infra:** no preflight install, no Compose file edit; `.env` changed only `COWORK_VERSION` and `MODEL_MANAGER_VERSION`. The egress-proxy Dockerfile pin moved to rs `0cfe6736` (dark, not built).
+
+**Evidence.**
+- CI green: noevia#1705 (8/8 incl. "Assembled release (pinned repos)") and `fbb960dd` on main, noevia-services#42 (6/6). Every archive sha256 (rs, core, web, services) was fetched twice from codeload, both matching. Core's front-contract workflows pin rs `7dc9bb4`; rs#104 touched only `bins/noevia-model-manager`, so they were not re-pinned.
+- Assembled on the Mac from a clean checkout; `release-refs` matches the lock.
+- `candidate-boot.sh` was ready at `fbb960dd` with 0 error lines for both `node` and `rust`.
+- Model-loader candidate (no network, read-only, all capabilities dropped, tmpfs, throwaway token): health 200, 0 error lines, removed.
+- Idle gate before each recreate: 0 generation lines in `cowork-llama-1`'s last 3 minutes. The native-autotune job reads `failed` (2026-10-13), and none was running. The Appdata Backup (04:10 EDT) had finished and was not running.
+- After:
+  - `/api/ready` `{"ready":true,"version":"fbb960dd"}` on loopback and on https://noevia.daserver.work; signed-out `/api/projects` 401.
+  - Served `index.html` sha256 `4ecf07bc…f4f7` (was `4ba8ddbc…79d5`); assets `index-DWQEVJSk.js` and `index-DcnwelK8.css` (were `index-DngQeQDa.js` and `index-3UZdOIkM.css`).
+  - #1695 one-time cleanup, read only (prune not called): the model-loader scan lists 5 files. 4 ordinary preset sections, 0 with a missing file. The guard would allow the prune, and it would remove nothing.
+- Containers: only `cowork-web-1` and `cowork-model-loader-1` changed id. The other 39, including Laya, embed, llama, Docling, OCR, Diary and code-sandbox, kept their start times. Both changed containers are healthy with restart count 0. Snapshots: `state/snapshot.{before,after}-fbb960dd.txt`.
+
+**Backups.**
+- `/mnt/disk3/noevia-backups/release_fbb960dd_20261014T101841Z`: web state, SQLite online backup (integrity ok), model-loader state, llamacpp config and override, the Compose project files, `.env`, and SHA256SUMS (verified).
+- `config/.env.bak.before-model-loader-fbb960dd` and `.env.bak.before-web-fbb960dd`.
+
+**Rollback.** Change only the version keys; don't restore any `.env.bak` wholesale.
+- Web: `ln -sfn /mnt/docker/appdata/cowork/releases/20b07d3f /mnt/docker/appdata/cowork/current`, `sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=20b07d3f/' /mnt/docker/appdata/cowork/config/.env`, then `bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web`. The switches can stay `1`. `d119c502` is also kept.
+- Model manager: `sed -i 's/^MODEL_MANAGER_VERSION=.*/MODEL_MANAGER_VERSION=20b07d3f/'` on the same `.env`, then the same `up.sh` line with `model-loader`.
+
 ## Release 20b07d3f — 2026-10-14 (chat, UI and backend batches, embedding guards; web + model manager + Diary overlay)
 
 What changed for you: the chat batch (core#100) retries a turn that came back with reasoning only or that promised a tool call without making one (#1477, #1552, #1587, #1592, #1604). Engine rows in Settings no longer stay on "Checking", and raw restart errors are now translated (#1545). The Features page has plain text for the Preview and Offline Wikipedia rows (#1580). The Models page now refuses to switch to an embedding model that the embeddings server doesn't serve (core#97). Code for the settings-driven embedding service (#1668) is included but **not active** (see Model manager below). Embeddings still run on `nomic-embed-text-v1`, unchanged. The Diary companion now has the #1636 per-model vector slots, with nomic as the active slot, so nothing was re-indexed. No chat, Diary message, model load, switch, delete, tune or benchmark was run to test this.

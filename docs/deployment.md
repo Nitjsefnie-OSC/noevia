@@ -141,6 +141,18 @@ Cutover (no search downtime; web and Diary are not restarted):
    the running containers' command lines (`--model /models/...`) and these variables, and refuses to
    delete a file one of them still names, even after `finish`.
 
+## Release fbb960dd — 2026-10-14 (web + model manager; Docling held)
+
+### Services
+
+- **Web:** #1705, core `91f18f4f`, web `d6e85e96`, rs `0cfe6736`; `cowork-web:fbb960dd`, image `sha256:ad29f6b21dd70a7869183bec8e92662b29552e76a38727eb011dadf1de7091ef`. All eight rust switches stay `1`.
+- **Model manager:** `cowork-model-loader:fbb960dd` (services `55f930b3`, rs `0cfe6736`), still the python front (`MODEL_MANAGER_IMPL` unset).
+- **Docling:** held at `f6885a55`. The native overlay's independent review of the exact commands and candidate was not available, so the live Compose file has no `NOEVIA_DOCLING_IMPL` passthrough yet.
+- **Diary, OCR, Laya, code sandbox, llama, embed:** no change, not recreated.
+- **Deploy/infra:** `.env` changed only `COWORK_VERSION` and `MODEL_MANAGER_VERSION`.
+
+Order: assemble on the Mac, upload, `build-web-release.sh`, `candidate-boot.sh` node and rust, model-loader `docker build --target production` from `releases/fbb960dd/services/model-manager` plus a synthetic candidate, scoped backup `/mnt/disk3/noevia-backups/release_fbb960dd_20261014T101841Z`, idle gate, model-loader `up.sh ... --no-build --no-deps --wait model-loader`, idle gate, web cutover (`current`, `COWORK_VERSION`, web-only `up.sh`). Only `cowork-web-1` and `cowork-model-loader-1` changed id. Rollback: commands in `docs/changelog.md`.
+
 ## Release 20b07d3f — 2026-10-14 (web + model manager + Diary overlay; Laya built, not switched)
 
 ### Services
