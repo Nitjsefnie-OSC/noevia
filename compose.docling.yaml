@@ -53,6 +53,9 @@ services:
       HF_HOME: /tmp/hf
       DOCLING_ARTIFACTS_PATH: /opt/docling-models
       OMP_NUM_THREADS: ${DOCLING_THREADS:-2}
+      # Native extraction switch (#1322, #1690). The image defaults to python; without this line
+      # NOEVIA_DOCLING_IMPL=rust in .env never reaches the container. Owner flips it.
+      NOEVIA_DOCLING_IMPL: ${NOEVIA_DOCLING_IMPL:-python}
     tmpfs:
       - /tmp:size=1073741824,mode=1777
     networks: [ocr]
