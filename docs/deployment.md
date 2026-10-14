@@ -112,55 +112,102 @@ If embedding had been turned **off**, the model manager stopped `cowork-embed-1`
 never start it again by themselves: make sure the rollback command names `embed` with `--no-deps`
 (`up.sh ... -d --no-deps embed`) and check `docker ps` shows `cowork-embed-1` healthy afterwards.
 
-## Pending (owner approval needed): embeddings nomic-embed-text-v1 → EmbeddingGemma 2 (#1636)
+## Approved, in progress: embeddings nomic-embed-text-v1 → EmbeddingGemma 2 (#1636)
 
-Code: noevia-core (profiles, per-model vector slots, `/api/embedding`), noevia-services (the same for
-the Diary, `/api/internal/embedding`; the model manager's delete guard), this repo (`embed-next` in
-`compose.embed.yaml`, env keys, `tools/embed-parity-check.cjs --reference`). Nothing changes until
-the steps below run: the default profile `nomic-v1` sends the same bytes as before, and the existing
-`vec_items` tables are adopted as nomic's slot. **The download, the new image and every step below
-need the owner's per-run approval.**
+Owner approval (2026-10-14): "yes switch to EmbeddingGemma 2 once the image is live". `finish`
+(dropping nomic's vectors) is **not** covered and needs its own approval after a soak.
 
-Facts (checked 2026-10-13): `google/embeddinggemma-2` (Apache 2.0, plus the Gemma prohibited-use
-policy), text tower 270M, 768 dimensions (MRL 512/256/128), mean pooling, 8,192-token context,
-prompts `task: search result | query: …` / `title: none | text: …`, never float16. GGUF
-`ggml-org/embeddinggemma-2-GGUF`, file `embeddinggemma-2-Q8_0.gguf`, 309,855,456 bytes, sha256
-`2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135` (the mmproj files are not needed
-for text). Architecture `gemma-embedding2` from llama.cpp b11452 (#30054); first server-vulkan image
-`server-vulkan-b11459@sha256:815720cb50a090db0c1d48b6e3b2b4ca656c3b99409cf4f31e63ff154ce586c4`;
-compose default `server-vulkan-b11580@sha256:ee2ecb9c3a4d6fa00b918b133fd7a2828195593688eeaef6e6516ef833f88f09`.
-Builds before #30255 (merged 2026-10-13, in no published image yet) keep a ~1 MiB/token logits buffer
-for this model: hence `mem_limit` 3g at `-ub 2048` until an image with #30255 is used (then 1536m).
+**Path: settings-driven (#1668), not `embed-next`.** The earlier procedure here started the
+`embed-next` sidecar and pointed `set-next` at `http://embed-next:8080/v1`. That is superseded: the
+live `embed` router serves both models during the switch, and `compose.embed.yaml` keeps
+`embed-next` only for a manual parity run. Nothing below starts `embed-next`.
 
-Cutover (no search downtime; web and Diary are not restarted):
+Facts (checked 2026-10-13/14): `google/embeddinggemma-2` (Apache 2.0, plus the Gemma prohibited-use
+policy), 768 dimensions, mean pooling, 8,192-token context. GGUF `ggml-org/embeddinggemma-2-GGUF`
+revision `bfcd2987`, file `ai-models/embeddinggemma-2/embeddinggemma-2-Q8_0.gguf`, 309,855,456
+bytes, sha256 `2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135` (no mmproj beside
+it). Image: `embed` and `llama` run `server-vulkan-b11610@sha256:d64043576ad8…ccb475b`, which has
+llama.cpp #30054, #30255 and #30445; `EMBED_NEXT_IMAGE` defaults to the same digest (#1732).
 
-1. Download the GGUF into `ai-models/embeddinggemma-2/` and check its sha256. Add the `embed-next`
-   service from `compose.embed.yaml` to the live Compose Manager override (the third copy, see
-   "Three copies" below) and start only it: `up.sh ... --profile embed-next -d --no-deps embed-next`.
-2. Parity against the original checkpoint, on any machine that may download it (owner approval):
-   `--print-sample`, `tools/embed-reference-vectors.py`, then `--reference` through `cowork-web-1`
-   against `http://embed-next:8080` (min cosine ≥ 0.99, overlap@5 ≥ 0.8; the output also gives the
-   query-to-best-document score range to compare with the 0.30 retrieval minimum).
-3. As an administrator, `POST /api/embedding` `{"action":"set-next","target":{"model":"embeddinggemma-2","profile":"embeddinggemma-2","baseUrl":"http://embed-next:8080/v1"}}`
-   (browser console, with the `X-CSRF-Token` header from the `cowork_csrf` cookie). Web re-embeds
-   project chunks and the Diary its own index files, in the background at ≤ 50 % duty, while search
-   stays on nomic. `GET /api/embedding` shows `coverage.next.ready` for both.
-4. When both are ready: `{"action":"switch"}`. Search uses EmbeddingGemma 2 from the next request;
-   the choice is saved in `embedding-config.json` beside each service's data (web state dir, Diary
-   data dir) and survives restarts. Keep `EMBEDDING_MODEL=nomic-embed-text-v1` in `.env` and `embed`
-   running: they are the rollback.
-5. Rollback at any time: `{"action":"rollback"}` (instant; nomic's vectors were kept and are topped up
-   for anything indexed meanwhile). Before rolling an image back to a release without #1636, roll the
-   embedding back first, so the old code and the saved choice agree.
-6. After a soak: `{"action":"finish"}` drops nomic's vectors; then set `EMBEDDING_MODEL` /
-   `LLM_EMBED_MODEL` / `EMBEDDING_PROFILE` in `.env` to the new model and point `embed` at it (or keep
-   `embed-next`), and delete `embedding-config.json` only once the environment says the same.
-   With #1668 deployed this whole step is the Models page instead ("Switch embedding to …", then
-   Delete; the env names are seeds only). Without it: to delete the nomic GGUF afterwards, first
-   remove or stop the `embed` container and make sure no running container's environment still names nomic (`EMBEDDING_MODEL`, `EMBEDDING_NEXT_MODEL`,
-   `LLM_EMBED_MODEL`, `LLM_EMBED_NEXT_MODEL`, `EMBED_MODEL`): the model manager's delete guard reads
-   the running containers' command lines (`--model /models/...`) and these variables, and refuses to
-   delete a file one of them still names, even after `finish`.
+Names that matter:
+- Model name: **`embeddinggemma-2-Q8_0`**. Web resolves a model through the model manager's list
+  (modelId, `models.ini` section or file stem). `embeddinggemma-2` is not installed under that
+  name, so `service-switch` with it answers 404 `modelNotInstalled`. The name is the router alias
+  and, with the profile, the identity of the stored vectors.
+- Profile: **`embeddinggemma-2`**. Queries are sent as `task: search result | query: …` and stored
+  chunks as `title: none | text: …`, in web (from core#111) and in the Diary. Before core#111, web
+  sent `title: <file name> | text: …` for project chunks.
+- Address: `http://embed:8080/v1` (`EMBEDDING_SERVICE_URL`) for projects and for the Diary
+  (`diaryBaseUrl`). Without an explicit Diary address a set-next with scope `all` or `diary`
+  answers 409 `diaryEndpointRequired`.
+
+Done (2026-10-14, see the changelog entry "EmbeddingGemma 2 switch: preparation"):
+- Backups: `/mnt/disk3/noevia-backups/eg2-switch_20261014T175827Z`. It holds the `.env` copy,
+  both compose files, `embedding.ini`, model-loader state, and online backups of `cowork.db`, every
+  project RAG index and every Diary index (20 databases, all `integrity_check` ok). It also has
+  `.bak-1636-20261014T175827Z` beside `.env`, the override and `embedding.ini`.
+- Isolated candidate (same image and flags, no network, own preset with both models): 768
+  dimensions, 4/4 synthetic queries ranked their own document first. Memory: anon peak 463 MiB plus
+  ~0.45 GiB of mmapped weights, so 1g thrashes. `EMBED_MEMORY_LIMIT=2g` is live: the override's
+  embed `mem_limit` now reads `${EMBED_MEMORY_LIMIT:-1g}`.
+
+Remaining steps, in order:
+
+0. Preconditions: core#111 live in web; llama idle gate 0; no `up.sh`, compose, autotune,
+   Appdata Backup or eval running; GTT and `MemAvailable` ≥ 8 GiB checked.
+1. Serve both models (the settings-driven control plane, as the Models page does it). From
+   `cowork-web-1`, with `X-Model-Loader-Token` from its environment (never printed):
+   `PUT $MODEL_LOADER_URL/api/v1/embedding-service`
+   `{"models":[{"model":"nomic-embed-text-v1","file":"nomic-embed-text-v1/nomic-embed-text-v1.Q8_0.gguf"},{"model":"embeddinggemma-2-Q8_0","file":"embeddinggemma-2/embeddinggemma-2-Q8_0.gguf"}]}`.
+   The model manager rewrites `embedding.ini` and restarts `cowork-embed-1` (a restart of the same
+   container, a few seconds without search). Then `GET` must report both in `running.loaded`
+   (send one synthetic embedding per model to load them at once).
+2. Projects (administrator session; browser console with `X-CSRF-Token` from the `cowork_csrf`
+   cookie): `POST /api/embedding`
+   `{"action":"set-next","scope":"projects","target":{"baseUrl":"http://embed:8080/v1","model":"embeddinggemma-2-Q8_0","profile":"embeddinggemma-2"}}`.
+   Web re-embeds at most `EMBEDDING_REINDEX_DUTY` (0.5) of the time in batches of 4, so chat stays
+   usable. Wait for `projects.coverage.next.ready: true`.
+3. Diary: the same call with `"scope":"diary"` and `"diaryBaseUrl":"http://embed:8080/v1"` in the
+   target. Wait for `diary.coverage.next.ready: true`.
+4. Activate: `{"action":"switch"}` (scope `all`). After a switch web asks the model manager to
+   serve the active and the previous model, so nomic stays loaded and its vectors stay as the
+   rollback.
+
+   Instead of steps 1-3, the Models page ("Switch embedding to …", the `service-switch` action with
+   `{"model":"embeddinggemma-2-Q8_0","profile":"embeddinggemma-2"}`) serves both and starts one
+   re-index of projects and the Diary together.
+
+Monitoring, counts only:
+
+```js
+const j = await fetch('/api/embedding', {credentials:'same-origin'}).then(r=>r.json());
+const pick = (s) => s && { active: s.coverage?.active, next: s.coverage?.next, nextServed: s.nextServed, held: s.nextHeld?.code, running: s.running, last: s.lastPass && { embedded: s.lastPass.embedded, failed: s.lastPass.failed, refused: s.lastPass.refused } };
+console.log(JSON.stringify({ projects: pick(j.projects), diary: j.diary?.error ? { error: j.diary.code || j.diary.status } : pick(j.diary) }));
+```
+
+Projects report `coverage.{indexes, chunks, vectors, unavailable, complete, ready}`. The Diary
+reports `files` instead of `indexes`. `ready` means every index has at least as many vectors for
+the new model as for the active one. A chunk longer than 2,048 tokens (the router's `-ub`) is
+refused and left without a vector (`refused` in the last pass). EmbeddingGemma 2 counts about 9 %
+more tokens than nomic on English, so a few long Diary subsections that nomic embedded could keep
+the Diary not `ready`. Check `refused` before forcing anything.
+
+Rollback, at any stage before `finish`:
+- After steps 2-3 (no switch yet): `{"action":"clear-next","scope":"projects"}` and/or `"scope":"diary"`.
+  This drops the partial EmbeddingGemma 2 vectors; nomic is untouched. Then PUT the service back
+  to nomic only (step 1 with one model) or let the next switch, finish, clear-next or rollback
+  re-sync it.
+- After step 4: `{"action":"rollback"}`. This is instant: nomic becomes active again, and its
+  vectors are topped up for anything indexed since.
+- Memory: restore `.env` and the override from `.bak-1636-20261014T175827Z`, then
+  `up.sh --env-file … -- -d --no-build --no-deps --wait --wait-timeout 120 embed`. Do this only
+  with nomic alone served.
+
+Not part of this switch: `finish` (drops nomic's vectors: `projects` and the Diary each drop the
+`previous` slot, the model manager stops serving nomic, and the nomic GGUF becomes deletable;
+rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` section in the chat
+engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
+would evict the chat model, so every target here names `http://embed:8080/v1`.
 
 ## Release d37a16e5 — 2026-10-14 (whole stack: web + model manager + Docling; #1726 off, #1639 wording)
 

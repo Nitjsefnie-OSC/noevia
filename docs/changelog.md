@@ -8,6 +8,45 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## EmbeddingGemma 2 switch: preparation — 2026-10-14 17:59Z (embed memory limit live; model not switched yet)
+
+What changed for you: nothing visible. Search still uses nomic-embed-text-v1. The embedding service can now hold nomic and EmbeddingGemma 2 together, which the owner-approved switch (#1636) needs. The switch itself is not done yet. It waits on core#111 being released in web, then on the administrator steps in `docs/deployment.md` ("Approved, in progress: embeddings …").
+
+### Services
+
+- **Web:** no change (`cowork-web:d37a16e5`), not recreated. core#111 (EmbeddingGemma 2 project chunks framed `title: none | text: …` instead of `title: <file name> | text: …`) is open, CI green, and waiting for review. It must be live before the project re-embed.
+- **Embed:** recreated once at 17:59:06Z with the same image (`server-vulkan-b11610@sha256:d64043576ad8…ccb475b`), now with a 2 GiB memory limit (was 1 GiB). Healthy, restarts 0. nomic listed and loaded; `embedding.ini` unchanged (one `[nomic-embed-text-v1]` section).
+- **Diary, Model manager, llama, Laya, Docling, OCR, Code sandbox:** no change, not recreated.
+- **Deploy/infra:** `.env` gained `EMBED_MEMORY_LIMIT=2g`. The live override's embed `mem_limit: 1g` became `mem_limit: ${EMBED_MEMORY_LIMIT:-1g}`, matching `compose.embed.yaml` and the example override. #1756 (`504bd896`) pins `EMBED_NEXT_IMAGE` to the b11610 digest and closes #1732.
+
+**Evidence.**
+- Gates: llama idle count 0, GTT 14 MB, `MemAvailable` about 19 GiB, and no `up.sh`, compose, autotune, Appdata Backup or eval running. Reranker run 2 had already ended at 16:50Z.
+- Model file: 309,855,456 bytes, sha256 `2188ac1d…b09135` (matches), no mmproj beside it. `LLAMACPP_MODELS_DIR` is `/mnt/user/ai-models`, so the container path is `/models/embeddinggemma-2/embeddinggemma-2-Q8_0.gguf`.
+- Candidate: an isolated router, `--network none`, same image and flags, with its own preset listing `nomic-embed-text-v1` and `embeddinggemma-2`. It was removed afterwards. Synthetic texts only, written for this check:
+  - Both models loaded, 768 dimensions each.
+  - EmbeddingGemma 2 with the decided prompts ranked the right document first for 4/4 queries (scores 0.78-0.82, margins 0.14-0.24, repeat cosine 0.99984).
+  - nomic: 4/4.
+- Memory, two models loaded:
+  - Idle: 405 MiB.
+  - Two parallel ~1,900-token inputs per model: anon peak 463 MiB, plus ~0.45 GiB of mmapped weights (nomic 146 MB, EG2 310 MB).
+  - Under 1g: no OOM kill, but 500 `max` events and 53k file refaults. That is about 89 % of the limit, over the 85 % bar, so the limit was raised to 2g.
+  - An input of 2,162 EG2 tokens is refused at `-ub 2048`; the same text is 1,989 nomic tokens.
+- Embed after the recreate: healthy, restarts 0, `HostConfig.Memory` 2147483648. A synthetic request returned 768 dimensions. `GET /api/v1/embedding-service` returned 200 with `managed:true`, models `[nomic-embed-text-v1]`, loaded `[nomic-embed-text-v1]`.
+- Inventory: only `cowork-embed-1` changed id. Snapshots are `release-prep/eg2-switch/inv-{before,after}-embed-mem.txt`; the log is `release-prep/eg2-switch/embed-mem.log`.
+- Backups:
+  - `/mnt/disk3/noevia-backups/eg2-switch_20261014T175827Z` holds the `.env` copy, both compose files, `embedding.ini`, model-loader state, and online backups of `cowork.db`, 10 project RAG indexes and the Diary indexes. All 20 databases passed `integrity_check`.
+  - `.bak-1636-20261014T175827Z` beside `.env`, the override and `embedding.ini`.
+
+**Rollback** (memory limit only; nothing else changed):
+
+```sh
+A=/mnt/docker/appdata/cowork; P=/boot/config/plugins/compose.manager/projects/Cowork; T=20261014T175827Z
+cp -p $A/config/.env.bak-1636-$T $A/config/.env; cp -p $P/docker-compose.override.yml.bak-1636-$T $P/docker-compose.override.yml
+bash $A/tools/preflight/up.sh --env-file $A/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 embed
+```
+
+Then send one synthetic embedding to `http://embed:8080/v1/embeddings` from web to load nomic at once (the model manager's watcher also re-warms it within about 30 s).
+
 ## Release d37a16e5 — 2026-10-14 16:45Z / 17:37Z / 17:42Z (whole stack: web + model manager + Docling; live)
 
 What changed for you: decision prompts now use the wording tuned for Kev-0.8B, follow the configured decision model, and keep the Code route label (#1639, #1739, #1740). The decision model in use is unchanged until the separate Kev cutover. Multimodal RAG (#1726) is shipped in web, the model manager and Docling but stays off (`NOEVIA_MULTIMODAL_RAG` is not set). Docling can now return a document's figures and mark OCR-read pages, but only when it is asked to.
