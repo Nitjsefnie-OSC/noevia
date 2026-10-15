@@ -8,6 +8,64 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release a5d9cbf2 — 2026-10-15 16:31Z (whole stack: web + model manager + Diary overlay; #1576, #1638, #1315, #1368, #1373, #1318, #1826)
+
+What changed for you: there is one chat surface now. Every project takes chats, and Task is a per-send choice in the composer (#1576, #1839). Settings gains an Inference machines page that lists machines and which part of noevia each one serves (#1638). The page also fixes refresh issues (#1814, #1828, #1829), shows the model in the inspector, and adds a Creative note. The native Rust routes for export (#1315), storage reads and browse (#1368) and ChatGPT status (#1373) ship in the image but stay switched off. The model manager can serve its settings natively (#1318), also switched off.
+
+### Services
+
+- **Web:** #1846 (noevia `a5d9cbf2`), plus #1821, #1823, #1836, #1837 (supervisor and compose wiring for the new switches), #1831 (#1822).
+  - core `1d7ea3de`: core#132 (#1315), core#133 (M4 storage-reads env corpus), core#134 (#1368), core#135 (#1373), core#136 (#1576), core#137 (#1838), core#139 (#1839), core#138 (#1638, #1816, #1817).
+  - web `6f74aff9`: web#69 (#1814), web#70 (#1828, #1829), web#71 (#1576), web#73 (#1839), web#72 (#1638).
+  - rs `54d6f328`: rs#114, #116, #117 (#1315, #1824, #1830, #1833, `mem-return`), rs#115, #120, #122 (#1368, #1371, #1827, #1835, `--storage-request-child`), rs#121 (#1373), rs#118, #119 (#1318 `native-settings`), rs#123 (core.ref repin), rs#124 (routes.toml, #1638).
+  - services `42065fa0`: services#54 (#1811, #1813), services#55 (#1318), services#56 (#1832), services#57 (rs pin `54d6f328`).
+  - Image: `cowork-web:a5d9cbf2`, `sha256:260590d2d282a4d363a525fc2f51c583d638338357cf8d87a446b12ca037e1cb`, replacing `cowork-web:da2e18b9`. `noevia-server --features` adds `rust-export`, `rust-storage-reads`, `rust-storage-browse` and `rust-chatgpt-status`. Their switches `NOEVIA_RUST_EXPORT`, `_STORAGE_READS`, `_STORAGE_BROWSE` and `_CHATGPT_STATUS` are `0`, and no `_CONFIRMED` key is set.
+- **Model manager:** `cowork-model-loader:a5d9cbf2`, `sha256:13f421b256f511d412b7424cbe1c93736cf9c08ff847f9c06e454ce035a1a2b2`, replacing `cowork-model-loader:da2e18b9`. Brings #1318 live: the `native-settings` feature and the Python 503 guard. `MODEL_MANAGER_SETTINGS_IMPL=python` (compose default; not in `.env`), and the Python child sees `NOEVIA_NATIVE_MODEL_MANAGER_SETTINGS_CONFIRMED=0`, so Python still serves `GET /api/v1/settings`. `MODEL_MANAGER_IMPL=rust` and `MODEL_FILES_IMPL=rust` are unchanged.
+- **Diary:** `cowork-diary:a5d9cbf2` via `diary-overlay.sh a5d9cbf2` (agent/ plus binaries from rs `54d6f328`), `sha256:9098a0cb4f3ae076fc4697e62ef2045323fcc43f7609632b2f529e1792bc853c`, replacing `cowork-diary:da2e18b9`. Brings #1811, #1813 (tenant-assertion replay cache, restore-verify bin rule) and #1832 (`TENANT_ASSERTION_BIN` rule) live. The binaries are unchanged in substance: no crate in their closure changed since `b0c42789`. `TENANT_ASSERTION_IMPL=rust` is unchanged.
+- **Docling, OCR, Laya, code sandbox, egress:** no change, not rebuilt or recreated. Only the rs pin line changed in their Dockerfiles, and no crate they build changed between their build refs (docling rs `0ad61a35`, OCR rs `7406050a`) and `54d6f328`. Core's `code-sandbox/` is unchanged.
+- **Kev, llama, embed, rerank, kiwix, Nextcloud:** not touched.
+- **Deploy/infra:**
+  - #1826: the live `docker-compose.override.yml` now passes the repo's web and model-loader keys, with the repo defaults and nothing set in `.env`.
+    - web (17): `EMBEDDING_NEXT_BASE_URL`, `EMBEDDING_NEXT_MODEL`, `EMBEDDING_NEXT_PROFILE`, `EMBEDDING_PROFILE` (`nomic-v1`, equal to the code default), `EMBEDDING_REINDEX_DUTY` (`0.5`, equal to the code default), `FOLDER_IMPORT_MAX_BYTES`, `FOLDER_IMPORT_MAX_FILES`, `NOEVIA_RUST_CHATGPT_STATUS`, `NOEVIA_RUST_EXPORT`, `NOEVIA_RUST_STORAGE_BROWSE`, `NOEVIA_RUST_STORAGE_READS` (all `0`), `PROJECT_DOCUMENT_LIMIT`, `PROJECT_IMAGE_LIMIT`, `PROJECT_SOURCE_LIMIT`, `RERANK_LLAMACPP_BASE_URL`, `RERANK_TEI_BASE_URL`, `RERANK_TEI_MODEL`.
+    - model-loader (4): `MODEL_MANAGER_SETTINGS_IMPL` (`python`), `LLAMACPP_AUTOCONFIG_CACHE_RAM_MAX_MIB`, `LLAMACPP_CACHE_RAM_HARD_MAX_MIB`, `MODELS_HOST_PATH`. The model manager reads none of the last three.
+    - Backups: `docker-compose.yml.bak.before-a5d9cbf2`, `docker-compose.override.yml.bak.before-a5d9cbf2`. `up.sh` now reports no missing web keys.
+  - Repo compose copies pass `MODEL_MANAGER_SETTINGS_IMPL` with a `python` default, with a test (#1846).
+  - Preflight reinstalled from the release (old copy `tools/preflight.bak.before-a5d9cbf2`).
+  - `.env`: `MODEL_MANAGER_VERSION`, `DIARY_VERSION` and `COWORK_VERSION` are `a5d9cbf2`; nothing else changed. `current` points to `releases/a5d9cbf2`.
+
+**Evidence.**
+- Pins: every tarball fetched twice with identical results (core `90b608ad…`, web `2b1eb64f…`, rs `eaf6337a…`, services `4854abdb…`). services#57 and #1846 CI green, including "Assembled release (pinned repos)"; noevia main CI green at `a5d9cbf2`. The release tarball `06296dc4…4f90` matched on the Mac and on the box.
+- Candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"a5d9cbf2"}` with 0 error lines. Isolated model-loader candidate (no network): health 200, settings 401 without the token and 200 with it, 0 error lines.
+- #1576 migration impact on live: 413, 2, 1 and 0 projects in 4 workspaces; 0 non-canonical `modes`, so the live load migration is a no-op (no backup file and no log line expected, and none appeared). 1 project records `cowork`.
+- #1576 rehearsal inside the new image with no network, on scratch copies of the 413-project workspace (deleted afterwards):
+  - unmodified copy: 0 migrated, no backup, bytes unchanged.
+  - copy with 4 projects set to non-canonical `modes`: 4 migrated, one `projects-pre-1576-*` backup byte-identical to the pre-migration file. A second run changed nothing and wrote no new backup.
+- Gates before each cutover: Coding jobs `idle`, llama idle count 0, GTT 29 MiB, MemAvailable about 15.8 GiB, no autotune (the last job `failed` on 2026-10-13).
+- Backup `/mnt/disk3/noevia-backups/release_a5d9cbf2_20261015T162848Z`. It holds web state (every projects.json and `cowork.db`), the Diary state, model-loader data, both compose files, `.env` and the preflight. 23 online SQLite copies pass `integrity_check`. Diary overlay backup `/mnt/disk3/noevia-backups/diary_a5d9cbf2_20261015T163025Z`, verified.
+- Model manager (16:29Z): healthy, restarts 0, `embedding-service` 200.
+- Diary (16:30Z): candidate imports, agent/ (33 files) exact, both self-tests ok; health via web 200; `tenant-assertion self-test` and `workspace-restore-verify self-test` ok in the live container.
+- Web (16:31Z): the first run stopped before `up` because the script passed a relative `--env-file`. The preflight blocked it, and its rollback restored `current` and `COWORK_VERSION`; web was never recreated. The rerun passed:
+  - healthy, restarts 0, PID 1 `/sbin/docker-init`; `/api/ready` at `a5d9cbf2` on loopback and on https://noevia.daserver.work.
+  - signed out, `/api/projects`, `/api/models/machines` and `/api/export/conversations` return 401, on both.
+  - served `index.html` equals the image's; 145 dist files.
+  - one synthetic Kev decision (`model.route`, shipped code) answered with `kev-0.8b` in 3.7 s. `COWORK_DECISION_URL` is `http://kev:11435`. Web is on `cowork_rerank`, `NOEVIA_FEATURE_RAG_RERANK=true`, `RERANK_BASE_URL` set.
+- Ten-minute watch: web, model manager and Diary healthy with 0 restarts and 0 error lines. Of 42 containers, only `cowork-web-1`, `cowork-model-loader-1` and `cowork-diary-1` changed id; every other id and start time is unchanged.
+
+**Rollback.** Run the idle gate first. The #1576 migration changed no live file, so the old web reads the same data.
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env
+ln -sfn $A/releases/da2e18b9 $A/current
+sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=da2e18b9/' $ENV
+bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120 web
+```
+
+Model manager (to da2e18b9): `sed -i 's/^MODEL_MANAGER_VERSION=.*/MODEL_MANAGER_VERSION=da2e18b9/' $ENV`, then the same `up.sh` line with `model-loader`.
+
+Diary (to da2e18b9): `sed -i 's/^DIARY_VERSION=.*/DIARY_VERSION=da2e18b9/' $ENV`, then the same `up.sh` line with `diary`. `cowork-diary:rollback-before-diary-overlay` is the same image.
+
+Compose (#1826): the added keys are inert for the old images. If needed, restore `docker-compose.override.yml.bak.before-a5d9cbf2` in the Compose Manager project.
+
 ## Release da2e18b9 — 2026-10-15 11:28Z (whole stack: web + model manager + Diary overlay; #1806, #1665, #1666, #1667, #982, #1783)
 
 What changed for you: a project's source text now lives in its own files instead of inside projects.json, so projects can hold up to 1000 sources, 200 documents and 12 images (#1806). A source whose text has gone missing says so in Sources (#1815). The Models page gains the reranker switch and choice, a decision model choice and a Creative role (#1665, #1666, #1667). The model manager no longer prunes operator `.bak` files next to `models.ini` (#1783). The Diary image now carries the Rust workspace ZIP gate (#982), still switched off.
