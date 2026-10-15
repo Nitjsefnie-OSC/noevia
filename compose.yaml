@@ -201,6 +201,11 @@ services:
       #   noevia|http://127.0.0.1:8022/mcp|internal
       MCP_INTERNAL_PORT: ${MCP_INTERNAL_PORT:-0}
       UI_DATA_DIR: /app/server/ui-data
+      PROJECT_SOURCE_LIMIT: ${PROJECT_SOURCE_LIMIT:-}
+      PROJECT_DOCUMENT_LIMIT: ${PROJECT_DOCUMENT_LIMIT:-}
+      PROJECT_IMAGE_LIMIT: ${PROJECT_IMAGE_LIMIT:-}
+      FOLDER_IMPORT_MAX_FILES: ${FOLDER_IMPORT_MAX_FILES:-}
+      FOLDER_IMPORT_MAX_BYTES: ${FOLDER_IMPORT_MAX_BYTES:-}
     volumes:
       - ${COWORK_WEB_STORAGE:-${COWORK_STATE_DIR:-./state}/web}:/app/server/ui-data
     extra_hosts:
