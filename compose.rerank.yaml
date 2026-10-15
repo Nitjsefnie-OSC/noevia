@@ -1,69 +1,76 @@
-# Optional CPU-only RAG reranker sidecar (#697) — an OVERLAY, not part of the base stack.
+# Optional CPU-only RAG reranker sidecar (#697, #1665) — an OVERLAY, not part of the base stack.
 #
 #   docker compose -f compose.yaml -f compose.llamacpp.yaml -f compose.embed.yaml -f compose.rerank.yaml up -d
 #
 # The inference engine (`llama`, compose.llamacpp.yaml) holds one model at a time inside the
 # inference memory budget, so the reranker cannot live there: every retrieval would evict the chat
 # model. Web refuses a RERANK_BASE_URL that points at the engine (server/rerank-target.cjs) and
-# falls back to cosine ranking. This service is the supported place for it: a second llama.cpp
-# server, CPU-only like `embed`, with its own small memory limit outside the inference budget.
+# falls back to cosine ranking.
 #
-# Speed is not yet measured on CPU. Rerank has a deadline (RAG_RERANK_DEADLINE_MS, default 3000);
-# a slower answer falls back to the cosine top results, so chat never waits longer than that.
-# Start with a smaller pool (RAG_RERANK_POOL) and measure before relying on it.
+# #1665: gte-multilingual-reranker-base, int8 ONNX, served by text-embeddings-inference (TEI) on
+# CPU, launched exactly as eval run 2 measured it on DaServer (2 CPUs, 2 GiB, 2048 batch tokens,
+# auto-truncate): top-1 14% -> 67% over embedding order at ~1.6 s p50 / 1.8 s p95 for 12 passages.
+# Web speaks TEI's `POST /rerank` (RERANK_BACKEND=tei). Rerank has a deadline
+# (RAG_RERANK_DEADLINE_MS, default 3000); a slower or failed answer falls back to embedding order,
+# so chat never waits longer than that and never errors because of the reranker.
+#
+# Reranking stays OFF until NOEVIA_FEATURE_RAG_RERANK=true is set in .env (docs/deployment.md,
+# "Enable the gte reranker"). The address is configurable (RERANK_BASE_URL) so the reranker can
+# move to another machine on this network later (#1755); it must stay on this network (#1760).
 services:
   rerank:
-    # Same pinned image as `llama` and `embed`; `--device none` keeps it off the GPU.
-    image: ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:94bd70ef60ef6d670c85999c144f59013e06525d9ee26b3563ab9b2f29d1ea41
+    # TEI cpu-1.9, pinned by digest (the image the #1665 eval ran, on disk on DaServer).
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d
     restart: unless-stopped
     command:
-      - "--device"
-      - "none"
-      - "-m"
-      - "/models/${RERANK_MODEL_FILE:?Set the reranker GGUF path under the models directory}"
-      - "--alias"
-      - "${RERANK_MODEL:-qwen3-reranker-0.6b-q8_0}"
-      - "--reranking"
-      - "--pooling"
-      - "rank"
-      # One slot of 4096 tokens holds a query and one 4000-character chunk; the batch covers it whole.
-      - "-c"
-      - "4096"
-      - "-b"
-      - "2048"
-      - "-ub"
-      - "2048"
-      - "--parallel"
-      - "1"
-      # One variable sets both the CPU quota and the thread count, so they cannot disagree.
-      - "-t"
-      - "${RERANK_CPUS:-2}"
-      - "--cache-ram"
-      - "0"
-      - "--host"
+      - "--model-id"
+      - "/model"
+      - "--hostname"
       - "0.0.0.0"
       - "--port"
       - "8080"
+      - "--auto-truncate"
+      - "--max-batch-tokens"
+      - "2048"
+      - "--max-client-batch-size"
+      - "64"
+    environment:
+      # Never reach the Hub: the model is the read-only folder below.
+      HF_HUB_OFFLINE: "1"
+    # The onnx-community int8 export: TEI loads /model/onnx/model.onnx, so the int8 file is mounted
+    # under that name, file by file, read-only (as the eval did). RERANK_MODEL_DIR is the snapshot
+    # folder, e.g. .../onnx-community_gte-multilingual-reranker-base/<revision>.
     volumes:
-      - ${LLAMACPP_MODELS_DIR:?Set the existing public models directory}:/models:ro
-    # ~0.6 GiB of Q8 weights, ~0.45 GiB of f16 KV at 4096 tokens, and compute scratch.
-    mem_limit: ${RERANK_MEMORY_LIMIT:-1536m}
-    memswap_limit: ${RERANK_MEMORY_LIMIT:-1536m}
+      - ${RERANK_MODEL_DIR:?Set RERANK_MODEL_DIR to the gte-multilingual-reranker-base ONNX snapshot folder}/onnx/model_int8.onnx:/model/onnx/model.onnx:ro
+      - ${RERANK_MODEL_DIR}/config.json:/model/config.json:ro
+      - ${RERANK_MODEL_DIR}/tokenizer.json:/model/tokenizer.json:ro
+      - ${RERANK_MODEL_DIR}/tokenizer_config.json:/model/tokenizer_config.json:ro
+      - ${RERANK_MODEL_DIR}/special_tokens_map.json:/model/special_tokens_map.json:ro
+    # Eval run 2: the ONNX Runtime arena plus the 250k-vocab embeddings fill 1.5 GiB, so 2 GiB.
+    mem_limit: ${RERANK_MEMORY_LIMIT:-2g}
+    memswap_limit: ${RERANK_MEMORY_LIMIT:-2g}
     cpus: ${RERANK_CPUS:-2}
     healthcheck:
+      # curl is in the TEI cpu image (its Dockerfile installs it).
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-    # Web reaches it on `default`; no published ports.
-    networks: [default]
+      start_period: 120s
+    # Only on the internal `rerank` network: web reaches it, nothing else does, no egress, no ports.
+    networks: [rerank]
 
   web:
+    networks: [rerank]
     environment:
-      NOEVIA_FEATURE_RAG_RERANK: "true"
-      RERANK_BASE_URL: http://rerank:8080/v1
-      RERANK_MODEL: ${RERANK_MODEL:-qwen3-reranker-0.6b-q8_0}
+      NOEVIA_FEATURE_RAG_RERANK: ${NOEVIA_FEATURE_RAG_RERANK:-}
+      RERANK_BACKEND: ${RERANK_BACKEND:-tei}
+      RERANK_BASE_URL: ${RERANK_BASE_URL:-http://rerank:8080}
+      RERANK_MODEL: ${RERANK_MODEL:-gte-multilingual-reranker-base}
       # No inference credential is sent to the sidecar; set RERANK_API_KEY only if you give the
       # sidecar its own --api-key. The internal network needs none.
       RERANK_API_KEY: ${RERANK_API_KEY:-}
+
+networks:
+  rerank:
+    internal: true
