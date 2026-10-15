@@ -25,6 +25,8 @@ echo "\$name UI_HOST=\${UI_HOST:-} UI_PORT=\${UI_PORT:-} UPSTREAM=\${NOEVIA_LEGA
 echo "\$name TCONF=\${NOEVIA_RUST_ROUTING_MODE_CONFIRMED:-}" >> "$work/log"
 echo "\$name DCONF=\${NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED:-}" >> "$work/log"
 echo "\$name XCONF=\${NOEVIA_RUST_STATS_CONFIRMED:-}" >> "$work/log"
+echo "\$name GCONF=\${NOEVIA_RUST_STORAGE_READS_CONFIRMED:-}" >> "$work/log"
+echo "\$name BCONF=\${NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED:-}" >> "$work/log"
 echo "\$name ECONF=\${NOEVIA_RUST_EXPORT_CONFIRMED:-}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
@@ -287,6 +289,39 @@ reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_STATS=1 NOEVIA_RUST_STATS_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops inherited stats confirmation" 'grep -q "^node XCONF=$" "$work/log"'
 
+# Connected-storage metadata (#1368), the same rules.
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_STORAGE_READS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-storage-reads" >/dev/null 2>"$work/err"; rc=$?
+check "storage reads without native auth refuses before startup" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_STORAGE_READS=1 needs NOEVIA_RUST_AUTH=1" "$work/err" && [ ! -s "$work/log" ]'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_STORAGE_READS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth" >/dev/null 2>"$work/err"; rc=$?
+check "storage reads missing native feature refuses before startup" '[ $rc -eq 2 ] && grep -q "no rust-storage-reads" "$work/err" && [ ! -s "$work/log" ]'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_STORAGE_READS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-storage-reads" >/dev/null 2>&1; rc=$?
+check "storage reads confirmed only to Node after native probe" 'grep -q "^node GCONF=1$" "$work/log" && grep -q "^front GCONF=$" "$work/log"'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_STORAGE_READS_CONFIRMED=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-storage-reads" >/dev/null 2>&1; rc=$?
+check "default-off Rust mode drops inherited storage reads confirmation" 'grep -q "^node GCONF=$" "$work/log" && grep -q "^front GCONF=$" "$work/log"'
+reset; touch "$work/die-node"
+run NOEVIA_FRONT=node NOEVIA_RUST_STORAGE_READS=1 NOEVIA_RUST_STORAGE_READS_CONFIRMED=1 >/dev/null 2>&1; rc=$?
+check "node mode drops inherited storage reads confirmation" 'grep -q "^node GCONF=$" "$work/log"'
+
+# Connected-storage list and read (#1368), the same rules.
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_STORAGE_BROWSE=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-storage-browse" >/dev/null 2>"$work/err"; rc=$?
+check "storage browse without native auth refuses before startup" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_STORAGE_BROWSE=1 needs NOEVIA_RUST_AUTH=1" "$work/err" && [ ! -s "$work/log" ]'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_STORAGE_BROWSE=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-storage-reads" >/dev/null 2>"$work/err"; rc=$?
+check "storage browse missing native feature refuses before startup" '[ $rc -eq 2 ] && grep -q "no rust-storage-browse" "$work/err" && [ ! -s "$work/log" ]'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_STORAGE_BROWSE=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-storage-browse" >/dev/null 2>&1; rc=$?
+check "storage browse confirmed only to Node after native probe" 'grep -q "^node BCONF=1$" "$work/log" && grep -q "^front BCONF=$" "$work/log"'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-storage-browse" >/dev/null 2>&1; rc=$?
+check "default-off Rust mode drops inherited storage browse confirmation" 'grep -q "^node BCONF=$" "$work/log" && grep -q "^front BCONF=$" "$work/log"'
+reset; touch "$work/die-node"
+run NOEVIA_FRONT=node NOEVIA_RUST_STORAGE_BROWSE=1 NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED=1 >/dev/null 2>&1; rc=$?
+check "node mode drops inherited storage browse confirmation" 'grep -q "^node BCONF=$" "$work/log"'
 # The conversation export (#1315): needs the confirmed project and free-chat slices too.
 EXPORT_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats rust-export"
 reset
