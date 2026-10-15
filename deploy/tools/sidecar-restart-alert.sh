@@ -9,6 +9,11 @@
 # container and image, exit code 0 and at most N (default 10) restarts since the last run is expected
 # and silent; a non-zero exit, a replaced container/image or a burst above N still alerts (crash loop).
 # --ack rewrites state without alerting (run right after an intentional deploy).
+# Remote services (#1843): with NOEVIA_REMOTE_SERVICES set (laya, kev, embed, rerank assigned to another
+# Inference machine) each is health-probed through remote-services.sh (see that file for the
+# NOEVIA_REMOTE_<NAME>_HEALTH_URL variables; LAN/Tailscale hosts only, bounded timeout). A service that
+# fails NOEVIA_REMOTE_FAIL_THRESHOLD (default 2) consecutive runs alerts once; its recovery sends one
+# notice. State: "<state file>.remote". No web admin credential is used or needed. Unset: nothing runs.
 # Exit status: 0 ok, 2 docker failure, 64 usage error. Notify failures leave the
 # old state line in place so the next run retries the alert.
 set -uo pipefail
@@ -22,7 +27,7 @@ oneshot_max=10
 oneshot_names=()
 IFS=',' read -r -a oneshot_names <<< "${NOEVIA_ONESHOT_SERVICES-code-verify}"
 
-usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,7 +60,59 @@ send() { # level subject description
   "$notify_bin" -e "Noevia" -s "$2" -d "$3" -i "$1" >/dev/null
 }
 
-names="$(docker ps -a --format '{{.Names}}')" || { echo "docker ps failed" >&2; exit 2; }
+# --- remote services (#1843): inert unless NOEVIA_REMOTE_SERVICES is set ---------------------------
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+remote_check() {
+  [[ -n "${NOEVIA_REMOTE_SERVICES-}" || -n "${NOEVIA_REMOTE_ENV_FILE-}" ]] || return 0
+  local lib="" c
+  for c in "${REMOTE_SERVICES_SCRIPT-}" "$here/remote-services.sh" "$here/preflight/../remote-services.sh"; do
+    if [[ -n "$c" && -f "$c" ]]; then lib="$c"; break; fi
+  done
+  if [[ -z "$lib" ]]; then echo "warning: NOEVIA_REMOTE_SERVICES set but remote-services.sh not found next to this script" >&2; return 0; fi
+  # shellcheck source=remote-services.sh
+  source "$lib"
+  remote_load_env
+  [[ -n "${NOEVIA_REMOTE_SERVICES-}" ]] || return 0
+  local threshold="${NOEVIA_REMOTE_FAIL_THRESHOLD-2}"
+  [[ "$threshold" =~ ^[1-9][0-9]*$ ]] || threshold=2
+  local rstate="$state.remote" t=$'\t' old="" new="" svc res st detail line pstate pfails palerted fails alerted machine
+  [[ -f "$rstate" ]] && old="$(cat "$rstate")"
+  while IFS= read -r svc; do
+    [[ -n "$svc" ]] || continue
+    res="$(remote_probe "$svc")"; st="${res%%|*}"; detail="${res#*|}"
+    machine="$(remote_machine "$svc")"
+    pfails=0; palerted=0; line=""
+    local l
+    while IFS= read -r l; do [[ "${l%%"$t"*}" == "$svc" ]] && line="$l"; done <<< "$old"
+    if [[ -n "$line" ]]; then IFS="$t" read -r _ pstate pfails palerted <<< "$line"; fi
+    [[ "$pfails" =~ ^[0-9]+$ ]] || pfails=0
+    [[ "$palerted" == 1 ]] || palerted=0
+    case "$st" in
+      healthy|unconfigured)
+        fails=0; alerted=0
+        if [[ "$palerted" == 1 && "$st" == healthy ]]; then
+          send normal "$svc recovered on $machine" "Remote service $svc on machine $machine answers its health check again ($detail)." \
+            || { fails=$pfails; alerted=1; }
+        fi ;;
+      *)
+        fails=$((pfails + 1)); alerted=$palerted
+        if [[ "$fails" -ge "$threshold" && "$palerted" != 1 && ( "$ack" != true && "$first_run_remote" != true ) ]]; then
+          send alert "$svc down on $machine" "Remote service $svc on machine $machine is $st ($detail) after $fails consecutive checks." && alerted=1
+        elif [[ "$fails" -ge "$threshold" && ( "$ack" == true || "$first_run_remote" == true ) ]]; then
+          alerted=1 # baseline or acknowledged: already down now, recovery will still be reported
+        fi ;;
+    esac
+    new+="${svc}${t}${st}${t}${fails}${t}${alerted}"$'\n'
+  done < <(remote_services)
+  if [[ "$dry_run" == true ]]; then return 0; fi
+  mkdir -p "$(dirname "$rstate")" || return 0
+  printf '%s' "$new" > "$rstate.tmp.$$" && mv -f "$rstate.tmp.$$" "$rstate"
+  return 0
+}
+first_run_remote=false
+[[ ( -n "${NOEVIA_REMOTE_SERVICES-}" || -n "${NOEVIA_REMOTE_ENV_FILE-}" ) && ! -f "$state.remote" ]] && first_run_remote=true
+
+names="$(docker ps -a --format '{{.Names}}')" || { echo "docker ps failed" >&2; remote_check; exit 2; }
 
 tab=$'\t'
 current=""
@@ -144,6 +201,7 @@ else
   done <<< "$old"
 fi
 
+remote_check
 if [[ "$dry_run" == true ]]; then
   exit 0 # dry-run never moves the baseline
 fi
