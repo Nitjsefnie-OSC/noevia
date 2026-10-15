@@ -135,6 +135,12 @@ services:
     environment:
       CODE_EGRESS_PORT: ${CODE_EGRESS_PORT:-}
       CODE_EGRESS_HOST: egress
+      # #1853: with the Code role on an Inference machine, the sandbox's agent reaches that machine's model
+      # ONLY through this relay in web (noevia-core code-machine.cjs): a port on web's own code-network
+      # address (`egress`), forwarding chat completions with the on-this-network fetch (LAN/Tailscale only,
+      # link-local and redirects refused), the task's model forced and a per-run token. The code network
+      # stays internal and gains no route to the LAN. Unset = no relay: such a task refuses to start.
+      CODE_ENGINE_RELAY_PORT: ${CODE_ENGINE_RELAY_PORT:-}
       CODE_VERIFY_ENDPOINT: ${CODE_VERIFY_ENDPOINT:-}
       # Web's own address on the code network (#853): IPs and/or host names, comma separated.
       # `egress` resolves to it (the alias above). UI and file-sharing requests arriving on it
