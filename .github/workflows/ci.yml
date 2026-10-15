@@ -117,6 +117,17 @@ jobs:
         if: env.RUN_JOB == 'true'
       - run: bash deploy/tools/test-web-supervisor.sh
         if: env.RUN_JOB == 'true'
+      - name: TEMP loop 1822
+        if: env.RUN_JOB == 'true'
+        run: |
+          for i in 1 2 3 4; do (while :; do :; done) & done
+          git show 99711c4~0:deploy/tools/test-web-supervisor.sh >/dev/null 2>&1 || true
+          git show origin/main:deploy/tools/test-web-supervisor.sh > deploy/tools/orig-sup.sh
+          o=0; for i in $(seq 1 50); do bash deploy/tools/orig-sup.sh | grep -q '^FAIL' && o=$((o+1)); done
+          n=0; for i in $(seq 1 50); do bash deploy/tools/test-web-supervisor.sh | grep -q '^FAIL' && n=$((n+1)); done
+          echo "LOOP RESULT original_failing_runs=$o/50 fixed_failing_runs=$n/50"
+          rm deploy/tools/orig-sup.sh; kill $(jobs -p)
+          [ "$n" = 0 ]
       - run: bash deploy/tools/test-sidecar-restart-alert.sh
         if: env.RUN_JOB == 'true'
       - run: bash deploy/tools/test-flags.sh
