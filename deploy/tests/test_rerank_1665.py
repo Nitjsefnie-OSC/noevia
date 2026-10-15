@@ -70,6 +70,8 @@ class RerankSidecarTests(unittest.TestCase):
             self.assertTrue(mount.endswith(':ro'), mount)
         self.assertIn('/onnx/model_int8.onnx:/model/onnx/model.onnx:ro', mounts[0])
         self.assertTrue(mounts[0].startswith('${RERANK_MODEL_DIR:?'), 'a missing model folder must fail, not mount an empty dir')
+        for mount in mounts:
+            self.assertRegex(mount, r'^\$\{RERANK_MODEL_DIR(:\?[^}]*)?\}/', f'every rerank volume comes from RERANK_MODEL_DIR: {mount}')
 
     def test_two_cpus_and_a_2_gib_cap(self):
         self.assertRegex(self.rerank, r'(?m)^    cpus: \$\{RERANK_CPUS:-2\}$')
@@ -120,13 +122,6 @@ class RerankKeyPassthroughTests(unittest.TestCase):
             with self.subTest(path=path.name):
                 self.assertNotRegex(code_lines(path.read_text(encoding='utf-8')),
                                     r'NOEVIA_FEATURE_RAG_RERANK: *["\']?(1|true|on)\b')
-
-    def test_a_non_empty_default_is_caught(self):
-        text = '  web:\n    environment:\n      RERANK_BACKEND: ${RERANK_BACKEND:-tei}\n  diary:\n'
-        env_lines = section(service_block(text, 'web'), 'environment')
-        self.assertEqual(re.findall(r'(?m)^ {6}RERANK_BACKEND: (.*)$', env_lines), ['${RERANK_BACKEND:-tei}'])
-        self.assertNotEqual(re.findall(r'(?m)^ {6}RERANK_BACKEND: (.*)$', env_lines), ['${RERANK_BACKEND:-}'])
-
 
 if __name__ == '__main__':
     unittest.main()

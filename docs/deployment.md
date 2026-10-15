@@ -195,8 +195,17 @@ inference budget).
    Delete the QA project afterwards.
 
 **Rollback:** set `NOEVIA_FEATURE_RAG_RERANK=false` and recreate web (step 5). Retrieval goes back
-to embedding order. Then `docker compose stop rerank`. Restore the override backup only if you are
-removing the service.
+to embedding order. Then stop the sidecar from the same project `up.sh` uses (it resolves
+`COWORK_PROJECT_DIR`, else the Compose Manager project; `up.sh` itself only runs `up`):
+
+```sh
+cd "${COWORK_PROJECT_DIR:-/boot/config/plugins/compose.manager/projects/Cowork}" && docker compose stop rerank
+```
+
+`restart: unless-stopped` keeps a stopped `rerank` stopped, across Docker and host restarts, until
+the step 4 `up.sh ... rerank` starts it again. Note that any later `up.sh -- -d` without service
+names starts it too, as long as the service stays in the override. Restore the override backup only
+if you are removing the service.
 
 ## Approved, in progress: embeddings nomic-embed-text-v1 → EmbeddingGemma 2 (#1636)
 
