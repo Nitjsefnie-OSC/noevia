@@ -10,8 +10,8 @@
 //   2  jobs_gate=busy active=<n>                 an active Coding job
 //   2  jobs_gate=busy reason=<why>               unknown job state (unreadable, symlink, corrupt, cap)
 //   3  jobs_gate=error reason=<why>              the gate itself cannot run (no strict job store)
-// Never prints account ids, paths or job contents. Reads only: it never creates, recovers, prunes
-// or cancels a job (it does not call anything but list()).
+// Never prints account ids, paths or job contents. Never touches job state: it never creates,
+// recovers, prunes or cancels a job (it calls only list(); the strictness probe uses a temp dir).
 //
 // Options (tests): --state-root DIR (default $UI_DATA_DIR), --jobs-module FILE (default
 // /app/server/jobs.cjs), --cap N (directories under users/, default 4096).

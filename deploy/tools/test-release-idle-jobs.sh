@@ -94,12 +94,27 @@ cat > "$work/bin/docker" <<SHIM
 #!/usr/bin/env bash
 [ "\$1" = exec ] || exit 1
 shift; [ "\$1" = -i ] && shift; [ "\$1" = cowork-web-1 ] || exit 125
+[ -n "\${STUB_HANG:-}" ] && exec sleep 5
 node - --state-root "\$STUB_ROOT" --jobs-module "$jobs"
 SHIM
 chmod +x "$work/bin/docker"
+# The wrapper calls timeout(1) (coreutils; on CI). Without it (a Mac) a pass-through stands in.
+if ! command -v timeout >/dev/null; then printf '#!/usr/bin/env bash\nshift; exec "$@"\n' > "$work/bin/timeout"; chmod +x "$work/bin/timeout"; fi
 check "wrapper: idle passes" 0 '^jobs_gate=idle' -- env PATH="$work/bin:$PATH" STUB_ROOT="$empty" bash "$here/release-idle-jobs.sh"
 check "wrapper: busy refuses" 2 '^jobs_gate=busy' -- env PATH="$work/bin:$PATH" STUB_ROOT="$symlinked" bash "$here/release-idle-jobs.sh"
 check "wrapper: a docker failure is an error, never idle" 3 '^jobs_gate=error reason=exec-failed$' -- env PATH="$work/bin:$PATH" STUB_ROOT="$empty" bash "$here/release-idle-jobs.sh" --container no-such
+
+# A hung docker exec refuses (timeout's 124 is mapped to 3); a fake `timeout` keeps the test fast.
+mkdir -p "$work/hangbin"; cp "$work/bin/docker" "$work/hangbin/docker"
+cat > "$work/hangbin/timeout" <<'SHIM'
+#!/usr/bin/env bash
+[ "$1" = 60 ] || exit 99
+shift; "$@" & pid=$!; ( sleep 1; kill "$pid" 2>/dev/null ) & w=$!
+wait "$pid"; s=$?; kill "$w" 2>/dev/null
+[ "$s" -ge 128 ] && exit 124; exit "$s"
+SHIM
+chmod +x "$work/hangbin/timeout"
+check "wrapper: a hung docker exec is refused after the timeout" 3 '^jobs_gate=error reason=timeout$' -- env PATH="$work/hangbin:$PATH" STUB_ROOT="$empty" STUB_HANG=1 bash "$here/release-idle-jobs.sh"
 
 echo "release-idle-jobs: $pass passed, $fail failed"
 [[ "$fail" == 0 ]]

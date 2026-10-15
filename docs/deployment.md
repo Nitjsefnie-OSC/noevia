@@ -20,9 +20,10 @@ bash release-idle-jobs.sh || { echo "GATE_FAIL jobs"; exit 2; }
 It runs inside `cowork-web-1` against that image's own `jobs.cjs` in strict mode (noevia-core#99):
 only an absent jobs directory counts as no jobs. An unreadable or symlinked jobs directory or
 account, an empty or corrupt journal, or too many entries is `busy` (exit 2). A job store without
-strict mode, or a failed `docker exec`, is `error` (exit 3) and refuses too. Before this, the
+strict mode, a failed `docker exec`, or no answer within 60 s, is `error` (exit 3) and refuses too. Before this, the
 cutover scripts called the lenient `list()`, which reads an unreadable directory as empty. Prints
-one `jobs_gate=` line with no account ids or paths, and only reads.
+one `jobs_gate=` line with no account ids or paths, and never touches job state (its strict-mode
+probe uses a throwaway temp directory).
 
 ## Settings-driven embedding service (#1668): live since release 785643f4 (2026-10-14)
 

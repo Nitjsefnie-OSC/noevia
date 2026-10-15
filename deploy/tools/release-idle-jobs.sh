@@ -4,8 +4,8 @@
 # directory is BUSY, never empty. Use it in every cutover's gate block:
 #   bash deploy/tools/release-idle-jobs.sh || { echo "GATE_FAIL jobs"; exit 2; }
 #   release-idle-jobs.sh [--container NAME]      (default cowork-web-1)
-# Exit status: 0 idle, 2 busy or unknown state, 3 the gate cannot run (treat as busy), 64 usage.
-# Prints one jobs_gate=... line; never account ids, paths or job contents. Read-only.
+# Exit status: 0 idle, 2 busy or unknown state, 3 the gate cannot run or took over 60 s (refuse), 64 usage.
+# Prints one jobs_gate=... line; never account ids, paths or job contents. Never touches job state.
 set -uo pipefail
 here="$(cd -- "$(dirname -- "$0")" && pwd)"
 container=cowork-web-1
@@ -17,9 +17,10 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-docker exec -i "$container" node - < "$here/release-idle-jobs.cjs"
+timeout 60 docker exec -i "$container" node - < "$here/release-idle-jobs.cjs"
 status=$?
 case "$status" in
   0|2|3) exit "$status" ;;
+  124) echo "jobs_gate=error reason=timeout"; exit 3 ;;
   *) echo "jobs_gate=error reason=exec-failed"; exit 3 ;;
 esac
