@@ -24,6 +24,7 @@ echo "\$name UI_HOST=\${UI_HOST:-} UI_PORT=\${UI_PORT:-} UPSTREAM=\${NOEVIA_LEGA
 echo "\$name TCONF=\${NOEVIA_RUST_ROUTING_MODE_CONFIRMED:-}" >> "$work/log"
 echo "\$name DCONF=\${NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED:-}" >> "$work/log"
 echo "\$name XCONF=\${NOEVIA_RUST_STATS_CONFIRMED:-}" >> "$work/log"
+echo "\$name ECONF=\${NOEVIA_RUST_EXPORT_CONFIRMED:-}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
 for _ in \$(seq 1 300); do
@@ -272,6 +273,27 @@ check "default-off Rust mode drops inherited stats confirmation" 'grep -q "^node
 reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_STATS=1 NOEVIA_RUST_STATS_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops inherited stats confirmation" 'grep -q "^node XCONF=$" "$work/log"'
+
+# The conversation export (#1315): needs the confirmed project and free-chat slices too.
+EXPORT_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats rust-export"
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_EXPORT=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$EXPORT_FEATURES" >/dev/null 2>"$work/err"; rc=$?
+check "export without native projects refuses before startup" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_EXPORT=1 needs NOEVIA_RUST_PROJECTS=1" "$work/err" && [ ! -s "$work/log" ]'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_EXPORT=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-export" >/dev/null 2>"$work/err"; rc=$?
+check "export without the free-chat slice refuses before startup" '[ $rc -eq 2 ] && grep -q "rust-free-chats" "$work/err" && [ ! -s "$work/log" ]'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_EXPORT=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats" >/dev/null 2>"$work/err"; rc=$?
+check "export missing native feature refuses before startup" '[ $rc -eq 2 ] && grep -q "no rust-export" "$work/err" && [ ! -s "$work/log" ]'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_EXPORT=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$EXPORT_FEATURES" >/dev/null 2>&1; rc=$?
+check "export confirmed only to Node after native probe" 'grep -q "^node ECONF=1$" "$work/log" && grep -q "^front ECONF=$" "$work/log"'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_EXPORT_CONFIRMED=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$EXPORT_FEATURES" >/dev/null 2>&1; rc=$?
+check "default-off Rust mode drops inherited export confirmation" 'grep -q "^node ECONF=$" "$work/log" && grep -q "^front ECONF=$" "$work/log"'
+reset; touch "$work/die-node"
+run NOEVIA_FRONT=node NOEVIA_RUST_EXPORT=1 NOEVIA_RUST_EXPORT_CONFIRMED=1 >/dev/null 2>&1; rc=$?
+check "node mode drops inherited export confirmation" 'grep -q "^node ECONF=$" "$work/log"'
 
 # The client address (noevia-core server/auth.cjs, #1578): Node is told to believe X-Noevia-Client-Ip
 # only when the front reports client-address-header (it strips client copies of the header).
