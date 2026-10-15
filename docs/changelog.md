@@ -8,6 +8,53 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 9b238027 — 2026-10-15 21:48Z (web + model manager; #1861, #1862, #1863, #1864, #1865, #1866, #1871, #1872, #1318)
+
+What changed for you: Kev's health is checked at `/v1/models`, and a saved ChatGPT model the account no longer offers is flagged (#1861, #1862). Automatic routing pre-loads the shared Fast/Smart model while it decides, and cancels a wrong guess (#1863). Large PDFs are read in page ranges, up to 96 MiB per read, one large read at a time. Degraded pages are retried with OCR, at most 40 OCR pages per sync (#1864, #1865, #1871). The large-document lock has an acquire timeout (#1872). Citations show page numbers (#1866). Sources show where a PDF stopped and each page's OCR retry outcome. The model manager can serve model updates natively (#1318), but that is switched off.
+
+### Services
+
+- **Web:** #1875 (noevia `9b238027`).
+  - core `4374b333` (was `b393c5db`): core#147 (#1861), core#148 (#1863), core#149 (#1864, #1865, #1871), core#150 (#1872), core#151 (#1866).
+  - web `2a781aa4` (was `693a5270`): web#80 (#1861, #1862), web#81 (#1864, #1865).
+  - rs `418cd4d0` (was `54d6f328`): rs#125, rs#126 (#1318). The diff is `bins/noevia-model-manager` only.
+  - services `1d7a4a3b` (was `42065fa0`): services#59 (#1318).
+  - Image: `cowork-web:9b238027`, `sha256:b0f8986a7dfac38547d122f92606c62a84e414835b59bfc51a075c954b130866`, replacing `cowork-web:88827187`.
+- **Model manager:** `cowork-model-loader:9b238027`, `sha256:fb3887cbf347b27a6f83f2b39378582f80a4ff8148763189e59918d04d2f253b`, replacing `cowork-model-loader:a5d9cbf2`. Brings services#59 and the rs `native-model-updates` capability: Python's `GET /api/v1/models/updates` refuses with 503 only when the native reader owns the route. `MODEL_MANAGER_MODEL_UPDATES_IMPL=python` and `MODEL_MANAGER_SETTINGS_IMPL=python` (compose defaults; not in `.env`). Every `NOEVIA_NATIVE_MODEL_MANAGER_*_CONFIRMED` the Python child sees is `0`. `MODEL_MANAGER_IMPL=rust` and `MODEL_FILES_IMPL=rust` are unchanged.
+- **Diary, Docling, OCR, Laya, code sandbox, egress:** no change, not rebuilt or recreated. Only the rs pin line changed in their Dockerfiles (and in `deploy/egress-proxy/Dockerfile`), and no crate they build changed between rs `54d6f328` and `418cd4d0`. Core's `code-sandbox/` is unchanged.
+- **Kev, llama, embed, rerank, kiwix, Nextcloud:** not touched.
+- **Deploy/infra:**
+  - #1875: the repo compose copies and the preflight list pass seven new web keys, with empty defaults and a test: `PROJECT_DOCUMENT_READ_BYTES`, `PROJECT_DOCUMENT_PAGE_LIMIT`, `PROJECT_DOCUMENT_TEXT_LIMIT`, `PROJECT_DOCUMENT_RANGE_PAGES`, `PROJECT_SYNC_OCR_PAGES`, `LARGE_DOCUMENT_ACQUIRE_WAIT_MS` and `LARGE_DOCUMENT_HOLD_WARN_MS`.
+  - The live `docker-compose.override.yml` gains the same seven web keys plus model-loader `MODEL_MANAGER_MODEL_UPDATES_IMPL` (`python`, #1870): 8 lines added, 0 removed. None is set in `.env`, and all seven web keys are empty in the container. Backups: `docker-compose.override.yml.bak.before-9b238027` and `docker-compose.yml.bak.before-9b238027`.
+  - Preflight reinstalled from the release (old copy `tools/preflight.bak.before-9b238027`). The web service declares all 84 expected keys.
+  - `.env`: only `COWORK_VERSION` and `MODEL_MANAGER_VERSION` changed, to `9b238027`. `current` points to `releases/9b238027`.
+
+**Evidence.**
+- Pins: each tarball fetched twice with identical results (core `1795a4c8…`, web `9b02d0ad…`, rs `8889bdc0…`, services `9d043c23…`). The rs checksum equals every services Dockerfile pin. #1875 CI green, including "Assembled release (pinned repos)". The release tarball `6e0013f1…db7d` matched on the Mac and on the box.
+- Candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"9b238027"}`, 0 error lines. Isolated model-loader candidate (no network, read-only, tmpfs, throwaway token, `MODEL_MANAGER_IMPL=rust`, updates `python`): health 200, settings 401 without the token and 200 with it. `/api/v1/models/updates` returns 401 without the token and 200 with it, with a body byte-identical to the Python child's on loopback 8091. Child confirmations are all `0`, with 0 error lines.
+- Gates before each cutover: Coding jobs `idle`, llama idle count 0, GTT 29 MiB, MemAvailable about 16.5 GiB, no autotune (the last job `failed` on 2026-10-13).
+- Backup `/mnt/disk3/noevia-backups/release_9b238027_20261015T214653Z`: web state (463 files, the same as the source; 5 projects.json, all byte-identical; `cowork.db`), model-loader data (2 files), 23 online SQLite copies that all pass `integrity_check`, both compose files, `.env` and the preflight.
+- Model manager (21:48:13Z, `up.sh ... --no-build --no-deps --wait ... model-loader`): healthy, restarts 0. `health`, `embedding-service`, `models`, `models/updates` and `settings` all 200 with `X-Model-Loader-Token`; settings 401 without it.
+- Web (21:48:51Z, same `up.sh` line, `web`): healthy, restarts 0, PID 1 `docker-init`. `/api/ready` returns `9b238027` on loopback and on https://noevia.daserver.work. Signed out, `/api/projects`, `/api/models/machines` and `/api/export/conversations` return 401 on both. Served `index.html` equals the image's (`7b33debb…`, was `c02d90b3…`), 145 dist files.
+- One synthetic Kev decision (`model.route`, shipped code) answered `smart` with `kev-0.8b` in 2140 ms. `COWORK_DECISION_URL` is `http://kev:11435`. Web is on `cowork_rerank`, `NOEVIA_FEATURE_RAG_RERANK=true`. `NOEVIA_RUST_*` switches are unchanged (export, storage reads, storage browse and ChatGPT status are `0`).
+- 15-minute read-only watch (21:50–22:05Z):
+  - Web, model manager: healthy, restarts 0, OOM false; 0 error lines; llama idle.
+  - Large-document counters: lock hold warnings 0, `large-document-busy` 0, "OCR budget" lines 0, `[documents]` warnings 0. Web logged nothing in the window, so no sync ran and the counters are not yet exercised. Core logs no line for an acquire wait or a budget deferral; only the hold warning and the busy error are visible in logs.
+  - GTT 29 MiB at start and end (peak 29). MemAvailable 16,292 MiB at start, 16,329 MiB at end (minimum 15,815).
+  - Of 42 containers, only `cowork-web-1` and `cowork-model-loader-1` changed id; every other id and start time is unchanged.
+
+**Rollback.** Run the idle gate first. No data migration; the added compose keys are inert for the old images.
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env
+ln -sfn $A/releases/88827187 $A/current
+sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=88827187/' $ENV
+bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120 web
+sed -i 's/^MODEL_MANAGER_VERSION=.*/MODEL_MANAGER_VERSION=a5d9cbf2/' $ENV
+bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120 model-loader
+# optional: restore docker-compose.override.yml.bak.before-9b238027 and tools/preflight.bak.before-9b238027
+```
+
 ## Release 88827187 — 2026-10-15 19:00Z (web only; Inference machines for every part, health probes with reasons; #1840, #1841, #1844, #1847, #1849, #1850, #1851, #1855, #1856, #1845, #1857, #1858, #1843)
 
 What changed for you: OCR, Docling, sensitivity checks, chat roles, Manual, the router and Deep Research can each be assigned to an Inference machine, with tool limits per machine (#1841, #1844, #1847, #1840, #1851, #1849, #1850, #1855). Each chat turn checks that the assigned machine actually serves the model (#1851). Machine health shows a reason, and Kev answering 401 counts as up but needing sign-in (#1856). Routing shows a refresh note (#1857), and indexing shows a toast (#1858).
