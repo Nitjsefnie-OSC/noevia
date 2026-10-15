@@ -80,7 +80,7 @@ services:
   embed:
     image: ${EMBED_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-vulkan-b11610@sha256:d64043576ad8fb29170563c769a997dbc1b9928f0d4a127fb9e4a9706ccb475b}
     restart: unless-stopped
-    command: ["--models-preset", "/config/embedding.ini", "--models-max", "2", "--device", "none", "--embedding", "--pooling", "mean", "-c", "4096", "-b", "2048", "-ub", "2048", "--parallel", "2", "-t", "4", "--host", "0.0.0.0", "--port", "8080"]
+    command: ["--models-preset", "/config/embedding.ini", "--models-max", "3", "--device", "none", "--embedding", "--pooling", "mean", "-c", "4096", "-b", "2048", "-ub", "2048", "--parallel", "2", "-t", "4", "--host", "0.0.0.0", "--port", "8080"]
     volumes:
       - ${LLAMACPP_MODELS_DIR:?Set existing public model directory}:/models:ro
       - ${LLAMACPP_CONFIG_DIR:?Set the llama.cpp config directory}:/config:ro

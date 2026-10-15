@@ -38,7 +38,7 @@ class EmbedServiceIsSettingsDriven(unittest.TestCase):
         args = command_args(embed)
         self.assertIn('--models-preset', args)
         self.assertEqual(args[args.index('--models-preset') + 1], '/config/embedding.ini')
-        self.assertEqual(args[args.index('--models-max') + 1], '2', 'active + next during a switch')
+        self.assertEqual(args[args.index('--models-max') + 1], '3', 'two text models + .vision (#1772)')
         self.assertEqual(args[args.index('--device') + 1], 'none', 'CPU only: never competes with the chat engine')
         for fixed in ('-m', '--model', '--alias'):
             self.assertNotIn(fixed, args, f'{fixed} pins the model in compose again')

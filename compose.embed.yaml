@@ -49,7 +49,7 @@ services:
       - "--models-preset"
       - "/config/embedding.ini"
       - "--models-max"
-      - "2"
+      - "3"
       - "--device"
       - "none"
       - "--embedding"
