@@ -8,6 +8,44 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release b84758dc — 2026-10-15 04:51Z (web; #1784–#1793, #1797)
+
+What changed for you: a stopped answer is now marked "Stopped" instead of looking complete (#1784), and the last answer line no longer sits under "Jump to latest" while streaming (#1789). Chat titles follow the conversation instead of staying on the first greeting, and the app adopts the new title (#1785). The first reply of a new chat stops showing as streaming when it is done, without waiting up to 8 s for the title (#1797). A request that never mentions storage no longer triggers an unrelated Drive search (#1786). The High effort hint no longer leaks scratch reasoning into the reply (#1787), and Fast lowers only the default effort, so a greeting no longer spends seconds thinking (#1788). An attached image no longer hangs at "Reading image sources": describing it skips thinking and gives up after 120 s (#1790). A harmless image is no longer flagged as a password or key (#1791). Images count toward the context and are handled by compaction (#1792), and answers from a project knowledge file show their source chips again (#1793).
+
+### Services
+
+- **Web:** #1798 (noevia `b84758dc`).
+  - core `b8d1f027`: core#119 (chat titles, unasked-storage hint, High hint without visible working, Fast lowers only the default effort, title skipped when busy) and core#120 (#1790, #1791, #1792, #1793).
+  - web `ea33e8fd`: web#57 (Stopped marker, fade above "Jump to latest"), web#58 (generated chat title), web#59 (`done` ends streaming while the trailing title is still read).
+  - services `d3474b3c`, rs `ed793085`: no change.
+  - Image: `cowork-web:b84758dc`, `sha256:872aec817556dfc2de74718a25acc0b9a40be0ecd3807608a6dad3b4f3b2212e`, replacing `cowork-web:c453e9ec`.
+- **Model manager, embed, llama, Docling, Diary, OCR, Laya, Kev, code sandbox:** no change, not recreated.
+- **Deploy/infra:**
+  - `.env`: `COWORK_VERSION=b84758dc`. No other key changed.
+  - Compose files unchanged; the rendered web service keeps `init: true`.
+  - `current` now points to `releases/b84758dc`.
+
+**Evidence.**
+- Pins: core and web tarballs each fetched twice with identical results (core `06860c90…fa14`, web `1200c9b0…7e36`). #1798 CI green, including "Assembled release (pinned repos)". The release tarball `3b1ce8f9…a755` matched on the Mac and on the box.
+- Web candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"b84758dc"}` with 0 error lines. Stamp `{"version":"b84758dc","web":"ea33e8fd…","core":"b8d1f027…"}`.
+- Gates: llama idle count 0, GTT 18 MiB, MemAvailable 14.1 GiB, no up.sh, compose, autotune or Appdata Backup running.
+- Backup `/mnt/disk3/noevia-backups/release_b84758dc_20261015T045100Z`: 8 entries, checksums verified, `cowork.db` integrity ok.
+- Web cutover (04:51Z):
+  - `up.sh` web-only, 7.0 s; the old container got SIGTERM and exited 0 after 649 ms. This is the first live stop time after #1777, down from 721 ms at the c453e9ec cutover, when the old container still ran without init.
+  - healthy, restarts 0; `/api/ready` `{"ready":true,"version":"b84758dc"}` on loopback and on https://noevia.daserver.work; signed-out `/api/projects` 401
+  - `embedding-service` 200 (`managed:true`, both text models); a synthetic `model.route` decision answered by `kev-0.8b` in 0.43 s
+  - `HostConfig.Init` true, PID 1 `/sbin/docker-init`, `web-supervisor.sh` running as its child
+  - served `dist` 143 files, hash equal to the image; 0 error lines after 80 s
+- Only `cowork-web-1` changed id; all 41 containers on the host have restarts 0.
+
+**Rollback.**
+
+Web (to c453e9ec):
+
+    ln -sfn /mnt/docker/appdata/cowork/releases/c453e9ec /mnt/docker/appdata/cowork/current
+    sed -i 's/^COWORK_VERSION=b84758dc$/COWORK_VERSION=c453e9ec/' /mnt/docker/appdata/cowork/config/.env
+    bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web
+
 ## Release c453e9ec — 2026-10-15 02:42Z (web; #1776, #1778, #1777; #1731 preset)
 
 What changed for you: opening projects and documents no longer creates search indexes as a side effect (#1776). When a new chat's framing settles on the kind of chat early, it now stops waiting on a hung embedding, and a failed project or tag lookup keeps the kind it already found (#1778). The web container now runs under Docker's init, so it stops cleanly on restart (#1777). The chat model list no longer carries a preset for a model file that does not exist (#1731).
