@@ -117,19 +117,6 @@ jobs:
         if: env.RUN_JOB == 'true'
       - run: bash deploy/tools/test-web-supervisor.sh
         if: env.RUN_JOB == 'true'
-      - name: TEMP prove 1822
-        if: env.RUN_JOB == 'true'
-        run: |
-          # gate removed (original behaviour): the regression case must FAIL
-          python3 - <<'PY'
-          s=open('deploy/tools/test-web-supervisor.sh').read()
-          a=s.index('if [ "\\$name" = front ] && [ -f')
-          b=s.index('for _ in \\$(seq 1 300)')
-          open('deploy/tools/nogate.sh','w').write(s[:a]+s[b:])
-          PY
-          for i in 1 2 3 4 5; do bash deploy/tools/nogate.sh | grep -E '^FAIL' ; done | sort | uniq -c
-          echo "FIXED:"; for i in 1 2 3 4 5; do bash deploy/tools/test-web-supervisor.sh | grep -cE '^FAIL'; done
-          rm deploy/tools/nogate.sh
       - run: bash deploy/tools/test-sidecar-restart-alert.sh
         if: env.RUN_JOB == 'true'
       - run: bash deploy/tools/test-flags.sh
