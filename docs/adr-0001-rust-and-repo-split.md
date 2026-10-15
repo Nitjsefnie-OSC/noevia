@@ -142,6 +142,16 @@ Milestones, in order; each is shipped dark and flipped by the owner:
 4. **Services**: rewrite the Python services in Rust (docling and laya keep their engines).
 5. **End state**: Node removed, the proxy and the `node` owner deleted from `routes.toml`.
 
+### Diary workspace-restore verification (#982)
+
+Decided 2026-10-15 by the delegated Opus reviewer (owner decision 2026-10-12 on #982): no
+exception is needed and none is granted. "What is not ported yet" listed the Diary before this
+amendment; the amendment ports the Python services to Rust, and the workspace ZIP gate
+(`diary/agent/workspace_restore.py` `_verify`) is exactly the bounded parser of untrusted input
+that should go first. It ships as the noevia-rs `workspace-restore-verify` leaf behind
+`WORKSPACE_RESTORE_VERIFY_IMPL` (default python, the owner flips it), run before Python with
+identical listings required and failing closed, until the Diary itself is rewritten.
+
 ## Preparation in this repo (#897)
 
 Done before any repository is created, so main stays releasable at every step:

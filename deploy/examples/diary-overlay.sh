@@ -1,6 +1,6 @@
 #!/bin/bash
 # Diary image overlay: FROM the running image, replace agent/ only (plus, when the release pins
-# noevia-rs, the tenant-assertion binary built from that pin). Rolls back on any failure.
+# noevia-rs, the tenant-assertion and workspace-restore-verify binaries built from that pin). Rolls back on any failure.
 # Usage (on DaServer, as root): bash diary-overlay.sh <SRC_SHA>. SRC_SHA is an unpacked release
 # under releases/ whose services/diary/agent is shipped; it also becomes the new Diary tag
 # (cowork-diary:<SRC_SHA>) and DIARY_VERSION in .env. COWORK_VERSION and the web image are untouched.
@@ -66,11 +66,13 @@ trap on_exit EXIT
 docker tag "$OLD_ID" cowork-diary:rollback-before-diary-overlay
 cp -r "$base/releases/$V/services/diary/agent" "$ctx/agent"
 # BEGIN rs-stage (deploy/tests/test_overlay_scripts.py runs this block on synthetic Dockerfiles)
-# TENANT_ASSERTION_IMPL=rust needs the tenant-assertion binary. When the release's Diary Dockerfile
-# pins noevia-rs (ARG NOEVIA_RS_REF / NOEVIA_RS_SHA256), build it here in the same pinned,
-# checksum-verified Rust stage and copy only the binary in: no pip install, no Python change, the
-# runtime layers stay the running image's. Only the two validated hex pins are taken from the
-# release's Dockerfile, never any of its text.
+# TENANT_ASSERTION_IMPL=rust needs the tenant-assertion binary, WORKSPACE_RESTORE_VERIFY_IMPL=rust
+# the workspace-restore-verify binary (noevia#982; built only when the pinned noevia-rs has it, so
+# older releases still overlay). When the release's Diary Dockerfile pins noevia-rs
+# (ARG NOEVIA_RS_REF / NOEVIA_RS_SHA256), build them here in the same pinned, checksum-verified
+# Rust stage and copy only the binaries in: no pip install, no Python change, the runtime layers
+# stay the running image's. Only the two validated hex pins are taken from the release's
+# Dockerfile, never any of its text.
 diary_df=$base/releases/$V/services/diary/Dockerfile
 rs_ref=$(sed -n 's/^ARG NOEVIA_RS_REF=//p' "$diary_df" 2>/dev/null | head -1 || true)
 rs_sum=$(sed -n 's/^ARG NOEVIA_RS_SHA256=//p' "$diary_df" 2>/dev/null | head -1 || true)
@@ -89,9 +91,14 @@ RUN echo "$rs_sum  /tmp/noevia-rs.tar.gz" | sha256sum -c - \\
  && tar -xzf /tmp/noevia-rs.tar.gz --strip-components=1 \\
  && rm /tmp/noevia-rs.tar.gz \\
  && cargo build --release --locked -p tenant-assertion-cli \\
- && ./target/release/tenant-assertion self-test | grep -qx ok
+ && ./target/release/tenant-assertion self-test | grep -qx ok \\
+ && mkdir /out && cp target/release/tenant-assertion /out/ \\
+ && if [ -d bins/workspace-restore-verify ]; then \\
+      cargo build --release --locked -p workspace-restore-verify-cli \\
+      && ./target/release/workspace-restore-verify self-test | grep -qx ok \\
+      && cp target/release/workspace-restore-verify /out/; fi
 FROM cowork-diary:rollback-before-diary-overlay
-COPY --from=tenant-assertion /src/target/release/tenant-assertion /usr/local/bin/tenant-assertion
+COPY --from=tenant-assertion /out/ /usr/local/bin/
 RUN rm -rf ./agent
 COPY agent/ ./agent/
 DOCKERFILE
@@ -119,6 +126,13 @@ echo "candidate agent/ matches the release ($(printf '%s\n' "$want" | grep -c .)
 if [ "$rs_stage" = 1 ]; then
   docker run --rm --network none --entrypoint tenant-assertion cowork-diary:$V-candidate self-test | grep -qx ok || { echo "candidate tenant-assertion self-test failed; not deploying" >&2; exit 1; }
   echo "candidate tenant-assertion ok"
+  # Present only when the pinned noevia-rs builds it; if present it must pass (noevia#982).
+  if docker run --rm --network none --entrypoint sh cowork-diary:$V-candidate -c 'test -x /usr/local/bin/workspace-restore-verify'; then
+    docker run --rm --network none --entrypoint workspace-restore-verify cowork-diary:$V-candidate self-test | grep -qx ok || { echo "candidate workspace-restore-verify self-test failed; not deploying" >&2; exit 1; }
+    echo "candidate workspace-restore-verify ok"
+  else
+    echo "candidate has no workspace-restore-verify (pinned noevia-rs predates it): WORKSPACE_RESTORE_VERIFY_IMPL must stay python"
+  fi
 fi
 cp -p "$config" "$config.bak.before-diary-$V"
 # BEGIN diary-backup (deploy/tests/test_overlay_scripts.py runs this block through the whole script, with stub docker, gzip and php)
