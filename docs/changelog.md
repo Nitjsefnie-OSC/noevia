@@ -8,6 +8,67 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release da2e18b9 — 2026-10-15 11:28Z (whole stack: web + model manager + Diary overlay; #1806, #1665, #1666, #1667, #982, #1783)
+
+What changed for you: a project's source text now lives in its own files instead of inside projects.json, so projects can hold up to 1000 sources, 200 documents and 12 images (#1806). A source whose text has gone missing says so in Sources (#1815). The Models page gains the reranker switch and choice, a decision model choice and a Creative role (#1665, #1666, #1667). The model manager no longer prunes operator `.bak` files next to `models.ini` (#1783). The Diary image now carries the Rust workspace ZIP gate (#982), still switched off.
+
+### Services
+
+- **Web:** #1820 (noevia `da2e18b9`).
+  - core `7757f275`: core#125 (#1306, #1801), core#126 (#1806), core#127 (#1665, #1666, #1667), core#128 (#1815), core#129 (#1816), core#130 (#1817), core#131 (#1818).
+  - web `b173a002`: web#63 (wave-1 backlog sweep), web#64 (#1806), web#65 (#1809, #1306), web#66 (#1665, #1666, #1667), web#67 (#1815), web#68 (#1816).
+  - rs `b0c42789`: rs#111 (#982), rs#112 (#1806 source-text pointers in the Rust front), rs#113 (#1818 routes.toml).
+  - services `15a97079`: services#53 (rs pin), plus services#51/#52 already on main.
+  - Image: `cowork-web:da2e18b9`, `sha256:553de35f59522ad04a02d99e9e87ec6efed836e4c7bc7ff649a7a39b851e6a16`, replacing `cowork-web:3b978351`.
+- **Model manager:** `cowork-model-loader:da2e18b9`, `sha256:fab1ae1d183aa89c41232ed6b8095df143e74ab5f9ea828048acb701a5fbb8db`, replacing `cowork-model-loader:a6de6203`. Brings #1783 live (services#51 `model-manager/app/ini.py`, rs `model-files` b85b49c). `MODEL_MANAGER_IMPL=rust` and `MODEL_FILES_IMPL=rust` unchanged; `MODEL_MANAGER_HOST_IMPL` unset.
+- **Diary:** `cowork-diary:da2e18b9` via `diary-overlay.sh da2e18b9` (agent/ plus `tenant-assertion` and `workspace-restore-verify` from rs `b0c42789`), `sha256:7d946e696715f4d0e9cdc95d1d86b3104a648ab3f3fc4195871d3ebdda7fc8ec`, replacing `cowork-diary:9d308b22`. Brings #982 (binary present, `WORKSPACE_RESTORE_VERIFY_IMPL` unset, so Python) and #1680 live. `TENANT_ASSERTION_IMPL=rust` unchanged.
+- **Docling, OCR, Laya, code sandbox, egress:** no change, not rebuilt or recreated. Only the rs pin line changed in their Dockerfiles, and none of the crates they build differ between their build refs and `b0c42789` (rs changed only `server-projects`, `model-files`, `noevia-model-manager`, contracts and fixtures; `Cargo.lock` only gained entries). Core's `code-sandbox/` is unchanged since `d5a45ac7`.
+- **Kev, llama, embed, rerank, kiwix, Nextcloud:** not touched.
+- **Deploy/infra:**
+  - `compose.yaml`, `deploy/examples/unraid-compose-manager.yml`, `deploy/preflight/web-env-keys.txt` and `.env.example` pass `RERANK_TEI_BASE_URL`, `RERANK_TEI_MODEL` and `RERANK_LLAMACPP_BASE_URL` to web with empty defaults. They are not in the live compose or `.env`: the live TEI reranker is selected by `RERANK_BACKEND=tei`, `RERANK_BASE_URL` and `RERANK_MODEL`, which core still reads. `up.sh` warns about these and five older keys missing from the live compose (web runs on the built-in defaults).
+  - `.env`: `MODEL_MANAGER_VERSION=da2e18b9`, `DIARY_VERSION=da2e18b9`, `COWORK_VERSION=da2e18b9`, nothing else.
+  - Preflight reinstalled from the release; `current` now points to `releases/da2e18b9`.
+
+**Evidence.**
+- Pins: every tarball fetched twice with identical results (rs `2cee702e…3a00`, core `a5c77e3c…32d5`, web `a8f966b2…20c3`, services `a02b4346…a912`). services#53 and #1820 CI green, including "Assembled release (pinned repos)". The release tarball `5b43d669…c180` matched on the Mac and on the box.
+- Candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"da2e18b9"}` with 0 error lines. Isolated model-loader candidate healthy, PID 1 `noevia-model-manager`, 0 error lines (the live `a6de6203` image answers the same in the same harness).
+- #1806 rehearsal on a copy of the one workspace with inline text, inside the new image with no network: 47 sources inline → 0 inline and 47 `textRef`s, one backup equal to the original, every pointer has its file, a second pass migrates nothing.
+- Gates before each cutover: Coding jobs `idle`, llama idle count 0, GTT 23 MiB, MemAvailable 15–17 GiB, no autotune (last job `failed` on 2026-10-13), no compose, build or Appdata Backup running.
+- Model manager (11:24Z): healthy, restarts 0, allow-listed flags unchanged, `embedding-service` 200 through web, `embedding.ini` and `models.ini` byte-identical, operator `.bak` files 26 before and after, 0 error lines. Backup `/mnt/disk3/noevia-backups/model-loader_da2e18b9_20261015T112437Z`.
+- Diary (11:26Z): candidate imports, agent/ (33 files) exact, both self-tests ok; health via web 200; `tenant-assertion self-test` and `workspace-restore-verify self-test` ok in the live container. Backup `/mnt/disk3/noevia-backups/diary_da2e18b9_20261015T112633Z`.
+- Web (11:28Z): the first attempt stopped at its pre-check when one synthetic Kev decision on the old web returned "unreachable"; nothing was changed, three repeats passed in 0.43–0.53 s. The second attempt passed:
+  - healthy, restarts 0, PID 1 `/sbin/docker-init`; `/api/ready` at `da2e18b9` on loopback and on https://noevia.daserver.work
+  - signed-out `/api/projects` 401 and `/api/models/reranker` 401, on both
+  - served `dist` 143 files, equal to the image
+  - allow-listed flags identical apart from `COWORK_VERSION`
+  - `embedding-service` 200; a synthetic decision answered by `kev-0.8b` in 0.34 s; `COWORK_DECISION_URL` still `http://kev:11435`; the saved decision configuration still has only `url` and `timeoutMs`
+  - still on `cowork_rerank`, `NOEVIA_FEATURE_RAG_RERANK=true`
+- #1806 on live: startup logged `moved the text of 47 source(s) out of projects.json`. The workspace's projects.json went from 881,738 to 271,835 bytes, inline 47 → 0, `textRef` 0 → 47, one backup `projects-pre-1806-1429fba1d57f967e.json`. The other workspaces had no sources and did not change. 0 migration warnings.
+- 10-minute watch (11:29–11:39Z, counts only): 0 web error or warn lines; web, model manager and Diary healthy with 0 restarts.
+- Only `cowork-model-loader-1`, `cowork-diary-1` and `cowork-web-1` changed id; the other 39 containers kept their ids and start times.
+- Backup: `/mnt/disk3/noevia-backups/release_da2e18b9_20261015T112816Z` (compose, `.env` copy, web state with all projects.json, `cowork.db` online backup with integrity ok, checksums verified).
+- Scripts and logs: `release-prep/da2e18b9/` (`gate.sh`, `cutover-ml.sh`, `diary.sh`, `cutover-web.sh`, `migration-rehearsal.sh` and their logs).
+
+**Rollback.** Run the idle gate first.
+
+Web (to 3b978351). The old image reads source text only inline, so put it back first, with web (and so the Rust front) stopped:
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env
+docker stop cowork-web-1
+for d in $A/state/web/users/*/; do ls "$d"migration-backups/projects-pre-1806-*.json >/dev/null 2>&1 || continue
+  docker run --rm --network none -v "$d":/ws --entrypoint node -w /app/server cowork-web:da2e18b9 source-text.cjs inline /ws; done
+ln -sfn $A/releases/3b978351 $A/current
+sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=3b978351/' $ENV
+bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120 web
+```
+
+The loop inlines each workspace that has a `migration-backups/projects-pre-1806-*.json` (one today). Alternatively, restore that backup over projects.json; sources added since are then lost.
+
+Model manager (to a6de6203): `sed -i 's/^MODEL_MANAGER_VERSION=.*/MODEL_MANAGER_VERSION=a6de6203/' $ENV`, then the same `up.sh` line with `model-loader`.
+
+Diary (to 9d308b22): `sed -i 's/^DIARY_VERSION=.*/DIARY_VERSION=9d308b22/' $ENV`, then the same `up.sh` line with `diary`. `cowork-diary:rollback-before-diary-overlay` is the same image.
+
 ## Release 3b978351 — 2026-10-15 08:21Z (web; folder import; #1805, #1806)
 
 What changed for you: a project's Sources can take a whole folder. "Add folder" and dropping a folder onto Sources import every file in it, subfolders included, and an attached storage folder is now read recursively, so files in its subfolders become sources too (#1805). Limits are unchanged: 60 sources, 60 documents and 12 images per project, and at most 100 MB per folder import.

@@ -25,6 +25,10 @@ KEYS = [
     'RAG_RERANK_POOL',
     'RAG_RERANK_KEEP',
     'RAG_RERANK_DEADLINE_MS',
+    # core 7757f275 (#1665 reranker choice): per-backend overrides, empty by default.
+    'RERANK_TEI_BASE_URL',
+    'RERANK_TEI_MODEL',
+    'RERANK_LLAMACPP_BASE_URL',
 ]
 
 
