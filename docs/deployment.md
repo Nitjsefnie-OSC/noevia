@@ -8,6 +8,23 @@
 > release also updates web's build block in the live Compose Manager file (same section).
 > Release records below that mention `apps/web` or `services/` describe the monorepo layout.
 
+## Release idle gate: Coding jobs (#1391)
+
+Every cutover's gate block checks Coding jobs with `deploy/tools/release-idle-jobs.sh` (copy it
+and `release-idle-jobs.cjs` next to the cutover script):
+
+```sh
+bash release-idle-jobs.sh || { echo "GATE_FAIL jobs"; exit 2; }
+```
+
+It runs inside `cowork-web-1` against that image's own `jobs.cjs` in strict mode (noevia-core#99):
+only an absent jobs directory counts as no jobs. An unreadable or symlinked jobs directory or
+account, an empty or corrupt journal, or too many entries is `busy` (exit 2). A job store without
+strict mode, a failed `docker exec`, or no answer within 60 s, is `error` (exit 3) and refuses too. Before this, the
+cutover scripts called the lenient `list()`, which reads an unreadable directory as empty. Prints
+one `jobs_gate=` line with no account ids or paths, and never touches job state (its strict-mode
+probe uses a throwaway temp directory).
+
 ## Settings-driven embedding service (#1668): live since release 785643f4 (2026-10-14)
 
 **As run at 785643f4 (#1717).** Two things differ from the steps below; follow these notes:
