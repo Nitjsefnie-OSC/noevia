@@ -8,6 +8,44 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 88827187 — 2026-10-15 19:00Z (web only; Inference machines for every part, health probes with reasons; #1840, #1841, #1844, #1847, #1849, #1850, #1851, #1855, #1856, #1845, #1857, #1858, #1843)
+
+What changed for you: OCR, Docling, sensitivity checks, chat roles, Manual, the router and Deep Research can each be assigned to an Inference machine, with tool limits per machine (#1841, #1844, #1847, #1840, #1851, #1849, #1850, #1855). Each chat turn checks that the assigned machine actually serves the model (#1851). Machine health shows a reason, and Kev answering 401 counts as up but needing sign-in (#1856). Routing shows a refresh note (#1857), and indexing shows a toast (#1858).
+
+### Services
+
+- **Web:** #1859 (noevia `88827187`).
+  - core `b393c5db` (was `1d7ea3de`): #1840, #1841, #1844, #1845, #1847, #1849, #1850, #1851, #1855, #1856. The local engine probe reads `MODEL_LOADER_URL/api/v1/models`.
+  - web `693a5270` (was `6f74aff9`): matching UI, #1857, #1858.
+  - rs `54d6f328` and services `42065fa0`: no change.
+  - Image: `cowork-web:88827187`, `sha256:69b3ec912627460ee2479c18de1e1b6f14f8c2c9b722945d8b82f38943d43461`, replacing `cowork-web:a5d9cbf2`.
+- **Model manager, Diary:** no change, still `a5d9cbf2`, not recreated.
+- **Docling, OCR, Laya, code sandbox, egress:** no change, not recreated.
+- **Kev, llama, embed, rerank, kiwix, Nextcloud:** not touched.
+- **Deploy/infra:** #1852 (#1843). `tools/remote-services.sh` is new, and `tools/sidecar-restart-alert.sh` and the preflight (`install.sh`) were reinstalled from the release. Old copies: `tools/preflight.bak.before-88827187`, `tools/sidecar-restart-alert.sh.bak.before-88827187`. The remote checks are inert: `.env` has no `NOEVIA_REMOTE_*` key, and the cron line passes none. Core reads no new env key since `1d7ea3de`: `COWORK_SENSITIVITY_DECISION_URL`, `MODEL_LOADER_URL` and `MODEL_LOADER_TOKEN` were already read and passed, so compose and preflight are unchanged. `.env`: only `COWORK_VERSION` changed, to `88827187`. `current` points to `releases/88827187`.
+
+**Evidence.**
+- Pins: the core and web tarballs were each fetched twice with identical results (core `3ac865e8…`, web `a96857c4…`). core and web main CI green. #1859 CI green, including "Assembled release (pinned repos)".
+- Candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"88827187"}`, 0 error lines.
+- Gates: Coding jobs `idle`, llama idle count 0, GTT 29 MiB, MemAvailable 14.4 GiB, no autotune (the last job `failed` on 2026-10-13), no compose, build or `up.sh` running.
+- Backup `/mnt/disk3/noevia-backups/release_88827187_20261015T190030Z`: web state (461 files; 5 projects.json, hash-identical; `cowork.db`), 22 online SQLite copies that all pass `integrity_check`, both compose files, `.env` and the old tools.
+- Cutover 19:00:54Z, `up.sh ... --no-build --no-deps --wait ... web`: healthy, restarts 0, PID 1 `/sbin/docker-init`. `/api/ready` returns `88827187` on loopback and on https://noevia.daserver.work. Signed out, `/api/projects`, `/api/models/machines` and `/api/export/conversations` return 401 on both. The preflight passes and the web service declares every repo key. `index.html` `c02d90b3…` (was `893dbbd5…`), 145 dist files.
+- Model loader `embedding-service` 200 (managed, 1 model) and `/api/v1/models` 200. One synthetic Kev decision (`model.route`) answered with `kev-0.8b` in 597 ms. `COWORK_DECISION_URL` is `http://kev:11435`. Web is on `cowork_rerank`, `NOEVIA_FEATURE_RAG_RERANK=true`. `NOEVIA_RUST_EXPORT`, `_STORAGE_READS`, `_STORAGE_BROWSE` and `_CHATGPT_STATUS` are 0. The owner-set switches are unchanged.
+- `sidecar-restart-alert.sh --dry-run`, old and new, with `NOEVIA_REMOTE_SERVICES` unset: both exit 0 with identical (empty) output.
+- Ten-minute watch: 0 web error lines, restarts 0, OOM false, llama idle. Of 42 containers, only `cowork-web-1` changed id; every other id and start time is unchanged.
+
+**Rollback.** Run the idle gate first. No data migration.
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env
+ln -sfn $A/releases/a5d9cbf2 $A/current
+sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=a5d9cbf2/' $ENV
+bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120 web
+# tools (optional; the new ones are inert without NOEVIA_REMOTE_SERVICES):
+rm -rf $A/tools/preflight && cp -a $A/tools/preflight.bak.before-88827187 $A/tools/preflight
+cp -p $A/tools/sidecar-restart-alert.sh.bak.before-88827187 $A/tools/sidecar-restart-alert.sh
+```
+
 ## Release a5d9cbf2 — 2026-10-15 16:31Z (whole stack: web + model manager + Diary overlay; #1576, #1638, #1315, #1368, #1373, #1318, #1826)
 
 What changed for you: there is one chat surface now. Every project takes chats, and Task is a per-send choice in the composer (#1576, #1839). Settings gains an Inference machines page that lists machines and which part of noevia each one serves (#1638). The page also fixes refresh issues (#1814, #1828, #1829), shows the model in the inspector, and adds a Creative note. The native Rust routes for export (#1315), storage reads and browse (#1368) and ChatGPT status (#1373) ship in the image but stay switched off. The model manager can serve its settings natively (#1318), also switched off.
