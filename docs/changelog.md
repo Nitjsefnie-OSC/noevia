@@ -8,6 +8,53 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 2f583a82 — 2026-10-15 01:33Z / 01:35Z (web; embed `--models-max 3`; #1770, #1771, #1772, #1775)
+
+What changed for you: PDFs that were added before multimodal RAG was turned on now get their figures read once (#1770). The image backfill no longer creates empty indexes for chat-context projects (#1771). An image pass no longer pushes a text embedding model out of the embeddings router (#1772). A new chat's framing now asks what kind of chat it is first (#1775).
+
+### Services
+
+- **Web:** #1779 (noevia `2f583a82`).
+  - core `75decf8b`: core#116 (#1770 figure sweep, #1771 no empty indexes from the backfill, #1772 vision unload logging; review fixes: a no-worse check, retryable or timed-out documents deferred, one shared lock so the sweep and the image pass never overlap, SIGTERM/SIGINT stop) and core#117 (#1775).
+  - web `92b19d49`, services `d3474b3c`, rs `ed793085`: no change.
+  - Image: `cowork-web:2f583a82`, `sha256:06491979c888f5ac3cfcf374b5ea6dfb933cd70561613c02655699bf67b61a95`, replacing `cowork-web:4a7f9d0b`.
+- **embed:** same image (llama.cpp b11610), force-recreated with `--models-max 3` (was `2`), so the router has a slot for each of the two text models plus `.vision`.
+- **Model manager, Docling, Diary, OCR, Laya, Kev, llama, code sandbox:** no change, not recreated.
+- **Deploy/infra:**
+  - `.env`: `COWORK_VERSION=2f583a82`. No other key changed.
+  - Live override line 43 (embed command): `"--models-max", "2"` → `"3"`; the repo's `compose.embed.yaml` and `deploy/examples/unraid-llamacpp.override.yml` match (#1779).
+  - `current` now points to `releases/2f583a82`.
+
+**Evidence.**
+- Pins: core tarball fetched twice with identical results, `47e89151…903b33`. #1779 CI and main CI at `2f583a82` green, including "Assembled release (pinned repos)". The release tarball `7d4c2d79…ba107` matched on the Mac and on the box.
+- Web candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"2f583a82"}` with 0 error lines. Stamp `{"version":"2f583a82","web":"92b19d49…","core":"75decf8b…"}`.
+- Gates before each recreate: llama idle count 0, GTT 29 MiB, MemAvailable at least 13 GiB, no up.sh, compose, autotune or Appdata Backup running; before embed also no `.vision` loaded.
+- Backup `/mnt/disk3/noevia-backups/release_2f583a82_20261015T013335Z`: 9 entries, checksums verified, `cowork.db` integrity ok.
+- Web cutover (01:33Z):
+  - healthy, restarts 0; `/api/ready` `{"ready":true,"version":"2f583a82"}` on loopback and on https://noevia.daserver.work; signed-out `/api/projects` 401
+  - `embedding-service` 200 (`managed:true`, both text models); a synthetic `model.route` decision answered by `kev-0.8b` in 0.37 s
+  - served `dist` 143 files; 0 error lines
+  - figure sweep scheduled (60 s after start, then every 30 min); first pass at 01:34:57Z: 4 documents read again for figures, 0 failed. The image pass at 45 s had no work, and embed loaded no model during the sweep, so the two did not overlap.
+- embed (01:35Z):
+  - healthy, restarts 0, OOM false; `/props` reports `role router`, `max_instances 3`
+  - one synthetic embedding each: nomic 200, 768 dims; EmbeddingGemma 2 200, 768 dims; both text models `loaded`, `.vision` `unloaded`
+- Watch to 02:11Z (405 samples, 5 s apart): both text models stayed loaded throughout; the 02:04Z image pass and sweep had no work, so `.vision` did not load and the coexistence under an image load is not yet observed. Embed peak cgroup memory 842 MiB of 3 GiB; 0 `unload_lru` evictions.
+- Framing baseline (counts only): `system-one-decisions.jsonl` has 71 `chat.frame` entries, 7 framed and 64 not framed; none after the cutover yet.
+- Only `cowork-web-1` and `cowork-embed-1` changed id; all 39 containers on the host have restarts 0.
+
+**Rollback.**
+
+Web (to 4a7f9d0b):
+
+    ln -sfn /mnt/docker/appdata/cowork/releases/4a7f9d0b /mnt/docker/appdata/cowork/current
+    sed -i 's/^COWORK_VERSION=2f583a82$/COWORK_VERSION=4a7f9d0b/' /mnt/docker/appdata/cowork/config/.env
+    bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web
+
+embed (to `--models-max 2`):
+
+    cp -p /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml.bak-1772-20261015T013554Z /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml
+    bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 embed
+
 ## Diary overlay 9d308b22 — 2026-10-15 00:56Z (Diary only; #1768, #1759, #1766 complete)
 
 What changed for you: the Diary's search index is complete again. The 12 long Diary sections that could not be embedded are now embedded with EmbeddingGemma 2 (53 of 53).
