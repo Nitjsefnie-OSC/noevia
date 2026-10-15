@@ -8,6 +8,73 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Diary overlay d3474b3c and Kev cutover (limited) — 2026-10-15 00:01Z / 00:04Z / 00:12Z (Diary + new cowork-kev + web env; #1759, #1766, #1639)
+
+What changed for you: the Diary now splits a chunk that the embedding server refuses as too long, instead of leaving it without a vector (#1759, #1766). The 12 long Diary chunks still need one re-index pass before EmbeddingGemma 2 covers all 53. Route, tool gate, step supervision, chat framing and the load advisor are now decided by Kev-0.8B. Sensitivity stays on Laya. This starts a 7-day soak that ends 2026-10-22.
+
+### Services
+
+- **Diary:** noevia-services#49 and the #1759 change (services `d3474b3c`; only `diary/agent/embedding.py` and `diary/agent/llm.py` differ from the running image). `cowork-diary:d3474b3c`, `sha256:ca59f3bb496569469ab9036135df6ce8f1388fe1a3d7b6de59fe503371edf401`, replacing `cowork-diary:20b07d3f`. `TENANT_ASSERTION_IMPL=rust` unchanged.
+- **Kev (new):** `cowork-kev` runs outside compose from `ghcr.io/ollaya-dev/ollaya:0.13.0@sha256:31f749de…5ce6`. Settings: `cowork_laya` (internal) with alias `kev`, no published ports, `--cpus 2`, `--memory 5g`. Model store `eval/decisions/models` (manifest `8a0d4094…09f2`). Key in `config/kev.env` (mode 600).
+- **Web:** same image (`cowork-web:a6de6203`), recreated once for the new decision keys.
+- **Laya:** no change (`cowork-laya:0.3.5-noevia5`), not recreated. It still answers sensitivity and is the rollback.
+- **Model manager, llama, embed, Docling, OCR, code sandbox:** no change, not recreated.
+- **Deploy/infra:**
+  - `.env` keys: `COWORK_DECISION_URL=http://kev:11435` (was `http://laya:8040`). Added: `COWORK_DECISION_MODEL=kev-0.8b`, `COWORK_DECISION_API_KEY` (secret), `COWORK_SENSITIVITY_DECISION_URL=http://laya:8040`, `COWORK_SENSITIVITY_DECISION_MODEL=laya`. Also `DIARY_VERSION=d3474b3c`.
+  - Live `docker-compose.yml` web: five passthroughs added below `COWORK_DECISION_URL`: the four keys above plus `COWORK_SENSITIVITY_DECISION_API_KEY`, which is left unset.
+  - The decision URL saved in Settings cannot be cleared (#1765). It was re-saved as `http://kev:11435` from the owner's admin session, so the saved-setting check prints `admin http://kev:11435`.
+  - Root cron `kev-soak-log-copy` (every 6 h) copies the decision log to `state/kev-soak/`. `state/kev-soak/baseline.txt` holds the Laya baseline.
+
+### Diary overlay
+
+The rs pin in the release's `diary/Dockerfile` moved (`0012da31` to `ed793085`), so `diary-overlay.sh` would have rebuilt tenant-assertion. The overlay ran the script's own steps with the agent-only Dockerfile instead (`FROM cowork-diary:rollback-before-diary-overlay`, `rm -rf ./agent`, `COPY agent/`). Candidate checks, all with `--network none`:
+
+- 36 base layers identical, plus 2 new layers;
+- `/app/agent` equals the services tree (33 files);
+- the tenant-assertion binary is byte-identical, and its self-test prints `ok`;
+- the imports load.
+
+Cutover: gates (idle 0, GTT 15 MiB, MemAvailable 19 GiB), then scoped backup `/mnt/disk3/noevia-backups/diary_d3474b3c_20261015T000112Z`, then a Diary-only `up.sh ... --no-build --no-deps --wait --wait-timeout 120 diary`. After: healthy, 0 restarts, live self-test `ok`, signed `/api/health` from web 200. Only `cowork-diary-1` changed id.
+
+Coverage (counts only): active EG2 holds 41 of 53 vectors. The new code is live, but no pass has run since the restart: the Diary starts one only when a next model is set, or on `set-next`, `switch` or `rollback`. The 12 refused chunks need one re-index pass, which is being triggered separately.
+
+Rollback: set `DIARY_VERSION=20b07d3f` with `sed`, then run `up.sh ... --no-build --no-deps --wait diary`. The old image is kept as `cowork-diary:20b07d3f` and as `cowork-diary:rollback-before-diary-overlay`.
+
+### Kev cutover (docs/kev-cutover.md)
+
+Preconditions all held. Laya baseline (counts only, 2026-09-22T15:16Z to 2026-10-14T10:28Z, 1185 entries):
+
+- supervise S 92, escalations E 10, weak-escalate W 1, benign pauses B 0 (none marked yet);
+- route N 304 / 40 failures; tool gate N 388 / 20; supervise 18 failures; sensitivity N 136 / 101.
+
+Backups: `docker-compose.yml.bak.before-kev`, `docker-compose.override.yml.bak.before-kev`, `.env.bak.before-kev`, and `/mnt/disk3/noevia-backups/kev_cutover_20261015T000307Z`.
+
+Kev start: healthy within the bounded wait; cold load 5.8 s. Web recreate: idle gate, then web-only `up.sh ... --no-build --no-deps --wait --wait-timeout 120 web`. Env-level checks passed: `/api/ready` `a6de6203`, signed-out `/api/projects` 401, `getent hosts kev` from web.
+
+After the re-save, the synthetic post-checks (first line `shared kev-0.8b kev sensitivity laya laya`):
+
+| Purpose | Answer | Model | Time |
+| --- | --- | --- | --- |
+| route | smart | kev-0.8b | 480 ms |
+| tool gate | none | kev-0.8b | 463 ms |
+| chat framing | idea | kev-0.8b | 431 ms |
+| load advisor | unknown | kev-0.8b | 339 ms |
+| step supervision | verify | kev-0.8b | 597 ms |
+| sensitivity | not_sensitive | convaiinnovations/laya | 600 ms |
+
+Kev, Laya and web are healthy with 0 restarts and `OOMKilled=false`. `cowork_laya` is internal, and the web log has 0 "names no known decision model" lines. Kev memory: process VmHWM 4.41 GiB, and the cgroup peak reached its 5 GiB cap (page cache included, as in the eval). Only `cowork-web-1` changed id, and `cowork-kev` is new.
+
+Soak: 7 days, ending 2026-10-22, against the criteria in `docs/kev-cutover.md` section 5.
+
+Rollback (section 6): run the idle gate, then:
+
+1. Remove the five decision keys by name with `sed`, and append `COWORK_DECISION_URL=` with the value recorded in `state/kev-cutover-decision-url-before.txt` (`http://laya:8040`). Never copy `.env.bak.before-kev` back.
+2. Run web-only `up.sh ... --no-build --no-deps --wait web`, then `docker stop cowork-kev`.
+3. Re-save `http://laya:8040` in Settings, Decision service.
+4. Remove the cron line.
+
+Evidence: `/mnt/docker/appdata/cowork/release-prep/diary-d3474b3c/`, `/mnt/docker/appdata/cowork/release-prep/kev-cutover/`, `state/kev-cutover-after.txt`.
+
 ## Release a6de6203 — 2026-10-14 19:33Z / 19:40Z / 19:50Z (web + model manager + chat-engine restart; #1747 idle unload live)
 
 What changed for you: a chat model that sits unused for 15 minutes now unloads itself, which gives its memory back (about 6.6 GiB GTT for Gemma 4 12B). The next message wakes it in about 12–15 seconds, and noevia keeps treating a sleeping model as available. Vision descriptions now use only the default provider, a missing sensitivity key logs a startup warning, and service addresses (embedding, rerank, System One) follow one on-this-network rule, checked when they connect.
