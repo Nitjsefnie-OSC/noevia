@@ -27,6 +27,12 @@ echo "\$name XCONF=\${NOEVIA_RUST_STATS_CONFIRMED:-}" >> "$work/log"
 echo "\$name ECONF=\${NOEVIA_RUST_EXPORT_CONFIRMED:-}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
+# The supervisor TERMs the survivor as soon as one child exits. A front told to die at once would
+# race Node's startup logging (Node killed mid-write, its later lines such as XCONF lost: #1822),
+# so a dying front waits (bounded) until Node's last startup line is in the log.
+if [ "\$name" = front ] && [ -f "$work/die-front" ]; then
+  for _ in \$(seq 1 200); do grep -q "^node KCONF=" "$work/log" 2>/dev/null && break; sleep 0.05; done
+fi
 for _ in \$(seq 1 300); do
   [ -f "$work/die-\$name" ] && { echo "\$name died" >> "$work/log"; exit 3; }
   sleep 0.05
