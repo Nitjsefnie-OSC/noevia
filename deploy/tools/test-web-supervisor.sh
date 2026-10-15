@@ -28,6 +28,7 @@ echo "\$name XCONF=\${NOEVIA_RUST_STATS_CONFIRMED:-}" >> "$work/log"
 echo "\$name GCONF=\${NOEVIA_RUST_STORAGE_READS_CONFIRMED:-}" >> "$work/log"
 echo "\$name BCONF=\${NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED:-}" >> "$work/log"
 echo "\$name ECONF=\${NOEVIA_RUST_EXPORT_CONFIRMED:-}" >> "$work/log"
+echo "\$name HCONF=\${NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED:-}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
 # The supervisor TERMs the survivor as soon as one child exits. A front told to die at once would
@@ -305,6 +306,23 @@ check "default-off Rust mode drops inherited storage reads confirmation" 'grep -
 reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_STORAGE_READS=1 NOEVIA_RUST_STORAGE_READS_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops inherited storage reads confirmation" 'grep -q "^node GCONF=$" "$work/log"'
+# The ChatGPT connection status (#1373), the same rules as storage reads.
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_CHATGPT_STATUS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-chatgpt-status" >/dev/null 2>"$work/err"; rc=$?
+check "chatgpt status without native auth refuses before startup" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_CHATGPT_STATUS=1 needs NOEVIA_RUST_AUTH=1" "$work/err" && [ ! -s "$work/log" ]'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_CHATGPT_STATUS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth" >/dev/null 2>"$work/err"; rc=$?
+check "chatgpt status missing native feature refuses before startup" '[ $rc -eq 2 ] && grep -q "no rust-chatgpt-status" "$work/err" && [ ! -s "$work/log" ]'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_CHATGPT_STATUS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-chatgpt-status" >/dev/null 2>&1; rc=$?
+check "chatgpt status confirmed only to Node after native probe" 'grep -q "^node HCONF=1$" "$work/log" && grep -q "^front HCONF=$" "$work/log"'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-chatgpt-status" >/dev/null 2>&1; rc=$?
+check "default-off Rust mode drops inherited chatgpt status confirmation" 'grep -q "^node HCONF=$" "$work/log" && grep -q "^front HCONF=$" "$work/log"'
+reset; touch "$work/die-node"
+run NOEVIA_FRONT=node NOEVIA_RUST_CHATGPT_STATUS=1 NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED=1 >/dev/null 2>&1; rc=$?
+check "node mode drops inherited chatgpt status confirmation" 'grep -q "^node HCONF=$" "$work/log"'
+
 
 # Connected-storage list and read (#1368), the same rules.
 reset

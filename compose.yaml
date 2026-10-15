@@ -144,6 +144,8 @@ services:
       NOEVIA_RUST_STORAGE_BROWSE: ${NOEVIA_RUST_STORAGE_BROWSE:-0}
       # #1315: GET /api/export/conversations in the Rust front; needs NOEVIA_RUST_PROJECTS=1.
       NOEVIA_RUST_EXPORT: ${NOEVIA_RUST_EXPORT:-0}
+      # #1373: GET /api/providers/chatgpt in the Rust front; needs NOEVIA_RUST_AUTH=1.
+      NOEVIA_RUST_CHATGPT_STATUS: ${NOEVIA_RUST_CHATGPT_STATUS:-0}
       # #1726: multimodal RAG (images embedded beside text, chosen per answer). Off by default; the
       # model-loader reads the same switch (compose.embed.yaml) for the image-embedding preset.
       NOEVIA_MULTIMODAL_RAG: ${NOEVIA_MULTIMODAL_RAG:-0}

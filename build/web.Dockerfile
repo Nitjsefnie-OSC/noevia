@@ -43,6 +43,7 @@ RUN set -e; mkdir -p /out; \
       if grep -q '^rust-storage-reads = ' bins/noevia-server/Cargo.toml; then features="$features,rust-storage-reads"; fi; \
       if grep -q '^rust-storage-browse = ' bins/noevia-server/Cargo.toml; then features="$features,rust-storage-browse"; fi; \
       if grep -qx 'rust-export = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-export"; fi; \
+      if grep -q '^rust-chatgpt-status = ' bins/noevia-server/Cargo.toml; then features="$features,rust-chatgpt-status"; fi; \
       cargo build --release --locked -p noevia-server --features "$features"; \
       cp target/release/noevia-server /out/noevia-server; \
       /out/noevia-server 2>&1 | grep -q NOEVIA_LEGACY_UPSTREAM; \
