@@ -209,6 +209,23 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release 4a7f9d0b — 2026-10-15 (web; multimodal RAG on: model-loader, embed, web; #1762, #1726)
+
+### Services
+
+- **Web:** `cowork-web:4a7f9d0b` (core `48be747d`, web `92b19d49`, services `d3474b3c`, rs `ed793085`; `sha256:b0f7c030…53f9`), with `NOEVIA_MULTIMODAL_RAG=1`.
+- **Model manager:** same `cowork-model-loader:a6de6203`, recreated with `NOEVIA_MULTIMODAL_RAG=1`. It renders `[embeddinggemma-2-Q8_0.vision]` (`mmproj-embeddinggemma-2-Q8_0.gguf`, `load-on-startup = false`) into `embedding.ini`.
+- **embed:** same image (b11610), `EMBED_MEMORY_LIMIT=3g` (was `2g`).
+- **Docling, Diary, OCR, Laya, Kev, llama, code sandbox:** no change, not recreated.
+
+Multimodal RAG (#1726) is on. The flag lives in `.env` as `NOEVIA_MULTIMODAL_RAG`, and the live override passes it to `model-loader` and `web`. Docling doesn't read it.
+
+The model manager writes `embedding.ini` at start but doesn't restart embed, and the router reads presets only when it starts. So the enable order is model-loader, then embed, then web, and the rollback order is the same.
+
+The backfill embeds 1 image per request with a 2 s gap. It runs 45 s after web starts, every 30 min, and after source changes. It pauses during a re-index. Existing PDFs gain figures only when they are next ingested (#1770). Known issues: #1771 (empty indexes created for every project) and #1772 (text-model eviction during a pass).
+
+Order: assembled on the Mac, `build-web-release.sh`, `candidate-boot.sh` with the node and rust fronts. Then four guarded recreates, each with the idle and GTT gate, a scoped backup and automatic rollback: web at 00:17Z, then model-loader at 00:20Z, embed at 00:21Z and web at 00:22Z. Then a 15-minute watch of the first backfill pass: 3 images embedded, 0 Diary image rows, embed peak 1,721 MiB of 3 GiB, 0 OOM. Only `cowork-web-1`, `cowork-model-loader-1` and `cowork-embed-1` changed id. Evidence and rollback commands are in `docs/changelog.md`, entry 4a7f9d0b.
+
 ## Diary overlay d3474b3c and Kev cutover (limited) — 2026-10-15 (Diary + cowork-kev + web env; #1759, #1766, #1639)
 
 ### Services

@@ -8,6 +8,90 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 4a7f9d0b and multimodal RAG on — 2026-10-15 00:17Z / 00:20Z / 00:21Z / 00:22Z (web + multimodal enable: model-loader, embed, web; #1762, #1726)
+
+What changed for you: a question about a project can now find its pictures, not just its text. Every image in a project gets one image vector from EmbeddingGemma 2. Retrieved images go to a chat model that can see them, and a model that can't see them gets the image's text or a cached caption. Diary images are never embedded (#1736). Separately, noevia now warns when an embedding address is public (#1762).
+
+### Services
+
+- **Web:** #1769 (noevia `4a7f9d0b`).
+  - core `48be747d`: core#115 (#1762: public embedding URL warning, a test of the real Rust wiring, the rag `_test` seam gated).
+  - web `92b19d49` (no change), services `d3474b3c`, rs `ed793085` (no change).
+  - Image: `cowork-web:4a7f9d0b`, `sha256:b0f7c030a002b7b3a329cd6cff239a614be4834222bc559390d5c1ed917e53f9`, replacing `cowork-web:a6de6203`.
+  - Recreated a second time at 00:22Z with `NOEVIA_MULTIMODAL_RAG=1`.
+- **Model manager:** same image `cowork-model-loader:a6de6203`, force-recreated with `NOEVIA_MULTIMODAL_RAG=1`. The services diff (`b87f0a30..d3474b3c`) is `diary/` only. `MODEL_MANAGER_IMPL` stays `rust`.
+- **embed:** same image (llama.cpp b11610), force-recreated once with `EMBED_MEMORY_LIMIT=3g` (was `2g`), so the router also read the new `.vision` preset.
+- **Diary:** no change, not recreated. `cowork-diary:d3474b3c` was already live via the overlay. The image copies only `agent/`, `config/` and `scripts/`, so the services change to `diary/tests/` doesn't reach it.
+- **Docling:** no change (`cowork-docling:d37a16e5`), not recreated. It doesn't read the flag; core sends `X-Document-Figures: 1` while the flag is on.
+- **OCR, Laya, Kev, llama, code sandbox:** no change, not recreated.
+- **Deploy/infra:**
+  - `.env`: `COWORK_VERSION=4a7f9d0b`, `EMBED_MEMORY_LIMIT=3g`, and `NOEVIA_MULTIMODAL_RAG=1` (new key). No other key changed.
+  - Live override: `NOEVIA_MULTIMODAL_RAG: ${NOEVIA_MULTIMODAL_RAG:-0}` added to `model-loader.environment` and `web.environment` (#1733 passthrough).
+  - Preflight reinstalled from the release; `current` now points to `releases/4a7f9d0b`.
+
+**Evidence.**
+- Pins:
+  - #1769 CI green, including "Assembled release (pinned repos)".
+  - Tarballs fetched twice each with identical results: core `34941afa…0c70`, services `8c568b0d…cdd2`.
+  - All five services Dockerfiles at `d3474b3c` pin rs `ed793085` and the same sha256.
+  - The release tarball `397082d9…9cca5` matched on the Mac and on the box.
+- Web candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"4a7f9d0b"}` with 0 error lines. Stamp `{"version":"4a7f9d0b","web":"92b19d49…","core":"48be747d…"}`.
+- Gates before each of the four recreates: llama idle count 0, GTT 15.2 MiB (≤ 1 GiB), 14 GiB available, no autotune, Appdata Backup, compose or build running.
+- Web cutover (00:17Z):
+  - healthy, restarts 0; `/api/ready` `{"ready":true,"version":"4a7f9d0b"}` on loopback and on https://noevia.daserver.work; signed-out `/api/projects` 401 on both
+  - served `dist` equals the image's (143 files); allow-listed flags identical
+  - `embedding-service` 200 (`managed:true`, both text models loaded); a synthetic decision went through core's decision endpoint to `kev-0.8b` (`answer`, 0.45 s)
+  - 0 error or warn lines
+- Model manager (00:20Z):
+  - healthy, restarts 0, `NOEVIA_MULTIMODAL_RAG=1`
+  - `embedding.ini` equals the planned file byte for byte: the only change is the `[embeddinggemma-2-Q8_0.vision]` block (`model`, `mmproj = /models/embeddinggemma-2/mmproj-embeddinggemma-2-Q8_0.gguf`, `load-on-startup = false`)
+  - chat `models.ini` unchanged; `embedding-service` lists `vision: ["embeddinggemma-2-Q8_0.vision"]`; 0 error lines
+- mmproj: the only `mmproj*` file in `embeddinggemma-2/` inside the models root, 554,821,024 bytes, sha256 `c4a8a526…ab64f` (checked again on the box).
+- embed (00:21Z):
+  - healthy, restarts 0, cgroup limit 3 GiB
+  - router models `embeddinggemma-2-Q8_0 loaded`, `nomic-embed-text-v1 loaded`, `embeddinggemma-2-Q8_0.vision unloaded` (not loaded at start-up)
+  - one synthetic embedding each: EmbeddingGemma 2 200, 768 dims; nomic 200, 768 dims
+- Web with the flag (00:22Z): healthy, restarts 0, `NOEVIA_MULTIMODAL_RAG=1`, ready `4a7f9d0b` on both fronts, 401 signed out, `embedding-service` 200, Kev decision 0.42 s, 0 error or warn lines.
+- First backfill pass (counts only):
+  - `[media] embedded 3 image(s)`
+  - image rows: 3 in projects, 0 in Diary indexes; all 3 hold a vector in the EmbeddingGemma 2 slot (768 dims)
+  - `.vision` was loaded for the pass, then unloaded about 13 s later (LRU, when the text models were reloaded; #1772)
+- 15-minute watch (00:23Z–00:38Z):
+  - embed memory peak 1,721 MiB of 3 GiB (84% of the old 2 GiB limit), steady at about 735 MiB
+  - `oom_kill 0`, 0 embed and 0 web error lines
+  - both text models loaded and `.vision` unloaded throughout
+- Docling: 0 requests and 0 error lines since the enable. Existing PDFs are read again with figures only when they are next ingested; a sweep is #1770.
+- Chat: one synthetic request, web → llama (`gemma-4-12b-it-qat-q4_0`, 64 tokens), 200 `"OK"`.
+- Inventory: only `cowork-web-1`, `cowork-model-loader-1` and `cowork-embed-1` changed id. The other 39 containers kept their ids and start times with 0 restarts, including Laya, Kev, Diary, llama, Docling and OCR.
+- Found and filed:
+  - #1771: the backfill opens, and so creates, an empty index for every project; about 394 chat-context indexes of about 20 KB each appeared.
+  - #1772: with `--models-max 2`, an image pass evicts a text embedding model.
+- Backups:
+  - `/mnt/disk3/noevia-backups/release_4a7f9d0b_20261015T001748Z`: compose, `.env` copy, web state, and a `cowork.db` online backup with integrity `ok`.
+  - `/mnt/disk3/noevia-backups/multimodal_4a7f9d0b_20261015T002052Z`: compose, `.env` copy, `config/llamacpp`, model-loader state.
+  - `.bak.before-web-4a7f9d0b` and `.bak.before-mm-4a7f9d0b` copies beside `.env`, both compose files, `embedding.ini` and `models.ini`.
+- Scripts and logs are in `state/`: `cutover-web-4a7f9d0b`, `mm-enable-4a7f9d0b`, `mm-watch-4a7f9d0b`, `mm-counts-4a7f9d0b.sh`. The build and candidate logs are in `release-prep/4a7f9d0b/`.
+
+**Rollback.** Run the idle gate first.
+
+Multimodal off, in this order:
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env
+OVR=/boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml
+UP="bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --force-recreate --wait --wait-timeout 180"
+sed -i 's/^NOEVIA_MULTIMODAL_RAG=.*/NOEVIA_MULTIMODAL_RAG=0/; s/^EMBED_MEMORY_LIMIT=.*/EMBED_MEMORY_LIMIT=2g/' $ENV
+$UP model-loader   # re-renders embedding.ini without the .vision block
+$UP embed
+$UP web
+```
+
+The override lines can stay, since they default to `0`. With the flag off, stored image vectors are ignored and kept.
+
+Web back to a6de6203: `ln -sfn $A/releases/a6de6203 $A/current`, set `COWORK_VERSION=a6de6203` with `sed`, then web-only `up.sh ... --no-build --no-deps --wait web`.
+
+Never copy a `.env.bak.*` file back wholesale.
+
 ## Diary overlay d3474b3c and Kev cutover (limited) — 2026-10-15 00:01Z / 00:04Z / 00:12Z (Diary + new cowork-kev + web env; #1759, #1766, #1639)
 
 What changed for you: the Diary now splits a chunk that the embedding server refuses as too long, instead of leaving it without a vector (#1759, #1766). The 12 long Diary chunks still need one re-index pass before EmbeddingGemma 2 covers all 53. Route, tool gate, step supervision, chat framing and the load advisor are now decided by Kev-0.8B. Sensitivity stays on Laya. This starts a 7-day soak that ends 2026-10-22.
