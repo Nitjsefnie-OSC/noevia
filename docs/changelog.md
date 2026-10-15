@@ -8,6 +8,28 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Diary overlay 9d308b22 — 2026-10-15 00:56Z (Diary only; #1768, #1759, #1766 complete)
+
+What changed for you: the Diary's search index is complete again. The 12 long Diary sections that could not be embedded are now embedded with EmbeddingGemma 2 (53 of 53).
+
+### Services
+
+- **Diary:** `cowork-diary:9d308b22` (`sha256:727fb4f9…d755331`), an agent-only overlay on `cowork-diary:d3474b3c` from noevia-services `9d308b22` (services#50). Only `agent/app.py` and `agent/embedding_migration.py` differ; the `tenant-assertion` binary is byte-identical (`5c265a4e…`). `TENANT_ASSERTION_IMPL=rust` kept.
+- **Everything else:** unchanged and not recreated.
+
+**Evidence.**
+- Gates passed: llama idle, GTT 15 MiB, MemAvailable at least 8 GiB, nothing else deploying.
+- Backup `/mnt/disk3/noevia-backups/diary_9d308b22_20261015T005417Z` verified (28 entries).
+- Healthy, restarts 0, `tenant-assertion self-test` ok, and a signed `/api/health` from web returns 200.
+- Coverage (counts only): the start-up pass embedded the 12 previously refused chunks. The Diary's active `embeddinggemma-2-Q8_0` slot is at 53/53 and complete; the last pass embedded 12, failed 0, refused 0.
+
+**Incident (2026-10-15 ~00:50Z).** During the first candidate check for this overlay, an agent ran `docker container prune -f`, which removes every stopped container on the host. It removed the stopped containers `nextcloud-aio-borgbackup`, `nextcloud-aio-watchtower` and `noevia-eval-decisions`, plus its own throwaway containers. No running container and no volume was affected; all eight `nextcloud_aio_*` volumes are present. The Nextcloud AIO mastercontainer recreates its backup and watchtower containers when it next needs them; confirm at the next AIO backup. `noevia-eval-decisions` is not needed live (Kev runs as `cowork-kev`). New rule: never run `docker * prune`; remove only containers you created, by exact name.
+
+**Rollback** (Diary only):
+
+    sed -i 's/^DIARY_VERSION=.*/DIARY_VERSION=d3474b3c/' /mnt/docker/appdata/cowork/config/.env
+    bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 diary
+
 ## Release 4a7f9d0b and multimodal RAG on — 2026-10-15 00:17Z / 00:20Z / 00:21Z / 00:22Z (web + multimodal enable: model-loader, embed, web; #1762, #1726)
 
 What changed for you: a question about a project can now find its pictures, not just its text. Every image in a project gets one image vector from EmbeddingGemma 2. Retrieved images go to a chat model that can see them, and a model that can't see them gets the image's text or a cached caption. Diary images are never embedded (#1736). Separately, noevia now warns when an embedding address is public (#1762).
