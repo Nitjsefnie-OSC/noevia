@@ -14,7 +14,7 @@ set -uo pipefail
 
 # Only this script may confirm rust-auth / rust-projects / rust-project-chats / rust-free-chats to
 # Node (below); never trust a value from the environment.
-unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_FRONT_CLIENT_IP
+unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED NOEVIA_FRONT_CLIENT_IP
 front="${NOEVIA_FRONT:-node}"
 case "$front" in
   node) exec node server/index.cjs ;;
@@ -192,6 +192,21 @@ if [ "${NOEVIA_RUST_STORAGE_READS:-}" = 1 ]; then
   fi
   rust_storage_reads_confirmed=1
 fi
+# Connected-storage list and text read (M4, #1368): outbound calls from the front, in owned child
+# processes. Node refuses them only once the front has confirmed it owns them (noevia-core
+# features.cjs rustStorageBrowseOwned).
+rust_storage_browse_confirmed=""
+if [ "${NOEVIA_RUST_STORAGE_BROWSE:-}" = 1 ]; then
+  if [ "$rust_auth_confirmed" != 1 ]; then
+    echo "web-supervisor: NOEVIA_RUST_STORAGE_BROWSE=1 needs NOEVIA_RUST_AUTH=1" >&2
+    exit 2
+  fi
+  if ! grep -qx 'rust-storage-browse' <<<"$rust_features"; then
+    echo "web-supervisor: NOEVIA_RUST_STORAGE_BROWSE=1 but this noevia-server has no rust-storage-browse" >&2
+    exit 2
+  fi
+  rust_storage_browse_confirmed=1
+fi
 # The conversation export (M4, #1315): Node refuses GET /api/export/conversations only once the front
 # has confirmed it owns it. The front reads the user's files from disk, so it needs the confirmed
 # project and free-chat slices (the owner's 2026-10-12 condition); it refuses to start without them.
@@ -245,6 +260,7 @@ UI_HOST="$node_host" UI_PORT="$legacy" NOEVIA_RUST_AUTH_CONFIRMED="$rust_auth_co
   NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED="$rust_routing_default_confirmed" \
   NOEVIA_RUST_STATS_CONFIRMED="$rust_stats_confirmed" \
   NOEVIA_RUST_STORAGE_READS_CONFIRMED="$rust_storage_reads_confirmed" \
+  NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED="$rust_storage_browse_confirmed" \
   NOEVIA_RUST_EXPORT_CONFIRMED="$rust_export_confirmed" node server/index.cjs &
 node_pid=$!
 NOEVIA_LEGACY_UPSTREAM="http://127.0.0.1:$legacy" "$bin" &
