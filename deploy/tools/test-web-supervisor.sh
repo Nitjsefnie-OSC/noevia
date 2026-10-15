@@ -20,6 +20,7 @@ stub() {
 #!/usr/bin/env bash
 name=$2
 if [ "\${1:-}" = --features ]; then printf '%s\\n' \${STUB_FEATURES-code-net-guard}; exit 0; fi
+[ "\$name" = node ] && [ -n "\${STUB_NODE_DELAY:-}" ] && sleep "\$STUB_NODE_DELAY"
 echo "\$name UI_HOST=\${UI_HOST:-} UI_PORT=\${UI_PORT:-} UPSTREAM=\${NOEVIA_LEGACY_UPSTREAM:-} ARGS=\$* CCONF=\${NOEVIA_RUST_PROJECT_CHATS_CONFIRMED:-} FCONF=\${NOEVIA_RUST_FREE_CHATS_CONFIRMED:-} RCONF=\${NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED:-} SCONF=\${NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED:-} UCONF=\${NOEVIA_RUST_USAGE_CONFIRMED:-} PCONF=\${NOEVIA_RUST_PROJECTS_CONFIRMED:-} CONF=\${NOEVIA_RUST_AUTH_CONFIRMED:-}" >> "$work/log"
 echo "\$name TCONF=\${NOEVIA_RUST_ROUTING_MODE_CONFIRMED:-}" >> "$work/log"
 echo "\$name DCONF=\${NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED:-}" >> "$work/log"
@@ -262,6 +263,12 @@ check "default-off Rust mode drops inherited routing default confirmation" 'grep
 reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_ROUTING_DEFAULT=1 NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops inherited routing default confirmation" 'grep -q "^node DCONF=$" "$work/log"'
+
+# #1822 regression: a front that dies at once must not cut a slow-starting Node's startup log short
+# (the supervisor TERMs the survivor the moment one child exits).
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_STATS=1 STUB_NODE_DELAY=0.4 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-stats" >/dev/null 2>&1; rc=$?
+check "a front dying at once does not truncate a slow Node's startup log" 'grep -q "^node XCONF=1$" "$work/log" && grep -q "^node KCONF=" "$work/log"'
 
 # The engine statistics (#1650), the same rules.
 reset
