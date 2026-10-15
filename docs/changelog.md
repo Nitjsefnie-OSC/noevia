@@ -8,6 +8,41 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 3b978351 — 2026-10-15 08:21Z (web; folder import; #1805, #1806)
+
+What changed for you: a project's Sources can take a whole folder. "Add folder" and dropping a folder onto Sources import every file in it, subfolders included, and an attached storage folder is now read recursively, so files in its subfolders become sources too (#1805). Limits are unchanged: 60 sources, 60 documents and 12 images per project, and at most 100 MB per folder import.
+
+### Services
+
+- **Web:** #1807 (noevia `3b978351`).
+  - core `ec88d5f3`: core#124 (folder import, recursive attached-folder sync, central source limits).
+  - web `a8ff520c`: web#62 ("Add folder" and drop-a-folder in Sources).
+  - services `d3474b3c`, rs `ed793085`: no change.
+  - Image: `cowork-web:3b978351`, `sha256:5ebe05e3b0f6f4b1296eada74e127b87c21da0c41c8b69b1fa4dcc848b5474da`, replacing `cowork-web:fee7d681`.
+- **Model manager, embed, rerank, llama, Docling, Diary, OCR, Laya, Kev, code sandbox:** no change, not recreated.
+- **Deploy/infra:**
+  - `compose.yaml`, `deploy/examples/unraid-compose-manager.yml` and `deploy/preflight/web-env-keys.txt` now pass `PROJECT_SOURCE_LIMIT`, `PROJECT_DOCUMENT_LIMIT`, `PROJECT_IMAGE_LIMIT`, `FOLDER_IMPORT_MAX_FILES` and `FOLDER_IMPORT_MAX_BYTES` to web with empty defaults (refs #1806). They are not in the live override or `.env`, so web runs on the built-in defaults.
+  - `.env`: `COWORK_VERSION=3b978351`, nothing else.
+  - `current` now points to `releases/3b978351`.
+
+**Evidence.**
+- Pins: core and web tarballs each fetched twice with identical results (core `4ea183e9…04de`, web `36d718ab…43e0`). #1807 CI green, including "Assembled release (pinned repos)"; main CI green at `3b978351`. The release tarball `98f548e3…2cdc` matched on the Mac and on the box.
+- Web candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"3b978351"}` with 0 error lines.
+- The first cutover attempt stopped at the process gate because an Appdata Backup run was in progress; nothing was changed. That backup restarted the old web container at 08:14Z (same id). Gates at the second attempt: llama idle count 0, GTT 29 MiB, MemAvailable 15.7 GiB, no up.sh, compose, autotune or Appdata Backup running.
+- Backup: `/mnt/disk3/noevia-backups/release_3b978351_20261015T082120Z` (checksums verified, `cowork.db` integrity ok).
+- Web cutover (08:21Z): `up.sh` web-only, 8.0 s; the old container got SIGTERM and exited 0 after 882 ms. Healthy, restarts 0; `/api/ready` at `3b978351` on loopback and on https://noevia.daserver.work; signed-out `/api/projects` 401; `embedding-service` 200 (`managed:true`, `embeddinggemma-2-Q8_0`); a synthetic `model.route` decision answered by `kev-0.8b` in 2.5 s; PID 1 `/sbin/docker-init`; served `dist` 143 files, hash equal to the image (`2b8f905e…`); 0 error lines.
+- Reranker: web is still on `cowork_rerank`, `NOEVIA_FEATURE_RAG_RERANK=true` in its env, 0 "rerank off" lines.
+- 10-minute watch (08:23–08:32Z, counts only): 0 error lines, 0 PROPFIND or storage error lines, healthy, restarts 0 throughout. Web logged no PROPFIND lines at all in that window, so this shows no errors, not that a recursive sync ran.
+- Only `cowork-web-1` changed id; the other 41 containers kept their ids and start times.
+
+**Rollback.**
+
+Web (to fee7d681):
+
+    ln -sfn /mnt/docker/appdata/cowork/releases/fee7d681 /mnt/docker/appdata/cowork/current
+    sed -i 's/^COWORK_VERSION=3b978351$/COWORK_VERSION=fee7d681/' /mnt/docker/appdata/cowork/config/.env
+    bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web
+
 ## Release fee7d681 — 2026-10-15 06:25Z (web; gte reranker on 06:28Z; #1761, #1765, #1795, #1796, #1784, #1785, #1788, #1665)
 
 What changed for you: project knowledge search now reorders its passages with the gte reranker before the model reads them (#1665), so the most relevant passage is more often first. A model that is unloaded after idling now reads "Sleeping" instead of looking broken, and a model that is set up but not loaded reads "Configured". The Models page can reset the decision model and shows Decision and Sensitivity rows. A chat gets a title after any completed reply, not only the first, with at most 3 tries. Fast turns on the local engine run without thinking. The "Stopped" note shows only for stopped or clean replies, and the app adopts the generated title against the first message.
