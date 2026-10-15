@@ -209,6 +209,26 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Diary overlay d3474b3c and Kev cutover (limited) — 2026-10-15 (Diary + cowork-kev + web env; #1759, #1766, #1639)
+
+### Services
+
+- **Diary:** `cowork-diary:d3474b3c` (services `d3474b3c`, agent/ only; `sha256:ca59f3bb…f401`), `TENANT_ASSERTION_IMPL=rust` unchanged. The 12 long chunks need one re-index pass (EG2 coverage is 41 of 53 until then).
+- **Kev:** `cowork-kev`, outside compose (`ollaya:0.13.0` by digest, `cowork_laya` alias `kev`, 5g, 2 CPUs). Decides route, tool gate, step supervision, chat framing and the load advisor (T 0.45 in core via `COWORK_DECISION_MODEL=kev-0.8b`).
+- **Web:** same `cowork-web:a6de6203`, recreated for `COWORK_DECISION_URL=http://kev:11435`, `COWORK_DECISION_MODEL`, `COWORK_DECISION_API_KEY`, `COWORK_SENSITIVITY_DECISION_URL=http://laya:8040` and `COWORK_SENSITIVITY_DECISION_MODEL=laya`. The live compose web service also passes `COWORK_SENSITIVITY_DECISION_API_KEY`, which is unset.
+- **Laya:** unchanged; answers sensitivity; rollback target. Hybrid stays off.
+- **Model manager, llama, embed, Docling, OCR, code sandbox:** no change, not recreated.
+
+The decision URL saved in Settings (`source: admin`) cannot be cleared (#1765). It is re-saved to `http://kev:11435`, and core treats it as the deployment URL because it equals the env URL. A rollback must re-save `http://laya:8040` there as well. Soak: 7 days, ending 2026-10-22. The `kev-soak-log-copy` root cron copies the decision log every 6 h, and `state/kev-soak/baseline.txt` holds the Laya baseline.
+
+Order:
+
+1. The Diary overlay (agent-only, because the release's Dockerfile moved the rs pin), with isolated candidate checks, the idle gate, scoped backup `diary_d3474b3c_20261015T000112Z` and a Diary-only `up.sh`.
+2. The Kev runbook: preconditions, baseline, backups (`*.bak.before-kev`, `kev_cutover_20261015T000307Z`), Kev start and load, compose and `.env` keys, `compose config -q`, the idle gate, then a web-only `up.sh`.
+3. The admin re-save, then the synthetic post-check: five purposes on `kev-0.8b` at 339–597 ms, sensitivity on Laya at 600 ms.
+
+Only `cowork-diary-1` and `cowork-web-1` changed id, and `cowork-kev` is new. Rollback: commands in `docs/changelog.md`.
+
 ## Release a6de6203 — 2026-10-14 (web + model manager + chat-engine restart; #1747 idle unload live)
 
 ### Services
