@@ -121,6 +121,9 @@ jobs:
         if: env.RUN_JOB == 'true'
       - run: bash deploy/tools/test-flags.sh
         if: env.RUN_JOB == 'true'
+      # #1391: an unreadable Coding job directory makes the release idle gate refuse (pinned core jobs.cjs).
+      - run: bash deploy/tools/test-release-idle-jobs.sh
+        if: env.RUN_JOB == 'true'
       # Every Compose file the repo ships must still parse (no containers are started).
       - run: make compose-check
         if: env.RUN_JOB == 'true'
