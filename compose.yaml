@@ -88,6 +88,8 @@ services:
       retries: 3
 
   web:
+    # tini as PID 1 reaps zombies and forwards SIGTERM to web-supervisor.sh (#1777).
+    init: true
     networks: [default, ocr, laya]
     build:
       # The assembled release tree (web/ + core/ from the repos pinned in release/versions.lock).

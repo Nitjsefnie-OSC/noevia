@@ -89,6 +89,8 @@ services:
       net.unraid.docker.shell: sh
 
   web:
+    # tini as PID 1 reaps zombies and forwards SIGTERM to web-supervisor.sh (#1777).
+    init: true
     networks: [default, ocr, laya]
     build:
       context: ${COWORK_SOURCE_DIR:?Set COWORK_SOURCE_DIR}
