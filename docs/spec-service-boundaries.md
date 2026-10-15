@@ -335,6 +335,7 @@ limiter is in memory (`createRateLimiter`, `index.cjs`).
 | `GOOGLE_OAUTH_CLIENT_SECRET` | web | `.env` | Google | `index.cjs` |
 | `COWORK_DAV_PROXY_TOKEN` | web | `.env` | reverse proxy in front of DAV | `dav-settings.cjs` |
 | `CODE_ENGINE_API_KEY` | web → written into harness config | `.env` | sandbox harness | `index.cjs`, `code-harness-config.cjs` |
+| Code relay token (#1853) | web → written into harness config, per run | minted per Executor run, revoked at its end; never stored | web's relay (`CODE_ENGINE_RELAY_PORT`) | `code-machine.cjs`, `code-harness.cjs` |
 
 `.env` is owned by the operator on the host (`/mnt/docker/appdata/cowork/config/.env`, chmod 600,
 [deployment.md](deployment.md) "Layout on the box"). The web keys Compose may pass are listed in
