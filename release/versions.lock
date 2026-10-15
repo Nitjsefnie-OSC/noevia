@@ -19,8 +19,9 @@
 # Per-service image tags (DIARY_VERSION, OCR_VERSION, ...) keep their meaning.
 #
 # NOEVIA_RS_REF: sbstndalton/noevia-rs, built into the model-manager image as gguf-meta and
-# model-files, into the ocr image as docx-text, into the diary image as tenant-assertion (also
-# built by deploy/examples/diary-overlay.sh from the diary Dockerfile's pin), and into the dark
+# model-files, into the ocr image as docx-text, into the diary image as tenant-assertion and
+# workspace-restore-verify (#982; both also built by deploy/examples/diary-overlay.sh from the
+# diary Dockerfile's pin), and into the dark
 # egress-rs image (#909, #964, #981, #926). Bumping it also means updating NOEVIA_RS_REF and
 # NOEVIA_RS_SHA256 in deploy/egress-proxy/Dockerfile and in noevia-services' model-manager/,
 # ocr/, diary/, docling/ and laya/Dockerfile (CI fails if any Dockerfile default differs).
@@ -28,11 +29,11 @@
 # ARG NOEVIA_RS_SHA256 (CI checks): assemble-release.sh fetches noevia-rs into the release tree's
 # rs/, and build/web.Dockerfile builds the Rust front (bins/noevia-server, NOEVIA_FRONT=rust) from
 # it. A ref from before bins/noevia-server builds a web image without the front.
-NOEVIA_RS_REF=ed793085db31c47e488c0932cc15042d812afae4
-NOEVIA_RS_SHA256=e16a8932ba08bce6d34bf79c6cf7357c25c1796f2a5f98d1e4094efa4ef9653c
+NOEVIA_RS_REF=982316999bdf30e6a7e7c53d22236b506bbaa104
+NOEVIA_RS_SHA256=96b22614d752bf3f1d28897c6fc277b9f40810b739df4457c8e56dc645835f1f
 NOEVIA_WEB_REF=a8ff520c1d6276f5c857300d06ae1271f0b48d08
 NOEVIA_WEB_SHA256=36d718ab7837694d7cb155cc614b0d3cb12d603c8a5540e20ac57680d08643e0
 NOEVIA_CORE_REF=ec88d5f393362a20a6b5560a0ecf6d7ddd53bfb5
 NOEVIA_CORE_SHA256=4ea183e93aeb1ccc1d21db2557bf4c3ab07526adecc4f6234584109dd51604de
-NOEVIA_SERVICES_REF=d3474b3cbf4c2eea40718c2058f57f9ae1fb69c7
-NOEVIA_SERVICES_SHA256=8c568b0d91f79d25a13877034e9ce96b27d43e12b071007c0b1eb4281b13cdd2
+NOEVIA_SERVICES_REF=a9137fa764b3f38c8f927af3149bbb784d6e7dbc
+NOEVIA_SERVICES_SHA256=343342727e6092ad586a6ed35aa8bf1f248cab63bd8bc419b7735ec9ac6a44a2

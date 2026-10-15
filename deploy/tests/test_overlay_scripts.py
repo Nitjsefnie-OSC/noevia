@@ -532,7 +532,12 @@ class RsStage(unittest.TestCase):
         # The builder image is pinned by registry digest, not a movable tag (#1145).
         self.assertRegex(df, r'(?m)^FROM rust:1\.99-slim-bookworm@sha256:[0-9a-f]{64} AS tenant-assertion$')
         self.assertNotRegex(df, r'(?m)^FROM rust:[^@\n]* AS')
-        self.assertIn('COPY --from=tenant-assertion /src/target/release/tenant-assertion /usr/local/bin/tenant-assertion', df)
+        self.assertIn('COPY --from=tenant-assertion /out/ /usr/local/bin/', df)
+        # noevia#982: workspace-restore-verify is built and self-tested only when the pinned
+        # noevia-rs has the crate, so an older release still overlays.
+        self.assertIn('if [ -d bins/workspace-restore-verify ]; then', df)
+        self.assertIn('cargo build --release --locked -p workspace-restore-verify-cli', df)
+        self.assertIn('./target/release/workspace-restore-verify self-test | grep -qx ok', df)
         # agent/ is replaced whole, so files the release dropped do not survive (#1624).
         self.assertTrue(df.rstrip().endswith('RUN rm -rf ./agent\nCOPY agent/ ./agent/'))
         # Only the pins are taken from the release's Dockerfile; never its text, and no pip.
