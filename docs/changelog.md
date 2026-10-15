@@ -8,6 +8,49 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release fee7d681 — 2026-10-15 06:25Z (web; gte reranker on 06:28Z; #1761, #1765, #1795, #1796, #1784, #1785, #1788, #1665)
+
+What changed for you: project knowledge search now reorders its passages with the gte reranker before the model reads them (#1665), so the most relevant passage is more often first. A model that is unloaded after idling now reads "Sleeping" instead of looking broken, and a model that is set up but not loaded reads "Configured". The Models page can reset the decision model and shows Decision and Sensitivity rows. A chat gets a title after any completed reply, not only the first, with at most 3 tries. Fast turns on the local engine run without thinking. The "Stopped" note shows only for stopped or clean replies, and the app adopts the generated title against the first message.
+
+### Services
+
+- **Web:** #1802 (noevia `fee7d681`).
+  - core `ebb31aac`: core#121 (TEI rerank backend), core#122 (decision reset API, describeDecision, embedding status merge), core#123 (titles after any completed reply, capped at 3 attempts; Fast turns thinking-off on the local engine).
+  - web `3e603cf3`: web#60 (Sleeping label, Configured state, decision reset button, Decision/Sensitivity rows), web#61 (Stopped note only for stopped or clean replies; title adoption against the first message).
+  - services `d3474b3c`, rs `ed793085`: no change.
+  - Image: `cowork-web:fee7d681`, `sha256:01bdd56e286d600f7f2b40ce5d4257fb74bde52269a8ecdf7fad5cc4c483edb4`, replacing `cowork-web:b84758dc`.
+- **rerank (new):** `cowork-rerank-1`, TEI `cpu-1.9@sha256:2538ea1c…c78d`, gte-multilingual-reranker-base int8 ONNX, 2 CPUs, 2 GiB cap, only on the internal `cowork_rerank` network, no ports.
+- **Model manager, embed, llama, Docling, Diary, OCR, Laya, Kev, code sandbox:** no change, not recreated.
+- **Deploy/infra:**
+  - `.env`: `COWORK_VERSION=fee7d681`; new keys `RERANK_MODEL_DIR` and `NOEVIA_FEATURE_RAG_RERANK=true`.
+  - Override: the `rerank` service from `compose.rerank.yaml`, the internal `rerank` network, web joins `rerank`, and the web reranker env lines (`RERANK_BACKEND=tei`, `RERANK_BASE_URL=http://rerank:8080`, `RERANK_MODEL=gte-multilingual-reranker-base`, empty `RERANK_API_KEY`) replace the old `NOEVIA_FEATURE_RAG_RERANK: "false"` and `RERANK_MODEL: qwen3-reranker-0.6b-q8_0` lines. Pool 12, keep 6 and the 3000 ms deadline are unchanged.
+  - `current` now points to `releases/fee7d681`.
+
+**Evidence.**
+- Pins: core and web tarballs each fetched twice with identical results (core `c7f92e99…c305`, web `c0cf05e7…d55c`). #1802 CI green, including "Assembled release (pinned repos)"; main CI green at `fee7d681`. The release tarball `522bab0c…90f2` matched on the Mac and on the box.
+- Web candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"fee7d681"}` with 0 error lines.
+- Gates before each of the four changes: llama idle count 0, GTT 21 MiB, MemAvailable 12.9–14.4 GiB, no up.sh, compose, autotune or Appdata Backup running.
+- Backups: `/mnt/disk3/noevia-backups/release_fee7d681_20261015T062521Z` (8 entries, checksums verified, `cowork.db` integrity ok) and `/mnt/disk3/noevia-backups/rerank_1665_20261015T062612Z` (override, base compose, `.env` copy).
+- Web cutover (06:25Z): `up.sh` web-only, 7.1 s; the old container got SIGTERM and exited 0 after 685 ms. Healthy, restarts 0; `/api/ready` at `fee7d681` on loopback and on https://noevia.daserver.work; signed-out `/api/projects` 401; `embedding-service` 200 (`managed:true`, `embeddinggemma-2-Q8_0`); a synthetic `model.route` decision answered by `kev-0.8b` in 0.46 s; PID 1 `/sbin/docker-init`; served `dist` 143 files, hash equal to the image (`93d8ac13…`, was `77ef7bf5…`); 0 error lines.
+- Reranker: `compose config -q` passed and only `web` and `rerank` rendered differently. `up.sh … --no-build --no-deps --wait rerank`: healthy, restarts 0, 1.40 GiB of 2 GiB, 0 error lines. Web recreated twice, web-only (flag off to join the network, then flag on), with the same post-checks each time, all passing. No "rerank off" line. The synthetic `/rerank` request from web (QA kettle/toaster, 2 passages) put the kettle passage first every time (score 0.88 vs 0.55), in 41–63 ms. The eval's 12-passage figure is about 1.6 s p50.
+- Only `cowork-web-1` changed id, and `cowork-rerank-1` is new; the other 40 containers kept their ids and start times.
+
+**Rollback.**
+
+Reranker off (keeps the release):
+
+    sed -i 's/^NOEVIA_FEATURE_RAG_RERANK=true$/NOEVIA_FEATURE_RAG_RERANK=false/' /mnt/docker/appdata/cowork/config/.env
+    bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web
+    cd /boot/config/plugins/compose.manager/projects/Cowork && docker compose --env-file /mnt/docker/appdata/cowork/config/.env -f docker-compose.yml -f docker-compose.override.yml stop rerank
+
+Web (to b84758dc):
+
+    ln -sfn /mnt/docker/appdata/cowork/releases/b84758dc /mnt/docker/appdata/cowork/current
+    sed -i 's/^COWORK_VERSION=fee7d681$/COWORK_VERSION=b84758dc/' /mnt/docker/appdata/cowork/config/.env
+    bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web
+
+b84758dc's core has no TEI backend, so turn the reranker off first.
+
 ## Release b84758dc — 2026-10-15 04:51Z (web; #1784–#1793, #1797)
 
 What changed for you: a stopped answer is now marked "Stopped" instead of looking complete (#1784), and the last answer line no longer sits under "Jump to latest" while streaming (#1789). Chat titles follow the conversation instead of staying on the first greeting, and the app adopts the new title (#1785). The first reply of a new chat stops showing as streaming when it is done, without waiting up to 8 s for the title (#1797). A request that never mentions storage no longer triggers an unrelated Drive search (#1786). The High effort hint no longer leaks scratch reasoning into the reply (#1787), and Fast lowers only the default effort, so a greeting no longer spends seconds thinking (#1788). An attached image no longer hangs at "Reading image sources": describing it skips thinking and gives up after 120 s (#1790). A harmless image is no longer flagged as a password or key (#1791). Images count toward the context and are handled by compaction (#1792), and answers from a project knowledge file show their source chips again (#1793).

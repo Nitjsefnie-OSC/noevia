@@ -112,7 +112,7 @@ If embedding had been turned **off**, the model manager stopped `cowork-embed-1`
 never start it again by themselves: make sure the rollback command names `embed` with `--no-deps`
 (`up.sh ... -d --no-deps embed`) and check `docker ps` shows `cowork-embed-1` healthy afterwards.
 
-## Enable the gte reranker (#1665): approved 2026-10-15, not deployed
+## Enable the gte reranker (#1665): live since release fee7d681 (2026-10-15)
 
 The RAG reranker is gte-multilingual-reranker-base, int8 ONNX, on TEI `cpu-1.9`
 (`compose.rerank.yaml`). Eval run 2 (#1665): top-1 14% → 67% over embedding order at about
