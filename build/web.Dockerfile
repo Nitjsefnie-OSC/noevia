@@ -40,6 +40,7 @@ RUN set -e; mkdir -p /out; \
       if grep -qx 'rust-free-chats = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-free-chats"; fi; \
       if grep -qx 'rust-routing-default = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-routing-default"; fi; \
       if grep -qx 'rust-stats = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-stats"; fi; \
+      if grep -qx 'rust-export = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-export"; fi; \
       cargo build --release --locked -p noevia-server --features "$features"; \
       cp target/release/noevia-server /out/noevia-server; \
       /out/noevia-server 2>&1 | grep -q NOEVIA_LEGACY_UPSTREAM; \
