@@ -120,13 +120,15 @@ jobs:
       - name: TEMP loop 1822
         if: env.RUN_JOB == 'true'
         run: |
-          for i in 1 2; do (while :; do :; done) & done
           git fetch -q --depth=1 origin main
           git show FETCH_HEAD:deploy/tools/test-web-supervisor.sh > deploy/tools/orig-sup.sh
-          o=0; for i in $(seq 1 25); do timeout 60 bash deploy/tools/orig-sup.sh > /tmp/o.txt 2>&1; grep -q '^FAIL' /tmp/o.txt && { o=$((o+1)); grep '^FAIL' /tmp/o.txt; }; echo "orig run $i done"; done
-          n=0; for i in $(seq 1 50); do timeout 60 bash deploy/tools/test-web-supervisor.sh > /tmp/n.txt 2>&1; grep -q '^FAIL' /tmp/n.txt && { n=$((n+1)); grep '^FAIL' /tmp/n.txt; }; echo "fixed run $i done"; done
-          echo "LOOP RESULT original_failing_runs=$o/25 fixed_failing_runs=$n/50"
-          rm deploy/tools/orig-sup.sh; kill $(jobs -p)
+          loop() { # $1 script, $2 worker id; prints failing run count
+            c=0; for i in $(seq 1 13); do bash "$1" > "$RUNNER_TEMP/$2.txt" 2>&1; grep -q '^FAIL' "$RUNNER_TEMP/$2.txt" && { c=$((c+1)); grep '^FAIL' "$RUNNER_TEMP/$2.txt"; }; done; echo "$c" > "$RUNNER_TEMP/$2.count"; }
+          for w in 1 2 3 4; do loop deploy/tools/orig-sup.sh o$w & done; wait
+          for w in 1 2 3 4; do loop deploy/tools/test-web-supervisor.sh n$w & done; wait
+          o=$(cat $RUNNER_TEMP/o?.count | paste -sd+ - | bc); n=$(cat $RUNNER_TEMP/n?.count | paste -sd+ - | bc)
+          echo "LOOP RESULT original_failing_runs=$o/52 fixed_failing_runs=$n/52"
+          rm deploy/tools/orig-sup.sh
           [ "$n" = 0 ]
       - run: bash deploy/tools/test-sidecar-restart-alert.sh
         if: env.RUN_JOB == 'true'
