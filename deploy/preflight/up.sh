@@ -57,6 +57,32 @@ fi
 # ${arr[@]+...} keeps empty arrays safe under set -u on bash 3.2 (macOS).
 docker compose ${compose_args[@]+"${compose_args[@]}"} config --format json \
   | php "$preflight_dir/check.php" --config-json - ${expect_args[@]+"${expect_args[@]}"}
+# #1843: services assigned to another Inference machine. Inert unless NOEVIA_REMOTE_SERVICES is set,
+# advisory only (never blocks, never fatal), and bounded: one health probe per listed service, a few
+# seconds at most, LAN/Tailscale hosts only. A stopped local sidecar is not an error for these.
+# The library is tools/remote-services.sh (server layout: next to tools/preflight/; checkout: deploy/tools/).
+if [[ -n "${NOEVIA_REMOTE_SERVICES:-}" || -n "${NOEVIA_REMOTE_ENV_FILE:-}" ]]; then
+  remote_lib=""
+  for candidate in "${REMOTE_SERVICES_SCRIPT:-}" "$preflight_dir/../remote-services.sh" "$preflight_dir/../tools/remote-services.sh"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then remote_lib="$candidate"; break; fi
+  done
+  if [[ -z "$remote_lib" ]]; then
+    echo "WARN: NOEVIA_REMOTE_SERVICES is set but remote-services.sh was not found; remote services are not checked (set REMOTE_SERVICES_SCRIPT)" >&2
+  else
+    # shellcheck source=../tools/remote-services.sh
+    source "$remote_lib"
+    remote_load_env
+    remote_report || true
+    # An assigned service whose sidecar is still enabled in this Compose project will start locally too.
+    active_services="$(docker compose ${compose_args[@]+"${compose_args[@]}"} config --services 2>/dev/null || true)"
+    while IFS= read -r remote_name; do
+      [[ -n "$remote_name" ]] || continue
+      if printf '%s\n' "$active_services" | grep -qx -- "$remote_name"; then
+        echo "WARN: $remote_name is assigned to another machine but is still enabled in this Compose project and will also start here (docs/deployment.md, \"Services on other Inference machines\")" >&2
+      fi
+    done < <(remote_services 2>/dev/null)
+  fi
+fi
 docker compose ${compose_args[@]+"${compose_args[@]}"} up ${up_args[@]+"${up_args[@]}"}
 # A successful up is a known deploy: re-baseline the restart alert if installed
 # (../sidecar-restart-alert.sh). Set SIDECAR_ALERT_ACK=0 to skip. Never fatal.

@@ -515,6 +515,11 @@ weights and KV live in GTT, system RAM the llama container's `mem_limit` does no
 owner's rule: **one model loaded in the engine, at most 16 GiB for inference**; Laya (its own
 torch service) and the CPU `embed`/`rerank` sidecars sit outside that budget.
 
+**Remote services (#1843).** A service assigned to another Inference machine (Settings → Inference
+machines) is outside this budget too: only what runs on this host counts. Web already stops counting an
+assigned reranker as resident beside the chat model; the deploy side is in "Services on other Inference
+machines" below.
+
 What the code does:
 
 - **Budget.** Settings → Models & routing → Your models has an *Inference memory budget* panel
@@ -2203,6 +2208,61 @@ non-zero exit, a replaced container or image, or a larger burst still alerts.
 Test without sending or moving the baseline:
 `/mnt/docker/appdata/cowork/tools/sidecar-restart-alert.sh --dry-run`.
 Offline test: `bash deploy/tools/test-sidecar-restart-alert.sh`.
+
+## Services on other Inference machines (#1843)
+
+The `laya`/`kev` decision service, `embed` and `rerank` can run on another machine (a Pi 5 or Rock 5B on
+the LAN or Tailscale) assigned in Settings → Inference machines. Defaults are unchanged: with nothing
+below configured, the sidecars, preflight and the restart alert behave exactly as before.
+
+Inference memory budget: a remote service is not counted against this host's budget; its memory is that
+machine's concern.
+
+**Turn the local sidecar off.** Do it only after the remote one answers.
+- `embed`: leave `compose.embed.yaml` out of the `-f` list (it is an overlay, so nothing else changes), set
+  `EMBEDDING_BASE_URL` (and `EMBEDDING_SERVICE_URL` if used) in `.env` to the remote `http://host:port/v1`,
+  and for Diary add `diary.environment.LLM_EMBED_BASE_URL` with that URL in your override. Without the
+  overlay the model manager no longer manages an embed container (`EMBED_CONTAINER` is unset); the remote
+  machine owns its own `embedding.ini`.
+- `rerank`: leave `compose.rerank.yaml` out and set `RERANK_BASE_URL=http://host:port` (plus
+  `RERANK_BACKEND`, `RERANK_MODEL`) in `.env`. The base compose passes all three to web already.
+- `laya`: it is behind the compose profile `laya`; do not pass `--profile laya`. Set
+  `COWORK_DECISION_URL` / `COWORK_SENSITIVITY_DECISION_URL` in `.env` to the remote service.
+- `kev` is a hand-run container (`docs/kev-cutover.md`): `docker rm -f cowork-kev` once the remote one is
+  live.
+- Then stop what was running locally (`docker compose ... stop embed rerank`, `docker rm` for the stopped
+  containers) and run `sidecar-restart-alert.sh --ack`; otherwise the alert reports each as stopped/gone once.
+
+**Preflight and restart alert.** Both read one operator list, because they run on the host before web
+is up and no credential for web's admin API exists in the host tooling (the model manager's
+`MODEL_LOADER_TOKEN` is for the model manager only). Core's `GET /api/models/machines?health=1` is
+admin-only and is therefore not called. Put the lines below in the host's compose `.env` (compose ignores
+them) and point the tooling at that file with `NOEVIA_REMOTE_ENV_FILE=/mnt/docker/appdata/cowork/config/.env`
+(set it in the cron line and when running `up.sh`), or export them directly; only `NOEVIA_REMOTE_*` lines are read,
+never executed:
+
+```sh
+NOEVIA_REMOTE_SERVICES=embed,rerank                       # subset of laya, kev, embed, rerank
+NOEVIA_REMOTE_EMBED_HEALTH_URL=http://pi5.lan:8080/health
+NOEVIA_REMOTE_EMBED_MACHINE=pi5                           # label for messages, optional
+NOEVIA_REMOTE_RERANK_HEALTH_URL=http://100.64.0.7:8080/health
+NOEVIA_REMOTE_PROBE_TIMEOUT=3                             # seconds, 1-30
+NOEVIA_REMOTE_FAIL_THRESHOLD=2                            # consecutive 5-minute runs before an alert
+```
+
+Keep the list in step with the Settings assignment: it is a mirror, not read from web. Probes accept only
+`http(s)` URLs without credentials whose host is a private/CGNAT IP, a single-label name or ends in
+`.local`, `.lan`, `.home.arpa`, `.internal` or `.ts.net`; anything else is reported `refused` and never
+contacted. They send no secret, follow no redirect and are bounded by the timeout.
+- `deploy/preflight/up.sh` prints `PASS: embed runs on machine pi5`, or a `WARN` when the machine does
+  not answer. These are advisory and never block `up`; a stopped local sidecar is not an error. It also
+  warns when an assigned service is still enabled in the Compose project and would start here too.
+- `sidecar-restart-alert.sh` probes the same list every run and sends one `alert` after the threshold and
+  one `normal` notice on recovery (state in `<state file>.remote`).
+- Install `deploy/tools/remote-services.sh` next to `sidecar-restart-alert.sh`
+  (`/mnt/docker/appdata/cowork/tools/`); `up.sh` finds it at `tools/remote-services.sh`.
+  Try it: `NOEVIA_REMOTE_SERVICES=embed NOEVIA_REMOTE_EMBED_HEALTH_URL=... bash deploy/tools/remote-services.sh`.
+Offline tests: `python3 -m unittest deploy/tests/test_remote_services_1843.py`.
 
 ## Rotating the secrets key
 
