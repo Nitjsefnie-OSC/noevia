@@ -2,7 +2,10 @@
 
 noevia-core reads PROJECT_SOURCE_LIMIT, PROJECT_DOCUMENT_LIMIT, PROJECT_IMAGE_LIMIT,
 FOLDER_IMPORT_MAX_FILES and FOLDER_IMPORT_MAX_BYTES; when unset it keeps its built-in defaults
-(60/60/12 sources, 100 MB). Every web compose copy must pass each key with an empty default so the
+(60/60/12 sources, 100 MB). Since core#149/core#150 it also reads the large-document
+read/OCR limits (PROJECT_DOCUMENT_READ_BYTES, _PAGE_LIMIT, _TEXT_LIMIT, _RANGE_PAGES,
+PROJECT_SYNC_OCR_PAGES) and the large-document lock timings (LARGE_DOCUMENT_ACQUIRE_WAIT_MS,
+LARGE_DOCUMENT_HOLD_WARN_MS). Every web compose copy must pass each key with an empty default so the
 owner can set it later without changing the defaults today, and the preflight expected-key list must
 name each one. Only key names and default expressions are read here; no .env value is ever read.
 """
@@ -17,6 +20,13 @@ KEYS = [
     'PROJECT_IMAGE_LIMIT',
     'FOLDER_IMPORT_MAX_FILES',
     'FOLDER_IMPORT_MAX_BYTES',
+    'PROJECT_DOCUMENT_READ_BYTES',
+    'PROJECT_DOCUMENT_PAGE_LIMIT',
+    'PROJECT_DOCUMENT_TEXT_LIMIT',
+    'PROJECT_DOCUMENT_RANGE_PAGES',
+    'PROJECT_SYNC_OCR_PAGES',
+    'LARGE_DOCUMENT_ACQUIRE_WAIT_MS',
+    'LARGE_DOCUMENT_HOLD_WARN_MS',
 ]
 PREFLIGHT_KEYS = ROOT / 'deploy/preflight/web-env-keys.txt'
 COPIES = ['compose.yaml', 'deploy/examples/unraid-compose-manager.yml']
