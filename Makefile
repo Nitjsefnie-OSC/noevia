@@ -38,7 +38,7 @@ COMPOSE_STUBS = LLAMACPP_RENDER_DEVICE=/dev/dri/renderD128 LLAMACPP_CARD_DEVICE=
 	LLAMACPP_MODELS_DIR=/stub/models LLAMACPP_CONFIG_DIR=/stub/config LLAMACPP_CACHE_DIR=/stub/cache \
 	LLAMACPP_CHAT_MODEL=stub-chat LLAMACPP_AUX_MODEL=stub-aux LLAMACPP_EMBED_MODEL=stub-embed \
 	MODEL_LOADER_TOKEN=stub-not-a-secret MODEL_LOADER_DATA_DIR=/stub/loader \
-	EMBED_MODEL_FILE=stub-embed.gguf RERANK_MODEL_FILE=stub/rerank.gguf
+	EMBED_MODEL_FILE=stub-embed.gguf RERANK_MODEL_DIR=/stub/rerank
 compose-check:
 	@for impl in python rust; do \
 		for template in compose.yaml deploy/examples/unraid-compose-manager.yml; do \

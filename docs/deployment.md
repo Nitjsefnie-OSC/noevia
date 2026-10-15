@@ -112,6 +112,92 @@ If embedding had been turned **off**, the model manager stopped `cowork-embed-1`
 never start it again by themselves: make sure the rollback command names `embed` with `--no-deps`
 (`up.sh ... -d --no-deps embed`) and check `docker ps` shows `cowork-embed-1` healthy afterwards.
 
+## Enable the gte reranker (#1665): approved 2026-10-15, not deployed
+
+The RAG reranker is gte-multilingual-reranker-base, int8 ONNX, on TEI `cpu-1.9`
+(`compose.rerank.yaml`). Eval run 2 (#1665): top-1 14% → 67% over embedding order at about
+1.6 s p50 and 1.8 s p95 for 12 passages, on 2 CPUs with a 2 GiB cap. Web calls it with
+`RERANK_BACKEND=tei` (`POST /rerank`). A slow, down or failing reranker falls back to embedding
+order inside `RAG_RERANK_DEADLINE_MS` (default 3000), so search never errors because of it. The
+flag stays off until step 5. Needs noevia-core with the TEI backend (core PR for #1665).
+
+Latency: the rerank runs inside retrieval, before the routing check, so a turn with project
+knowledge gets up to about 1.6–1.8 s (at most the 3 s deadline) later to its first token. The
+framing, framing-reasoner and sensitivity (Laya) deadlines are per-call timers that start when
+each call starts, so the rerank does not use up their budgets.
+
+Gate first, as for any heavy start: no autotune, eval, `up.sh` or compose run in progress, llama
+idle, and `MemAvailable` at least 8 GiB (the sidecar holds up to 2 GiB of RAM outside the
+inference budget).
+
+1. **Model and image.** Both are already on DaServer. Check, read-only:
+
+   ```sh
+   D=/mnt/user/ai-models/rerank-eval/onnx-community_gte-multilingual-reranker-base/ee64367e35a2db0da46bb6497e13a18f8bd585cb
+   ls -l $D/onnx/model_int8.onnx $D/config.json $D/tokenizer.json $D/tokenizer_config.json $D/special_tokens_map.json
+   docker image ls --digests ghcr.io/huggingface/text-embeddings-inference | grep 2538ea1c9640
+   ```
+
+2. **Compose.** Back up the live override first
+   (`cp docker-compose.override.yml docker-compose.override.yml.bak-1665-$(date -u +%Y%m%dT%H%M%SZ)`).
+   In the Compose Manager project's `docker-compose.override.yml`:
+   - copy the `rerank` service from `compose.rerank.yaml` unchanged;
+   - add the network under the top-level `networks:` key: `rerank: { internal: true }`;
+   - add `rerank` to the `web` service's `networks:` list;
+   - in `web.environment`, replace the old reranker lines (`NOEVIA_FEATURE_RAG_RERANK: "false"`,
+     `RERANK_MODEL: qwen3-reranker-0.6b-q8_0`) with:
+
+     ```yaml
+     NOEVIA_FEATURE_RAG_RERANK: ${NOEVIA_FEATURE_RAG_RERANK:-false}
+     RERANK_BACKEND: ${RERANK_BACKEND:-tei}
+     RERANK_BASE_URL: ${RERANK_BASE_URL:-http://rerank:8080}
+     RERANK_MODEL: ${RERANK_MODEL:-gte-multilingual-reranker-base}
+     RERANK_API_KEY: ${RERANK_API_KEY:-}
+     ```
+
+     Keep `RAG_RERANK_POOL: "12"`, `RAG_RERANK_KEEP: "6"` and `RAG_RERANK_DEADLINE_MS: "3000"`.
+   A repo-only stack adds `-f compose.rerank.yaml` instead.
+
+3. **Env keys.** In `.env` (key names only here; never paste values into issues or logs):
+   `RERANK_MODEL_DIR=<the folder D above>`. Leave `NOEVIA_FEATURE_RAG_RERANK` unset or `false`
+   for now. `RERANK_CPUS` (default 2) and `RERANK_MEMORY_LIMIT` (default 2g) stay at their defaults.
+
+4. **Start the rerank container and check it.**
+
+   ```sh
+   deploy/preflight/up.sh -- -d --no-build --no-deps --wait rerank
+   docker inspect -f '{{.State.Health.Status}} restarts={{.RestartCount}}' cowork-rerank-1   # healthy restarts=0
+   docker stats --no-stream cowork-rerank-1                                                  # under 2 GiB
+   docker exec cowork-web-1 node -e 'fetch("http://rerank:8080/rerank",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({query:"What colour is the QA kettle?",texts:["The QA toaster is red.","The QA kettle is teal."]})}).then(r=>r.json()).then(j=>console.log(JSON.stringify(j)))'
+   ```
+
+   The last command needs web on the `rerank` network (step 2 and a web recreate). Before that
+   recreate it fails with a DNS error; that is expected. Expected answer: index 1 scores highest.
+
+5. **Turn it on and recreate web.** Set `NOEVIA_FEATURE_RAG_RERANK=true` in `.env`, then:
+
+   ```sh
+   deploy/preflight/up.sh -- -d --no-build --no-deps --wait web
+   docker logs --since 5m cowork-web-1 2>&1 | grep -i 'rerank off'   # no output
+   ```
+
+   Run the step 4 `docker exec` check now. The Models page row "Reranker" reads active, with
+   gte-multilingual-reranker-base.
+
+6. **Check it with a synthetic search.** In a QA-named project, add a synthetic knowledge file
+   larger than 2,400 characters (smaller files are inserted whole, without retrieval). Ask a
+   question whose answer is in one chunk. Then:
+
+   ```sh
+   docker logs --since 5m cowork-web-1 2>&1 | grep '\[rag\] rerank'   # no fellBack/failed lines
+   ```
+
+   Delete the QA project afterwards.
+
+**Rollback:** set `NOEVIA_FEATURE_RAG_RERANK=false` and recreate web (step 5). Retrieval goes back
+to embedding order. Then `docker compose stop rerank`. Restore the override backup only if you are
+removing the service.
+
 ## Approved, in progress: embeddings nomic-embed-text-v1 → EmbeddingGemma 2 (#1636)
 
 Owner approval (2026-10-14): "yes switch to EmbeddingGemma 2 once the image is live". `finish`
