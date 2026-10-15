@@ -8,6 +8,49 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release c453e9ec — 2026-10-15 02:42Z (web; #1776, #1778, #1777; #1731 preset)
+
+What changed for you: opening projects and documents no longer creates search indexes as a side effect (#1776). When a new chat's framing settles on the kind of chat early, it now stops waiting on a hung embedding, and a failed project or tag lookup keeps the kind it already found (#1778). The web container now runs under Docker's init, so it stops cleanly on restart (#1777). The chat model list no longer carries a preset for a model file that does not exist (#1731).
+
+### Services
+
+- **Web:** #1781 (noevia `c453e9ec`).
+  - core `35741c66`: core#118 (#1776 read paths don't create indexes; #1778 kind-only early return aborts the hung embedding, project/tag throw keeps the kind, logging).
+  - web `92b19d49`, services `d3474b3c`, rs `ed793085`: no change.
+  - Image: `cowork-web:c453e9ec`, `sha256:ad69dd4a6095de0427f3830eb14d17c65a5da71341da12bd9fa840a993d60036`, replacing `cowork-web:2f583a82`.
+- **Model manager, embed, llama, Docling, Diary, OCR, Laya, Kev, code sandbox:** no change, not recreated.
+- **Deploy/infra:**
+  - `.env`: `COWORK_VERSION=c453e9ec`. No other key changed.
+  - Live `docker-compose.yml`: `init: true` added to the web service (line 76), matching `compose.yaml` and `deploy/examples/unraid-compose-manager.yml` (#1781, test `deploy/tests/test_web_init_1777.py`). Backup `docker-compose.yml.bak.before-1777-20261015T024248Z`.
+  - Chat `models.ini`: `[laya_multilingual_f16]` removed through the model manager's `DELETE /api/v1/sections/laya_multilingual_f16` (10 lines, nothing else changed). The router reads presets at start, so its start-up error line goes away at the next llama restart; llama was not restarted for this. `[embeddinggemma-2-Q8_0]` and `[qwen3-reranker-0.6b-q8_0]` stay for the owner to decide.
+  - `current` now points to `releases/c453e9ec`.
+
+**Evidence.**
+- Pins: core tarball fetched twice with identical results, `17e4c997…8792`. #1781 CI green, including "Assembled release (pinned repos)". The release tarball `cf11e44f…a936` matched on the Mac and on the box.
+- Web candidates: `candidate-boot.sh` node and rust fronts both `{"ready":true,"version":"c453e9ec"}` with 0 error lines. Stamp `{"version":"c453e9ec","web":"92b19d49…","core":"35741c66…"}`.
+- Init probe on throwaway rust candidates: with `--init`, PID 1 is `/sbin/docker-init` and the supervisor is its child; `docker stop -t 30` took 123 ms with init and 140 ms without.
+- Gates: llama idle count 0, GTT 29 MiB, MemAvailable 12.6 GiB, no up.sh, compose, autotune or Appdata Backup running.
+- Backup `/mnt/disk3/noevia-backups/release_c453e9ec_20261015T024248Z`: 8 entries, checksums verified, `cowork.db` integrity ok. Its `config.tar.zst` holds the pre-#1731 `models.ini`.
+- Compose: `docker compose config -q` passed; the rendered web service has `init: true`.
+- Web cutover (02:42Z):
+  - `up.sh` web-only, 7.2 s; the old container got SIGTERM and exited 0 after 721 ms
+  - healthy, restarts 0; `/api/ready` `{"ready":true,"version":"c453e9ec"}` on loopback and on https://noevia.daserver.work; signed-out `/api/projects` 401
+  - `embedding-service` 200 (`managed:true`, both text models); a synthetic `model.route` decision answered by `kev-0.8b` in 0.46 s
+  - `HostConfig.Init` true, PID 1 `/sbin/docker-init`, `web-supervisor.sh` running as its child
+  - served `dist` 143 files, hash equal to the image; 0 error lines
+- Only `cowork-web-1` changed id; all 39 containers on the host have restarts 0.
+
+**Rollback.**
+
+Web (to 2f583a82, without init):
+
+    cp -a /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml.bak.before-1777-20261015T024248Z /boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml
+    ln -sfn /mnt/docker/appdata/cowork/releases/2f583a82 /mnt/docker/appdata/cowork/current
+    sed -i 's/^COWORK_VERSION=c453e9ec$/COWORK_VERSION=2f583a82/' /mnt/docker/appdata/cowork/config/.env
+    bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web
+
+Preset (#1731): restore the section through the model manager's `PUT /api/v1/sections/laya_multilingual_f16` using the content in `/mnt/docker/appdata/cowork/release-prep/c453e9ec/1731/models.ini.before-1731` (lines 80–89).
+
 ## Release 2f583a82 — 2026-10-15 01:33Z / 01:35Z (web; embed `--models-max 3`; #1770, #1771, #1772, #1775)
 
 What changed for you: PDFs that were added before multimodal RAG was turned on now get their figures read once (#1770). The image backfill no longer creates empty indexes for chat-context projects (#1771). An image pass no longer pushes a text embedding model out of the embeddings router (#1772). A new chat's framing now asks what kind of chat it is first (#1775).
