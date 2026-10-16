@@ -173,9 +173,9 @@ fi
 # here; likewise a front that saves the free-chat list (GET/POST /api/freechats) over a core from
 # before noevia-core#76, whose own free-list writers would overwrite free-chats.json whole. Placeholder names ({id}, {projectId}) are compared as one.
 project_routes_rs() {
-  awk '
+  awk -v want="${2:-NOEVIA_RUST_PROJECTS}" '
     function flush(  n, i, m) {
-      if (owner == "rust" && sw == "NOEVIA_RUST_PROJECTS") {
+      if (owner == "rust" && sw == want) {
         if (methods == "") print "ALL " path
         n = split(methods, m, /[^A-Z]+/)
         for (i = 1; i <= n; i++) if (m[i] != "") print m[i] " " path
@@ -193,11 +193,16 @@ project_routes_rs() {
 }
 project_routes_core() {
   [ -f "$1" ] || return 0
-  sed -n '/OWNED_ROUTES = /,/]))/p' "$1" | grep -o "'[A-Z]* /[^']*'" | tr -d "'" | sed 's/{[^}]*}/{}/g' | sort -u
+  sed -n "/^const ${2:-OWNED_ROUTES} = /,/]))/p" "$1" | grep -o "'[A-Z]* /[^']*'" | tr -d "'" | sed 's/{[^}]*}/{}/g' | sort -u
 }
 if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   missing="$(comm -23 <(project_routes_rs "$tree/rs/contracts/http/routes.toml") <(project_routes_core "$tree/core/server/rust-projects.cjs"))"
   [ -z "$missing" ] || die "noevia-rs at $rs_ref owns project routes that noevia-core at $(lock_value NOEVIA_CORE_REF) does not list in server/rust-projects.cjs OWNED_ROUTES (pin a core that does): $(printf '%s' "$missing" | tr '\n' ';')"
+  # sbstndalton/noevia#1264: the project writes the front answers under NOEVIA_RUST_PROJECT_WRITES
+  # must be ones this core refuses behind that switch (rust-projects.cjs PROJECT_WRITE_ROUTES), or
+  # both processes would write them.
+  missing="$(comm -23 <(project_routes_rs "$tree/rs/contracts/http/routes.toml" NOEVIA_RUST_PROJECT_WRITES) <(project_routes_core "$tree/core/server/rust-projects.cjs" PROJECT_WRITE_ROUTES))"
+  [ -z "$missing" ] || die "noevia-rs at $rs_ref owns project write routes that noevia-core at $(lock_value NOEVIA_CORE_REF) does not list in server/rust-projects.cjs PROJECT_WRITE_ROUTES (pin a core that does): $(printf '%s' "$missing" | tr '\n' ';')"
 fi
 
 for need in web/package.json web/package-lock.json web/src web/index.html core/server/package.json core/server/index.cjs core/contracts \

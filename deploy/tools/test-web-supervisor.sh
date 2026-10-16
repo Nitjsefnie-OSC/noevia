@@ -29,6 +29,7 @@ echo "\$name GCONF=\${NOEVIA_RUST_STORAGE_READS_CONFIRMED:-}" >> "$work/log"
 echo "\$name BCONF=\${NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED:-}" >> "$work/log"
 echo "\$name ECONF=\${NOEVIA_RUST_EXPORT_CONFIRMED:-}" >> "$work/log"
 echo "\$name HCONF=\${NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED:-}" >> "$work/log"
+echo "\$name WCONF=\${NOEVIA_RUST_PROJECT_WRITES_CONFIRMED:-}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
 # The supervisor TERMs the survivor as soon as one child exits. A front told to die at once would
@@ -360,6 +361,28 @@ check "default-off Rust mode drops inherited export confirmation" 'grep -q "^nod
 reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_EXPORT=1 NOEVIA_RUST_EXPORT_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops inherited export confirmation" 'grep -q "^node ECONF=$" "$work/log"'
+
+# The project writes (#1264): their own switch over the confirmed project slice and the compiled
+# rust-project-writes; never confirmed by NOEVIA_RUST_PROJECTS=1 alone (live today).
+WRITES_FEATURES="code-net-guard rust-auth rust-projects rust-project-chats rust-free-chats rust-project-writes"
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1; rc=$?
+check "NOEVIA_RUST_PROJECTS=1 alone never confirms the project writes, even for a front with the slice" 'grep -q "^node WCONF=$" "$work/log" && grep -q "^node .* PCONF=1 CONF=1$" "$work/log"'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECT_WRITES=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>"$work/err"; rc=$?
+check "project writes without native projects refuse before startup" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_PROJECT_WRITES=1 needs NOEVIA_RUST_PROJECTS=1" "$work/err" && [ ! -s "$work/log" ]'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_WRITES=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects" >/dev/null 2>"$work/err"; rc=$?
+check "project writes missing the native feature refuse before startup" '[ $rc -eq 2 ] && grep -q "no rust-project-writes" "$work/err" && [ ! -s "$work/log" ]'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_WRITES=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1; rc=$?
+check "project writes confirmed only to Node after the native probe" 'grep -q "^node WCONF=1$" "$work/log" && grep -q "^front WCONF=$" "$work/log"'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_WRITES_CONFIRMED=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1; rc=$?
+check "an inherited project-writes confirmation is dropped" 'grep -q "^node WCONF=$" "$work/log"'
+reset; touch "$work/die-node"
+run NOEVIA_FRONT=node NOEVIA_RUST_PROJECT_WRITES=1 NOEVIA_RUST_PROJECT_WRITES_CONFIRMED=1 >/dev/null 2>&1; rc=$?
+check "node mode drops an inherited project-writes confirmation" 'grep -q "^node WCONF=$" "$work/log"'
 
 # The client address (noevia-core server/auth.cjs, #1578): Node is told to believe X-Noevia-Client-Ip
 # only when the front reports client-address-header (it strips client copies of the header).
