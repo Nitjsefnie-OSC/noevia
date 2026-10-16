@@ -321,6 +321,15 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release 3b23d181 — 2026-10-16 (web only; #1894, #1895, #1896)
+
+### Services
+
+- **Web:** `cowork-web:3b23d181` (core `383ba449`, web `dd7f7558`, rs `95980a44`, services `77964567`; `sha256:15f94505…87ad`). #1894: the local engine probe uses the model manager's `/api/v1/health`. #1896: chat waits up to 3 s for the maintenance gate, then a retryable 503; the client retries once. #1895: composer pill.
+- **Everything else:** no change, not recreated.
+
+Order: assembled on the Mac from merged main, `build-web-release.sh`, `candidate-boot.sh` node and rust, then `release-prep/3b23d181/cutover.sh` (gate, scoped backup, web-only `up.sh`, automatic rollback). Only `cowork-web-1` changed id. Evidence and rollback are in `docs/changelog.md`, entry 3b23d181.
+
 ## Release 88adc3a1 — 2026-10-16 (web + model manager; #1886, #1891, #1318 model detail dark)
 
 ### Services
