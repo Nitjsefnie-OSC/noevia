@@ -93,12 +93,13 @@ COPY core/server ./server
 COPY --from=dav-parse /out/dav-parse.wasm ./server/wasm/dav-parse.wasm
 # core owns contracts/; server/ requires it as ../contracts.
 COPY core/contracts ./contracts
-# NOEVIA_FRONT=node (default) runs Node alone as before; =rust puts noevia-server on UI_PORT and
-# Node on loopback UI_PORT+1000 (build/web-supervisor.sh; a deployment switch, removed once the
-# Rust front is proven). The rs-less build leaves /out empty and the image without the binary.
+# noevia-server on UI_PORT and Node on loopback UI_PORT+1000 (build/web-supervisor.sh). Since
+# sbstndalton/noevia#1071 that is the only front: the supervisor also needs NOEVIA_RUST_AUTH=1 and
+# NOEVIA_RUST_PROJECTS=1 (set by Compose) and refuses to start otherwise. The rs-less build leaves
+# /out empty and the image without the binary, which the supervisor refuses too.
 COPY --from=front /out/ /usr/local/bin/
 COPY noevia/build/web-supervisor.sh /app/web-supervisor.sh
-ENV UI_PORT=8021 NOEVIA_FRONT=node NOEVIA_WEB_DIST=/app/dist
+ENV UI_PORT=8021 NOEVIA_FRONT=rust NOEVIA_WEB_DIST=/app/dist
 EXPOSE 8021
 HEALTHCHECK --interval=30s --timeout=6s --start-period=30s --retries=3 CMD node -e "fetch('http://127.0.0.1:'+(process.env.UI_PORT||8021)+'/api/setup/status',{signal:AbortSignal.timeout(5000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["bash", "/app/web-supervisor.sh"]
