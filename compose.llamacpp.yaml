@@ -62,10 +62,18 @@ services:
       MODEL_MANAGER_DOWNLOAD_TARGETS_IMPL: ${MODEL_MANAGER_DOWNLOAD_TARGETS_IMPL:-python}
       # #1318: native PUT/DELETE /api/v1/badges, same rules; badge reads stay Python.
       MODEL_MANAGER_BADGES_IMPL: ${MODEL_MANAGER_BADGES_IMPL:-python}
-      # #1318: native GET /api/v1/benchmark/runs/{id}, same rules; benchmark writes stay Python.
+      # #1318: native GET /api/v1/benchmark/runs/{id}, same rules; live chart values stay Python.
       MODEL_MANAGER_BENCH_RUNS_IMPL: ${MODEL_MANAGER_BENCH_RUNS_IMPL:-python}
-      # #1318/#1921: native models.ini section writers, same rules.
+      # #1318: native models.ini writers (all five together), same rules; rust also needs TZ unset or UTC.
       MODEL_MANAGER_SECTION_WRITES_IMPL: ${MODEL_MANAGER_SECTION_WRITES_IMPL:-python}
+      # #1318: native PUT /api/v1/settings (the HF token), same rules; the token test stays Python.
+      MODEL_MANAGER_SETTINGS_WRITE_IMPL: ${MODEL_MANAGER_SETTINGS_WRITE_IMPL:-python}
+      # #1318: native backend restart/test, same rules; restart errors stay recorded in Python.
+      MODEL_MANAGER_BACKEND_CONTROL_IMPL: ${MODEL_MANAGER_BACKEND_CONTROL_IMPL:-python}
+      # #1318: native GET /api/v1/benchmark, same rules; the benchmark runner stays in Python.
+      MODEL_MANAGER_BENCHMARK_OVERVIEW_IMPL: ${MODEL_MANAGER_BENCHMARK_OVERVIEW_IMPL:-python}
+      # #1318: native Hugging Face update check (writes update_check), same rules.
+      MODEL_MANAGER_CHECK_UPDATES_IMPL: ${MODEL_MANAGER_CHECK_UPDATES_IMPL:-python}
       # #1747: idle chat models unload themselves (llama.cpp sleep-idle-seconds in models.ini [*]).
       # Blank = 900 s (15 min); 0 disables. The chat router only; embedding.ini and Laya are untouched.
       CHAT_MODEL_IDLE_UNLOAD_SECONDS: ${CHAT_MODEL_IDLE_UNLOAD_SECONDS:-}
