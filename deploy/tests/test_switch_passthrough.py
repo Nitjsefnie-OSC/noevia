@@ -2,10 +2,10 @@
 
 #1400: the live Compose Manager override did not pass the native-front switches through, so they could
 not be turned on there. sbstndalton/noevia#1071: the front read routes are now the Rust front's
-permanently and the web supervisor refuses to start without NOEVIA_FRONT=rust, NOEVIA_RUST_AUTH=1 and
-NOEVIA_RUST_PROJECTS=1, so the repo copies (compose.yaml and deploy/examples/unraid-compose-manager.yml)
-pass those three with defaults that boot, and no longer pass the retired per-route switches. The
-preflight expected-key list names the three and none of the retired ones. Only key names and the
+permanently, and so are sign-in and the account (NOEVIA_RUST_AUTH is retired too); the web supervisor
+refuses to start without NOEVIA_FRONT=rust and NOEVIA_RUST_PROJECTS=1, so the repo copies (compose.yaml
+and deploy/examples/unraid-compose-manager.yml) pass those two with defaults that boot, and no longer
+pass the retired switches. The preflight expected-key list names the two and none of the retired ones. Only key names and the
 default expression are read here; no .env value is ever read.
 """
 import pathlib
@@ -19,11 +19,11 @@ PREFLIGHT_KEYS = ROOT / 'deploy/preflight/web-env-keys.txt'
 # What the web supervisor requires, with the default each compose copy must carry.
 REQUIRED = {
     'NOEVIA_FRONT': 'rust',
-    'NOEVIA_RUST_AUTH': '1',
     'NOEVIA_RUST_PROJECTS': '1',
 }
-# Retired by #1071: their routes are the front's under NOEVIA_RUST_AUTH (export: NOEVIA_RUST_PROJECTS).
+# Retired by #1071: their routes are always the front's (export: under NOEVIA_RUST_PROJECTS).
 RETIRED = [
+    'NOEVIA_RUST_AUTH',
     'NOEVIA_RUST_USAGE',
     'NOEVIA_RUST_SAMPLING_SETTINGS',
     'NOEVIA_RUST_REASONING_SETTINGS',
@@ -110,7 +110,8 @@ class SwitchPassthroughTests(unittest.TestCase):
             '',
         ])
         found = problems_for(synthetic)
-        self.assertEqual(len(found), 3, found)
+        self.assertEqual(len(found), 4, found)
+        self.assertTrue(any(msg.startswith('NOEVIA_RUST_AUTH: retired') for msg in found))
         self.assertTrue(any(msg.startswith('NOEVIA_FRONT: default is not rust') for msg in found))
         self.assertTrue(any(msg.startswith('NOEVIA_RUST_PROJECTS: expected exactly one') for msg in found))
         self.assertTrue(any(msg.startswith('NOEVIA_RUST_STATS: retired') for msg in found))

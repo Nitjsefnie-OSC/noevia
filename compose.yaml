@@ -130,12 +130,12 @@ services:
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
       ADDITIONAL_TRUSTED_ORIGINS: ${ADDITIONAL_TRUSTED_ORIGINS:-}
       TRUST_PROXY: ${TRUST_PROXY:-false}
-      # sbstndalton/noevia#1071: the only front. noevia-server answers the read routes Node no longer
-      # has (usage, settings, routing, stats, ChatGPT status, storage reads, export), so the web
-      # supervisor refuses to start without NOEVIA_FRONT=rust, NOEVIA_RUST_AUTH=1 and
-      # NOEVIA_RUST_PROJECTS=1. Their old per-route switches are retired (a leftover value only warns).
+      # sbstndalton/noevia#1071: the only front. noevia-server answers sign-in and the account and the
+      # read routes Node no longer has (usage, settings, routing, stats, ChatGPT status, storage reads,
+      # export), so the web supervisor refuses to start without NOEVIA_FRONT=rust and
+      # NOEVIA_RUST_PROJECTS=1. The old sign-in switch and per-route switches are retired and not
+      # passed through (a leftover value only warns).
       NOEVIA_FRONT: ${NOEVIA_FRONT:-rust}
-      NOEVIA_RUST_AUTH: ${NOEVIA_RUST_AUTH:-1}
       NOEVIA_RUST_PROJECTS: ${NOEVIA_RUST_PROJECTS:-1}
       # #1726: multimodal RAG (images embedded beside text, chosen per answer). Off by default; the
       # model-loader reads the same switch (compose.embed.yaml) for the image-embedding preset.

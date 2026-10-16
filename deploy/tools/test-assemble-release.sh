@@ -183,7 +183,6 @@ owner = "node"
 [[route]]
 path = "/api/usage"
 owner = "rust"
-switch = "NOEVIA_RUST_AUTH"
 methods = ["GET"]
 TOML
 tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
@@ -280,6 +279,33 @@ JS
 g add -A && g commit -qm core-project-writes; pg="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pg" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "the same front over a core that lists the project-write routes assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pg.tar.gz" ]'
+# sbstndalton/noevia#1071: a front that owns sign-in with no switch over a core whose rust-auth guard
+# still waits for NOEVIA_RUST_AUTH (which the supervisor no longer passes, so Node would write the
+# account tables too) is refused; a core with the unconditional guard (refuseOwned) assembles.
+cat >> "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
+
+[[route]]
+path = "/api/auth/session"
+owner = "rust"
+methods = ["GET"]
+TOML
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g commit -qam rs-auth-unswitched; ph="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "an unswitched sign-in front over a core without server/rust-auth.cjs is refused" \
+  '[ $rc -ne 0 ] && grep -q "still gates its rust-auth guard on NOEVIA_RUST_AUTH" "$work/err" && [ ! -f "$out/noevia-release-$ph.tar.gz" ]'
+printf '%s\n' "function enabledFrom(env) { return env.NOEVIA_RUST_AUTH === '1' && env.NOEVIA_RUST_AUTH_CONFIRMED === '1'; }" > "$w/server/rust-auth.cjs"
+g add -A && g commit -qm core-switched-auth; pi="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pi" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "...and over a core whose guard still waits for the switch" \
+  '[ $rc -ne 0 ] && grep -q "still gates its rust-auth guard" "$work/err" && [ ! -f "$out/noevia-release-$pi.tar.gz" ]'
+printf '%s\n' "function refuseOwned(req, res, pathname, json) { return false; }" > "$w/server/rust-auth.cjs"
+g add -A && g commit -qm core-unconditional-auth; pj="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pj" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "the same front over a core with the unconditional guard assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pj.tar.gz" ]'
+g rm -q apps/web/server/rust-auth.cjs && g commit -qm core-no-auth
 g rm -q apps/web/server/rust-projects.cjs && g commit -qm core-plain
 
 # A failing final tar must not leave out.partial (or a final tarball) behind. The shim writes a
