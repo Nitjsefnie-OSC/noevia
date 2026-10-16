@@ -1059,11 +1059,11 @@ switches are live after a release, run on the box:
 ```sh
 bash deploy/tools/flags.sh cowork-web-1            # KEY=value, allow-listed non-secret keys only
 bash deploy/tools/flags.sh --keys cowork-web-1     # key names only, no values
-bash deploy/tools/flags.sh cowork-web-1 GGUF_PARSER MODEL_FILES_IMPL   # just these (others refused)
+bash deploy/tools/flags.sh cowork-web-1 GGUF_PARSER MODEL_AUTOCONFIG   # just these (others refused)
 ```
 
 The allow-list (`*_IMPL`, `NOEVIA_FEATURE_*`, `LAYA_LOAD_ADVISOR`, `MODEL_AUTOCONFIG`,
-`GGUF_PARSER`, `MODEL_FILES_IMPL`, `COWORK_CODE_NET_ADDR`, `COWORK_VERSION`, `DIARY_VERSION`,
+`GGUF_PARSER`, `COWORK_CODE_NET_ADDR`, `COWORK_VERSION`, `DIARY_VERSION`,
 `MODEL_MANAGER_VERSION`) is matched on the key name inside `jq` before any value is emitted; a key
 off the list is refused. Run it for `web`, `model-loader` and `diary` after the recreate and compare
 with the intended flags. For anything else, list key names only:
@@ -1288,25 +1288,37 @@ checksum-verified tarball at build time, so the box needs no git credentials). I
 - **Rollback:** remove `GGUF_PARSER` (or set it to `python`) and recreate model-loader. An
   unknown value also means `python`, with one warning in the log.
 
-### Model-files front (`MODEL_FILES_IMPL`, #964)
+### Model-files (`model-files`, #964): permanent since #1071
 
-Model-loader images built from #964 on also carry `/usr/local/bin/model-files`, the bounded Rust
-port of the step that turns a Hugging Face repository tree listing (untrusted, from the network)
-into the file entries the model manager uses: paths, sizes, quant labels and shard groups. It
-comes from the same `NOEVIA_RS_REF` as `gguf-meta`. It is dark: `MODEL_FILES_IMPL` defaults to
-`python`, and the Python code keeps producing every listing.
+Model-loader images carry `/usr/local/bin/model-files`, the bounded Rust port of the step that
+turns a Hugging Face repository tree listing (untrusted, from the network) into the file entries
+the model manager uses (paths, sizes, quant labels and shard groups), and of the models.ini
+recovery-copy plan (#1021). It comes from the same `NOEVIA_RS_REF` as `gguf-meta`. Since #1071 it
+is the only implementation: `MODEL_FILES_IMPL` is retired and the Python code is gone.
 
-- **Switch on (owner only):** add `MODEL_FILES_IMPL=rust` to the model-loader service's
-  environment (in the hand-kept live Compose Manager override too) and recreate model-loader
-  only.
-- **Behaviour with `rust`:** listings go through `model-files tree` (no shell, 10 s timeout).
-  Unlike `GGUF_PARSER`, it **fails closed**: a missing binary, nonzero exit, timeout, input over
-  16 MB or malformed output means that repository's files are not used, and the API answers
-  502. The log gets one `model-files failed (<reason>)` warning per reason per process.
-  Results are otherwise identical to Python (601 shared differential fixtures plus seeded
-  random corpora in CI).
-- **Rollback:** remove `MODEL_FILES_IMPL` (or set it to `python`) and recreate model-loader. An
-  unknown value also means `python`, with one warning in the log.
+- **Behaviour:** listings go through `model-files tree` and models.ini writes through
+  `model-files backups` (no shell, 10 s timeout). It **fails closed**: a nonzero exit, timeout,
+  input over 16 MB or malformed output means that repository's files are not used (the API
+  answers 502) or the write is refused before models.ini is touched. The log gets one
+  `model-files failed (<reason>)` warning per reason per process.
+- **Missing binary:** the model manager refuses to start (its Python app checks at startup), so
+  the container never reports healthy.
+- **No rollback switch.** Rolling back means the previous model-loader image.
+
+### Retired model-loader switches (#1071)
+
+`MODEL_MANAGER_IMPL` and `MODEL_FILES_IMPL` are retired: the native model manager front
+(`noevia-model-manager`, owning health and backend logs) and `model-files` always run. Neither
+Compose copy passes them any more. A leftover `.env` line does nothing and can be deleted; a
+leftover `MODEL_MANAGER_IMPL` other than `rust` makes the front log one "retired and ignored"
+warning.
+
+**Image floor.** Images built before noevia-services#69 still read `MODEL_MANAGER_IMPL`, and their
+default is the old Python-only front. Ship this Compose change only together with a model-loader
+image from noevia-services#69 on (it sets `MODEL_MANAGER_IMPL=rust` in the image) or from the
+noevia-rs#142 pin on (no Python-only mode at all). After the recreate, check
+`deploy/tools/flags.sh cowork-model-loader-1` and that pid 1 is `noevia-model-manager` with a
+child `uvicorn` on `127.0.0.1:8091`.
 
 ### Autoconfig size core (`MODEL_AUTOCONFIG`, services#8)
 
