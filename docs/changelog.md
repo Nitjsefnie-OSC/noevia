@@ -8,6 +8,72 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 88adc3a1 — 2026-10-16 02:54Z (web + model manager; #1886, #1891, #1889, #1318)
+
+What changed for you: when a large PDF's storage read fails during a refresh, the source reopens from the copy noevia already stored, and every sync logs one `[sources] sync` count line (#1891). Opening a project no longer saves its settings when nothing changed (#1886). The model manager can serve model detail natively (#1318, #1889), but that is switched off.
+
+### Services
+
+- **Web:** `cowork-web:88adc3a1` (`sha256:b3ae357c…84`), #1892, replacing `cowork-web:092bc8e0`.
+  - core `9570e32a` (was `f7d9cc99`): #1891 (reopen from the stored copy, `[sources] sync` line), #1886 (a no-op config save is not written).
+  - web `50b89bea` (was `01b34ccd`): #1886 (no config POST on refresh).
+  - rs `95980a44` (was `0c540008`): rs#128, rs#129 (native model detail, dark). The diff is `bins/noevia-model-manager` only, plus one dependency edge to an existing crate in `Cargo.lock`.
+  - services `77964567` (was `419a72bd`): services#61 (#1318, #1889).
+- **Model manager:** `cowork-model-loader:88adc3a1` (`sha256:1514fff9…2c17`), replacing `cowork-model-loader:9b238027`. Adds the rs `native-model-detail` feature, the Python guard, and the private `GET /api/v1/internal/model-detail-runtime` call. That call returns 404 unless `NOEVIA_NATIVE_MODEL_MANAGER_MODEL_DETAIL_CONFIRMED=1`. `MODEL_MANAGER_MODEL_DETAIL_IMPL=python` (the compose default; not in `.env`). Every per-route `NOEVIA_NATIVE_MODEL_MANAGER_*_CONFIRMED` the Python child sees is `0`. The base `NOEVIA_NATIVE_MODEL_MANAGER_CONFIRMED=1` is set because `MODEL_MANAGER_IMPL=rust`, as before. `MODEL_MANAGER_IMPL`, `MODEL_FILES_IMPL`, `GGUF_PARSER` and `MODEL_AUTOCONFIG` stay `rust`; the settings, sections and updates switches stay `python`.
+- **Diary, OCR, Docling, Laya, code sandbox, egress:** no change, not rebuilt or recreated. Only the rs pin line changed in their Dockerfiles and in `deploy/egress-proxy/Dockerfile`, and no crate they build changed between rs `0c540008` and `95980a44`. Core's `code-sandbox/` is unchanged. `OCR_VERSION`/`DOCLING_VERSION` stay `eb5a4523`, Diary `a5d9cbf2`.
+- **Kev, llama, embed, rerank, kiwix, Nextcloud:** not touched.
+- **Deploy/infra:**
+  - #1888: the live `docker-compose.override.yml` gains model-loader `MODEL_MANAGER_MODEL_DETAIL_IMPL: ${MODEL_MANAGER_MODEL_DETAIL_IMPL:-python}` (1 line added, 0 removed). Backups: `docker-compose.override.yml.bak.before-88adc3a1` and `docker-compose.yml.bak.before-88adc3a1`.
+  - There are no new web env keys: the core diff reads only the existing `OCR_BASE_URL`/`DOCLING_BASE_URL`. The installed preflight is identical to the release copy, so it was not reinstalled.
+  - `.env`: only `COWORK_VERSION` and `MODEL_MANAGER_VERSION` changed, to `88adc3a1`. `current` points to `releases/88adc3a1`.
+
+**Evidence.**
+- Pins: each tarball was fetched twice with identical results (core `5ad6c68c…`, web `c6a1d283…`, rs `1b517713…`, services `fe354e48…`). The rs checksum equals every services Dockerfile pin. #1892 CI is green, including "Assembled release (pinned repos)". The release tarball `2a416c71…0237` matched on the Mac and on the box.
+- Candidates:
+  - `candidate-boot.sh` ran on the node and rust fronts. Both returned `{"ready":true,"version":"88adc3a1"}` with 0 error lines.
+  - Isolated model-loader candidate: no network, read-only, all capabilities dropped, tmpfs, a throwaway token, one synthetic GGUF, `MODEL_MANAGER_IMPL=rust`. Health 200. Settings 401 without the token and 200 with it.
+  - `/api/v1/models/updates` and `/api/v1/models/detail?key=<synthetic>`: 401 without the token, 200 with it. Both bodies are byte-identical to the Python child's on loopback 8091.
+  - `internal/model-detail-runtime` returned 404 on both the parent and the child. All per-route confirmations are `0`. 0 restarts, 0 error lines.
+- Gate before each attempt: Coding jobs `idle`, llama idle count 0, GTT 29 MiB, MemAvailable 16.0 GiB, no autotune (the last job `failed`), no document work.
+- Backup `/mnt/disk3/noevia-backups/release_88adc3a1_20261016T025258Z`:
+  - web state (5 `projects.json`, byte-identical with live; 69 project-document files)
+  - online copies of `cowork.db` and `model_loader.db`, both passing `integrity_check`
+  - model-loader state, the llamacpp config (40 files), both compose files, `.env` and the preflight
+  - SHA256SUMS verified
+- Cutover (`release-prep/88adc3a1/cutover.sh`, `up.sh ... -d --no-build --no-deps --wait --wait-timeout 120 <svc>`):
+  - **Attempt 1 (02:48Z):** every functional check passed. It rolled back automatically because its container-identity check treated any host container change as fatal. An unrelated, non-Compose `node-red` container was recreated by another actor at 02:50:49Z, and a `node-red-auto-test` container was created at 02:49:14Z. The rollback finished at 02:51:31Z with web `092bc8e0` and model loader `9b238027` healthy. The check now fails only on `cowork-*` containers and lists other changes.
+  - **Attempt 2:**
+    - Model manager (02:53:31Z): healthy, restarts 0, PID 1 unchanged (`noevia-model-manager`).
+    - From web: health, models, embedding service, updates and detail all return 200. Settings returns 401 without the token and 200 with it, detail without `key` returns 422, and the internal runtime returns 404.
+    - The updates and detail digests equal the pre-cutover Python answers. `models.ini` is unchanged.
+    - Web (02:54:09Z): healthy, restarts 0, PID 1 `docker-init`.
+- Post-checks:
+  - `/api/ready` returns `88adc3a1` on loopback and on https://noevia.daserver.work.
+  - Signed out, `/api/projects` and `/api/models/machines` return 401 on both.
+  - Served dist equals the image dist: 145 files, `index.html` `cba11441…` (was `8758be48…`).
+  - Allow-listed web switches are identical apart from `COWORK_VERSION`.
+  - Embedding service 200, `embed:8080/health` 200.
+  - One synthetic Kev decision returned `kev-0.8b` in 0.41 s. The decision config is unchanged.
+  - Project and file counts are unchanged. Preflight reports 0 missing keys.
+  - Of 47 containers, only `cowork-web-1` and `cowork-model-loader-1` changed id.
+- 15-minute read-only watch (02:55–03:10Z):
+  - Web and model manager: healthy, 0 restarts, OOM false. 0 web error/warn lines and 0 model-manager error lines.
+  - Llama idle. GTT peak 29 MiB. MemAvailable minimum 15,370 MiB.
+  - No container changed during the watch.
+  - `[sources] sync` lines: 0. No sync ran in the window, so the #1891 line is not yet observed live.
+
+**Rollback.** Run the idle gate first. No data migration. The added compose key is inert for the old image.
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env
+ln -sfn $A/releases/092bc8e0 $A/current.new && mv -T $A/current.new $A/current
+sed -i 's/^COWORK_VERSION=88adc3a1$/COWORK_VERSION=092bc8e0/' $ENV
+bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120 web
+sed -i 's/^MODEL_MANAGER_VERSION=88adc3a1$/MODEL_MANAGER_VERSION=9b238027/' $ENV
+bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120 model-loader
+# optional: restore docker-compose.override.yml.bak.before-88adc3a1
+```
+
 ## Release 092bc8e0 — 2026-10-16 01:21Z (web only; core#158, #1885)
 
 ### Services

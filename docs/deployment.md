@@ -321,6 +321,16 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release 88adc3a1 — 2026-10-16 (web + model manager; #1886, #1891, #1318 model detail dark)
+
+### Services
+
+- **Web:** `cowork-web:88adc3a1` (core `9570e32a`, web `50b89bea`, rs `95980a44`, services `77964567`; `sha256:b3ae357c…84`). #1891: the source reopens from the stored copy after a failed storage read, and each sync logs one `[sources] sync` count line. #1886: a no-op config save is not written.
+- **Model manager:** `cowork-model-loader:88adc3a1` (`sha256:1514fff9…2c17`) with the rs `native-model-detail` feature. `MODEL_MANAGER_MODEL_DETAIL_IMPL=python`; the live override passes it with a `python` default (#1888). The private `internal/model-detail-runtime` returns 404 while the confirmation is `0`.
+- **OCR, Docling (`eb5a4523`), Diary (`a5d9cbf2`), Laya, code sandbox, egress:** no change, not rebuilt (pin-line-only Dockerfile changes; no crate they build changed).
+
+Order: assembled on the Mac from merged main, `build-web-release.sh`, model-loader `docker build --target production` from `releases/88adc3a1/services/model-manager`, `candidate-boot.sh` node and rust, and an isolated model-loader candidate. Then `release-prep/88adc3a1/cutover.sh`: gate, scoped backup, compose sync, model-loader → web, rolling back both on any failed check. The first attempt rolled back only because an unrelated `node-red` container was recreated during the window. The container-identity check now fails only on `cowork-*` containers and lists any others. Evidence and rollback are in `docs/changelog.md`, entry 88adc3a1.
+
 ## Release 092bc8e0 — 2026-10-16 (web only; #1885 large-PDF SAB upload fix)
 
 ### Services
