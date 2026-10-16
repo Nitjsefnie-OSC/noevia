@@ -392,7 +392,8 @@ jobs:
         run: |
           set -u
           for front in rust node; do
-            out=$(timeout 60 docker run --rm -e NOEVIA_FRONT=$front -e UI_PORT=8021 "cowork-web:$SHA" 2>&1); code=$?
+            code=0
+            out=$(timeout 60 docker run --rm -e NOEVIA_FRONT=$front -e UI_PORT=8021 "cowork-web:$SHA" 2>&1) || code=$?
             echo "$out"
             [ "$code" -eq 2 ] || { echo "::error::NOEVIA_FRONT=$front without the Rust front configuration exited $code, not 2"; exit 1; }
             grep -q '#1071' <<<"$out" || { echo "::error::the refusal does not name #1071"; exit 1; }
