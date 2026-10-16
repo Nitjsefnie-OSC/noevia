@@ -321,6 +321,16 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release 8207bb96 — 2026-10-16 (web + model manager; #1264 project store, #1934; then NOEVIA_RUST_PROJECT_STORE=1)
+
+### Services
+
+- **Web:** `cowork-web:8207bb96` (core `a11598b7`, web `bbe59802`, rs `44e89709`, services `d475f427`; `sha256:a158e508…80ed`); `NOEVIA_RUST_PROJECT_STORE=1` flipped after the release (store on `127.0.0.1:UI_PORT+2000`, per-start secret, never published).
+- **Model manager:** `cowork-model-loader:8207bb96` (`sha256:32b955d7…0b03`); download-targets, badges, bench-runs and section-writes built in, all `python`.
+- **Everything else:** no change, not recreated.
+
+Same flow as 7ac94a2f (`release-prep/8207bb96/`): compose sync of the web store key (default 0) and four model-loader `_IMPL` keys (default python), model-loader then web, then `flip.sh`. A process-args check for a secret must skip its own pid and use a `[b]racket` pattern, or it matches itself. Rollback and evidence: `docs/changelog.md` (release 8207bb96).
+
 ## Release 7ac94a2f — 2026-10-16 (web + model manager; #1863, #1880, #1901, #1751, #1264 slice 1 dark)
 
 ### Services
