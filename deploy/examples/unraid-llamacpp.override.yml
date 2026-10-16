@@ -69,6 +69,8 @@ services:
       MODEL_MANAGER_SECTION_WRITES_IMPL: ${MODEL_MANAGER_SECTION_WRITES_IMPL:-python}
       # #1318: native PUT /api/v1/settings (the HF token), same rules; the token test stays Python.
       MODEL_MANAGER_SETTINGS_WRITE_IMPL: ${MODEL_MANAGER_SETTINGS_WRITE_IMPL:-python}
+      # #1318: native backend restart/test, same rules; restart errors stay recorded in Python.
+      MODEL_MANAGER_BACKEND_CONTROL_IMPL: ${MODEL_MANAGER_BACKEND_CONTROL_IMPL:-python}
       # #1747: idle chat models unload themselves (llama.cpp sleep-idle-seconds in models.ini [*]).
       # Blank = 900 s (15 min); 0 disables. The chat router only; embedding.ini and Laya are untouched.
       CHAT_MODEL_IDLE_UNLOAD_SECONDS: ${CHAT_MODEL_IDLE_UNLOAD_SECONDS:-}
