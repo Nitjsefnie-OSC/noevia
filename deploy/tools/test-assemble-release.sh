@@ -162,7 +162,16 @@ check "a non-sha NOEVIA_RS_REF with a checksum is refused" '[ $rc -ne 0 ] && gre
 mkdir -p "$work/remote/noevia-rs-y/bins/noevia-server" "$work/remote/noevia-rs-y/contracts/http"
 echo '[workspace]' > "$work/remote/noevia-rs-y/Cargo.toml"
 echo synthetic > "$work/remote/noevia-rs-y/bins/noevia-server/Cargo.toml"
+# sbstndalton/noevia#1931: every rs pinned under this supervisor must own sign-in with no switch
+# (rs#146 level), and its core must carry the unconditional rust-auth guard.
+printf '%s\n' "function refuseOwned(req, res, pathname, json) { return false; }" > "$w/server/rust-auth.cjs"
+g add -A
 cat > "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
+[[route]]
+path = "/api/auth/session"
+owner = "rust"
+methods = ["GET"]
+
 [[route]]
 path = "/api/projects/{id}/assets"
 owner = "rust"
@@ -292,6 +301,7 @@ TOML
 tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
 rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
 printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g rm -q apps/web/server/rust-auth.cjs
 g commit -qam rs-auth-unswitched; ph="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "an unswitched sign-in front over a core without server/rust-auth.cjs is refused" \
@@ -305,6 +315,17 @@ printf '%s\n' "function refuseOwned(req, res, pathname, json) { return false; }"
 g add -A && g commit -qm core-unconditional-auth; pj="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pj" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "the same front over a core with the unconditional guard assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pj.tar.gz" ]'
+# sbstndalton/noevia#1931: a front that still gates sign-in on NOEVIA_RUST_AUTH (a pre-rs#146 pin)
+# under this supervisor, which no longer passes that switch, is refused even over a good core.
+rt="$work/remote/noevia-rs-y/contracts/http/routes.toml"
+awk '{ print } s && /^owner = "rust"$/ { print "switch = \"NOEVIA_RUST_AUTH\""; s = 0 } /^path = "\/api\/auth\/session"$/ { s = 1 }' "$rt" > "$rt.new" && mv "$rt.new" "$rt"
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g commit -qam rs-auth-switched; pk="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pk" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "a switched sign-in front (pre-rs#146) under this supervisor is refused" \
+  '[ $rc -ne 0 ] && grep -q "still gates sign-in on NOEVIA_RUST_AUTH" "$work/err" && [ ! -f "$out/noevia-release-$pk.tar.gz" ]'
 g rm -q apps/web/server/rust-auth.cjs && g commit -qm core-no-auth
 g rm -q apps/web/server/rust-projects.cjs && g commit -qm core-plain
 

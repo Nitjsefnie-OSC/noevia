@@ -223,6 +223,11 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   # /api/auth/session owner "rust", no `switch`) needs a core whose rust-auth guard is unconditional
   # (server/rust-auth.cjs refuseOwned). The web supervisor no longer hands Node NOEVIA_RUST_AUTH or
   # its confirmation, so an older core would run as a second writer of the account tables.
+  # sbstndalton/noevia#1931: this repo's web supervisor no longer passes NOEVIA_RUST_AUTH, so a
+  # front that still gates sign-in on it (before noevia-rs#146) would refuse NOEVIA_RUST_PROJECTS
+  # and web would restart-loop. Every pinned rs must own sign-in with no switch.
+  rust_auth_unswitched "$tree/rs/contracts/http/routes.toml" \
+    || die "noevia-rs at $rs_ref still gates sign-in on NOEVIA_RUST_AUTH (GET /api/auth/session is not Rust-owned without a switch), which this web supervisor no longer passes; pin a noevia-rs with rs#146 (sbstndalton/noevia#1931)"
   if rust_auth_unswitched "$tree/rs/contracts/http/routes.toml" \
      && ! grep -q '^function refuseOwned' "$tree/core/server/rust-auth.cjs" 2>/dev/null; then
     die "noevia-rs at $rs_ref owns sign-in with no switch, but noevia-core at $(lock_value NOEVIA_CORE_REF) still gates its rust-auth guard on NOEVIA_RUST_AUTH (pin a core with an unconditional server/rust-auth.cjs, sbstndalton/noevia#1071)"
