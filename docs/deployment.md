@@ -1130,11 +1130,15 @@ docling, laya, model-manager and ocr in
   routing mode and default, engine statistics, ChatGPT status, connected-storage metadata/list/read
   and the conversation export are the front's permanently, and Node no longer has them. The
   supervisor therefore refuses to start (exit 2, before either process) without
-  `NOEVIA_FRONT=rust`, `NOEVIA_RUST_AUTH=1` and `NOEVIA_RUST_PROJECTS=1`, and without a
+  `NOEVIA_FRONT=rust` and `NOEVIA_RUST_AUTH=1`, and without a
   `noevia-server` whose `--features` lists `rust-chatgpt-status`, `rust-storage-reads`,
   `rust-storage-browse`, `rust-export`, `rust-free-chats`, `rust-usage`, `rust-stats`,
-  `rust-routing-default`, `rust-sampling-settings`, `rust-reasoning-settings` and
-  `rust-routing-mode`. `noevia-server` itself refuses to start with `NOEVIA_RUST_AUTH=1` but no
+  `rust-routing-default`, `rust-sampling-settings`, `rust-reasoning-settings`,
+  `rust-routing-mode`, `rust-projects`, `rust-project-chats` and `project-store`. The project
+  routes (images, project and free chat lists) and the project store are the front's permanently
+  too: `NOEVIA_RUST_PROJECTS` is retired, Compose no longer passes it, and a value left in `.env`
+  only earns a warning. Node refuses those routes and will not start without the store, which the
+  supervisor always sets up (UI_PORT+2000, a per-start secret). `noevia-server` itself refuses to start with `NOEVIA_RUST_AUTH=1` but no
   `UI_DATA_DIR`, an invalid auth environment, a Lemonade or `https` stats engine, or a build
   without those features. There is no `NOEVIA_FRONT=node` rollback any more: roll back to the
   previous release instead. The per-route switches `NOEVIA_RUST_USAGE`, `_SAMPLING_SETTINGS`,
@@ -1166,7 +1170,7 @@ nothing from `.env`. On the Docker host:
 bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/candidate-boot.sh $SHA   # cowork-web:$SHA, the Rust front
 ```
 
-Since #1071 the Rust front (with `NOEVIA_RUST_AUTH=1` and `NOEVIA_RUST_PROJECTS=1`) is the only
+Since #1071 the Rust front (with `NOEVIA_RUST_AUTH=1`) is the only
 bootable configuration, so there is no separate node candidate; `CANDIDATE_FRONT=node` is refused.
 
 The script exits 0 only when `/api/ready` answers `ready:true` with exactly that sha, and it removes
