@@ -321,6 +321,16 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release 8207bb96 — 2026-10-16 (web + model manager; #1264 project store, #1934; then NOEVIA_RUST_PROJECT_STORE=1)
+
+### Services
+
+- **Web:** `cowork-web:8207bb96` (core `a11598b7`, web `bbe59802`, rs `44e89709`, services `d475f427`; `sha256:a158e508…80ed`); `NOEVIA_RUST_PROJECT_STORE=1` flipped after the release (store on `127.0.0.1:UI_PORT+2000`, per-start secret, never published).
+- **Model manager:** `cowork-model-loader:8207bb96` (`sha256:32b955d7…0b03`); download-targets, badges, bench-runs and section-writes built in, all `python`.
+- **Everything else:** no change, not recreated.
+
+Same flow as 7ac94a2f (`release-prep/8207bb96/`): compose sync of the web store key (default 0) and four model-loader `_IMPL` keys (default python), model-loader then web, then `flip.sh`. A process-args check for a secret must skip its own pid and use a `[b]racket` pattern, or it matches itself. Rollback and evidence: `docs/changelog.md` (release 8207bb96).
+
 ## Release 7ac94a2f — 2026-10-16 (web + model manager; #1863, #1880, #1901, #1751, #1264 slice 1 dark)
 
 ### Services
@@ -1114,12 +1124,24 @@ docling, laya, model-manager and ocr in
   it, so `diary-overlay.sh`, the Docling overlay and `compose build <sidecar>` use the same
   `releases/<sha>/services/<name>` paths. Code-sandbox builds from `releases/<sha>/core/code-sandbox`.
 - **Rust front (full-Rust migration M1)**: the web image also carries `noevia-server`, built from
-  `rs/` when `NOEVIA_RS_REF` has `bins/noevia-server`. `NOEVIA_FRONT` in `.env` picks the front:
-  `node` (default) runs Node alone exactly as before; `rust` runs `noevia-server` on `UI_PORT` and
-  Node behind it on loopback `UI_PORT+1000` (`build/web-supervisor.sh`; either process exiting
-  exits the container so Docker restarts both). Rolling back is `NOEVIA_FRONT=node` and a
-  recreate of `web`. An overlay release keeps the old image's entrypoint, so the first release
-  that turns the front on must be a full web build. The switch goes once the front is proven.
+  `rs/` at `NOEVIA_RS_REF`. It runs on `UI_PORT` with Node behind it on loopback `UI_PORT+1000`
+  (`build/web-supervisor.sh`; either process exiting exits the container so Docker restarts both).
+  **Since sbstndalton/noevia#1071 it is the only front.** Usage, sampling and reasoning settings,
+  routing mode and default, engine statistics, ChatGPT status, connected-storage metadata/list/read
+  and the conversation export are the front's permanently, and Node no longer has them. The
+  supervisor therefore refuses to start (exit 2, before either process) without
+  `NOEVIA_FRONT=rust`, `NOEVIA_RUST_AUTH=1` and `NOEVIA_RUST_PROJECTS=1`, and without a
+  `noevia-server` whose `--features` lists `rust-chatgpt-status`, `rust-storage-reads`,
+  `rust-storage-browse`, `rust-export`, `rust-free-chats`, `rust-usage`, `rust-stats`,
+  `rust-routing-default`, `rust-sampling-settings`, `rust-reasoning-settings` and
+  `rust-routing-mode`. `noevia-server` itself refuses to start with `NOEVIA_RUST_AUTH=1` but no
+  `UI_DATA_DIR`, an invalid auth environment, a Lemonade or `https` stats engine, or a build
+  without those features. There is no `NOEVIA_FRONT=node` rollback any more: roll back to the
+  previous release instead. The per-route switches `NOEVIA_RUST_USAGE`, `_SAMPLING_SETTINGS`,
+  `_REASONING_SETTINGS`, `_ROUTING_MODE`, `_ROUTING_DEFAULT`, `_STATS`, `_CHATGPT_STATUS`,
+  `_STORAGE_READS`, `_STORAGE_BROWSE` and `_EXPORT` are retired: a leftover value only logs a
+  warning, so drop them from `.env` and the live Compose Manager file at the next edit (the
+  retired wasm `*_IMPL` / `LAYA_LOAD_ADVISOR` passthroughs there do nothing either).
 - `COWORK_VERSION` and `version.json`'s `version` stay the noevia SHA; `version.json` also lists
   the `web` and `core` SHAs the image was built from (`docker run --rm --entrypoint cat
   cowork-web:<sha> /app/dist/version.json`).
@@ -1141,9 +1163,11 @@ read-only root, all capabilities dropped, tmpfs for everything writable, a throw
 nothing from `.env`. On the Docker host:
 
 ```sh
-bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/candidate-boot.sh $SHA   # cowork-web:$SHA
-CANDIDATE_FRONT=rust bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/candidate-boot.sh $SHA   # Rust front
+bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/candidate-boot.sh $SHA   # cowork-web:$SHA, the Rust front
 ```
+
+Since #1071 the Rust front (with `NOEVIA_RUST_AUTH=1` and `NOEVIA_RUST_PROJECTS=1`) is the only
+bootable configuration, so there is no separate node candidate; `CANDIDATE_FRONT=node` is refused.
 
 The script exits 0 only when `/api/ready` answers `ready:true` with exactly that sha, and it removes
 the candidate container on every exit path. It prints the ready answer and a count of log lines that
