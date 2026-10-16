@@ -38,6 +38,7 @@ RUN set -e; mkdir -p /out; \
       features=rust-reasoning-settings,rust-routing-mode; \
       if grep -qx 'rust-project-chats = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-project-chats"; fi; \
       if grep -qx 'rust-free-chats = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-free-chats"; fi; \
+      if grep -qx 'rust-project-writes = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-project-writes"; fi; \
       if grep -qx 'rust-routing-default = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-routing-default"; fi; \
       if grep -qx 'rust-stats = \[\]' bins/noevia-server/Cargo.toml; then features="$features,rust-stats"; fi; \
       if grep -q '^rust-storage-reads = ' bins/noevia-server/Cargo.toml; then features="$features,rust-storage-reads"; fi; \

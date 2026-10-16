@@ -253,6 +253,33 @@ JS
 g add -A && g commit -qm core-free-chats; pe="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pe" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "the same front over a core that lists the free-chat routes assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pe.tar.gz" ]'
+# sbstndalton/noevia#1264: a front that answers project writes under NOEVIA_RUST_PROJECT_WRITES over a
+# core whose PROJECT_WRITE_ROUTES lacks them (Node would write them too) is refused, naming only
+# those; a core that lists them assembles. NOEVIA_RUST_PROJECTS routes are not asked of that list.
+cat >> "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
+
+[[route]]
+path = "/api/chats/{chatId}/context"
+owner = "rust"
+switch = "NOEVIA_RUST_PROJECT_WRITES"
+methods = ["GET", "POST"]
+TOML
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g commit -qam rs-project-writes; pf="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pf" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "a project-writes front over a core without PROJECT_WRITE_ROUTES is refused, naming both methods" \
+  '[ $rc -ne 0 ] && grep -q "PROJECT_WRITE_ROUTES" "$work/err" && grep -q "GET /api/chats/{}/context;POST /api/chats/{}/context$" "$work/err" && ! grep -q "freechats" "$work/err" && [ ! -f "$out/noevia-release-$pf.tar.gz" ]'
+cat >> "$w/server/rust-projects.cjs" <<'JS'
+const PROJECT_WRITE_ROUTES = Object.freeze(new Set([
+  'GET /api/chats/{chatId}/context',
+  'POST /api/chats/{chatId}/context',
+]));
+JS
+g add -A && g commit -qm core-project-writes; pg="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pg" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "the same front over a core that lists the project-write routes assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pg.tar.gz" ]'
 g rm -q apps/web/server/rust-projects.cjs && g commit -qm core-plain
 
 # A failing final tar must not leave out.partial (or a final tarball) behind. The shim writes a
