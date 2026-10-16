@@ -19,7 +19,7 @@ check() { if eval "$2"; then passes=$((passes+1)); echo "ok - $1"; else fails=$(
 
 # The features build/web-supervisor.sh requires (FRONT_ROUTE_FEATURES), and a front that has them.
 ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode"
-BASE_FEATURES="code-net-guard rust-auth rust-projects $ROUTE_FEATURES"
+BASE_FEATURES="code-net-guard rust-auth rust-projects project-store $ROUTE_FEATURES"
 RETIRED="NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS NOEVIA_RUST_REASONING_SETTINGS NOEVIA_RUST_ROUTING_MODE NOEVIA_RUST_ROUTING_DEFAULT NOEVIA_RUST_STATS NOEVIA_RUST_EXPORT NOEVIA_RUST_CHATGPT_STATUS NOEVIA_RUST_STORAGE_READS NOEVIA_RUST_STORAGE_BROWSE"
 
 mkdir -p "$work/bin"
@@ -136,17 +136,20 @@ reset; touch "$work/die-front"
 run NOEVIA_RUST_PROJECT_WRITES_CONFIRMED=1 STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1
 check "an inherited project-writes confirmation is dropped" 'grep -q "^node WCONF=$" "$work/log"'
 
-# The project store (#1264): a per-start secret and UI_PORT+2000 for both processes, confirmed to
-# Node only; never from the environment; refused without project-store.
-reset; touch "$work/die-front"
-run UI_PORT=8021 STUB_FEATURES="$BASE_FEATURES project-store" NOEVIA_PROJECT_STORE_TOKEN=inherited-secret-0123456789abcdef0123456789 NOEVIA_PROJECT_STORE_PORT=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED=1 >/dev/null 2>&1
-check "store off (live today): no store, and inherited store values are dropped" 'grep -q "^node SSTORE= SPORT= STOKLEN=0$" "$work/log" && grep -q "^front SSTORE= SPORT= STOKLEN=0$" "$work/log"'
-reset; touch "$work/die-front"
-run UI_PORT=8021 NOEVIA_RUST_PROJECT_STORE=1 STUB_FEATURES="$BASE_FEATURES project-store" >/dev/null 2>&1
-check "store on: Node is confirmed, both get UI_PORT+2000 and a fresh 64-character secret" 'grep -q "^node SSTORE=1 SPORT=10021 STOKLEN=64$" "$work/log" && grep -q "^front SSTORE= SPORT=10021 STOKLEN=64$" "$work/log"'
+# The project store (#1264), permanent: always set up (projects are always on), a per-start secret
+# and UI_PORT+2000 for both processes, confirmed to Node only; never from the environment; refused
+# without project-store. The retired NOEVIA_RUST_PROJECT_STORE is not read.
+for v in "" 0 1; do
+  reset; touch "$work/die-front"
+  run UI_PORT=8021 NOEVIA_RUST_PROJECT_STORE="$v" NOEVIA_PROJECT_STORE_TOKEN=inherited-secret-0123456789abcdef0123456789 NOEVIA_PROJECT_STORE_PORT=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED= >/dev/null 2>&1
+  check "store (retired switch '$v'): Node is confirmed, both get UI_PORT+2000 and a fresh 64-character secret, never the inherited one" 'grep -q "^node SSTORE=1 SPORT=10021 STOKLEN=64$" "$work/log" && grep -q "^front SSTORE= SPORT=10021 STOKLEN=64$" "$work/log"'
+done
 reset
-run NOEVIA_RUST_PROJECT_STORE=1 >/dev/null 2>"$work/err"; rc=$?
-check "store on with a front without project-store is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no project-store" "$work/err" && [ ! -s "$work/log" ]'
+run STUB_FEATURES="$(without project-store)" >/dev/null 2>"$work/err"; rc=$?
+check "a front without project-store is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no project-store" "$work/err" && [ ! -s "$work/log" ]'
+reset
+run UI_PORT=64000 >/dev/null 2>"$work/err"; rc=$?
+check "a UI_PORT with no room for UI_PORT+2000 is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no room for the project store port" "$work/err" && [ ! -s "$work/log" ]'
 
 # The client address (noevia-core server/auth.cjs, #1578): Node is told to believe X-Noevia-Client-Ip
 # only when the front reports client-address-header (it strips client copies of the header).
