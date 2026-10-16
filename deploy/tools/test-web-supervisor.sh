@@ -115,12 +115,15 @@ reset
 run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth" >/dev/null 2>"$work/err"; rc=$?
 check "a front without rust-projects is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no rust-projects" "$work/err" && [ ! -s "$work/log" ]'
 
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects" UI_PORT=8021 >/dev/null 2>"$work/err"; rc=$?
+check "an images-only front (no rust-free-chats, no project-store) is refused now that Node writes only through the store" '[ $rc -eq 2 ] && grep -q "needs a noevia-server with rust-free-chats" "$work/err" && [ ! -s "$work/log" ]'
+
 reset; rm -f "$work/rc"
-(run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects" UI_PORT=8021 >/dev/null 2>&1; echo $? > "$work/rc") &
+(run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats project-store" UI_PORT=8021 >/dev/null 2>&1; echo $? > "$work/rc") &
 wait_log "^front" && wait_log "^node"
 check "both switches with a rust-projects front confirm both to Node only" 'grep -q "^node .* PCONF=1 CONF=1$" "$work/log" && grep -q "^front .* PCONF= CONF=$" "$work/log"'
-check "an images-only front (no rust-project-chats) leaves the chat list to Node (#1409)" 'grep -q "^node .* CCONF= " "$work/log" && grep -q "^front .* CCONF= " "$work/log"'
-check "an images-only front (no rust-free-chats) leaves the free-chat list to Node" 'grep -q "^node .* FCONF= " "$work/log" && grep -q "^front .* FCONF= " "$work/log"'
+check "a front without rust-project-chats leaves the chat list to Node (#1409)" 'grep -q "^node .* CCONF= " "$work/log" && grep -q "^front .* CCONF= " "$work/log"'
 touch "$work/die-front"
 for _ in $(seq 1 100); do [ -s "$work/rc" ] && break; sleep 0.05; done
 rm -f "$work/rc"
@@ -134,19 +137,14 @@ for _ in $(seq 1 100); do [ -s "$work/rc" ] && break; sleep 0.05; done
 rm -f "$work/rc"
 
 # M4's chat-list slice (#1409): confirmed to Node only for a front that lists rust-project-chats.
-reset; rm -f "$work/rc"
-(run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-project-chats" UI_PORT=8021 >/dev/null 2>&1; echo $? > "$work/rc") &
-wait_log "^front" && wait_log "^node"
-check "a front with rust-project-chats has the chat slice confirmed to Node only" 'grep -q "^node .* CCONF=1 .* PCONF=1 CONF=1$" "$work/log" && grep -q "^front .* CCONF= " "$work/log"'
-check "a front without rust-free-chats leaves the free-chat list to Node" 'grep -q "^node .* FCONF= " "$work/log"'
-touch "$work/die-front"
-for _ in $(seq 1 100); do [ -s "$work/rc" ] && break; sleep 0.05; done
-rm -f "$work/rc"
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-project-chats project-store" UI_PORT=8021 >/dev/null 2>"$work/err"; rc=$?
+check "a front without rust-free-chats is refused, nothing started" '[ $rc -eq 2 ] && grep -q "needs a noevia-server with rust-free-chats" "$work/err" && [ ! -s "$work/log" ]'
 
 # M4's free-chat slice: confirmed to Node only for a front that lists rust-free-chats, whether or
 # not it lists rust-project-chats.
 reset; rm -f "$work/rc"
-(run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-project-chats rust-free-chats" UI_PORT=8021 >/dev/null 2>&1; echo $? > "$work/rc") &
+(run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-project-chats rust-free-chats project-store" UI_PORT=8021 >/dev/null 2>&1; echo $? > "$work/rc") &
 wait_log "^front" && wait_log "^node"
 check "a front with both chat slices has both confirmed to Node only" 'grep -q "^node .* CCONF=1 FCONF=1 .* PCONF=1 CONF=1$" "$work/log" && grep -q "^front .* CCONF= FCONF= " "$work/log"'
 touch "$work/die-front"
@@ -154,7 +152,7 @@ for _ in $(seq 1 100); do [ -s "$work/rc" ] && break; sleep 0.05; done
 rm -f "$work/rc"
 
 reset; rm -f "$work/rc"
-(run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats" UI_PORT=8021 >/dev/null 2>&1; echo $? > "$work/rc") &
+(run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats project-store" UI_PORT=8021 >/dev/null 2>&1; echo $? > "$work/rc") &
 wait_log "^front" && wait_log "^node"
 check "a front with rust-free-chats alone has only the free slice confirmed" 'grep -q "^node .* CCONF= FCONF=1 .* PCONF=1 CONF=1$" "$work/log"'
 touch "$work/die-front"
@@ -343,7 +341,7 @@ reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_STORAGE_BROWSE=1 NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops inherited storage browse confirmation" 'grep -q "^node BCONF=$" "$work/log"'
 # The conversation export (#1315): needs the confirmed project and free-chat slices too.
-EXPORT_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats rust-export"
+EXPORT_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats rust-export project-store"
 reset
 run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_EXPORT=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$EXPORT_FEATURES" >/dev/null 2>"$work/err"; rc=$?
 check "export without native projects refuses before startup" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_EXPORT=1 needs NOEVIA_RUST_PROJECTS=1" "$work/err" && [ ! -s "$work/log" ]'
@@ -365,7 +363,7 @@ check "node mode drops inherited export confirmation" 'grep -q "^node ECONF=$" "
 
 # The project writes (#1264): their own switch over the confirmed project slice and the compiled
 # rust-project-writes; never confirmed by NOEVIA_RUST_PROJECTS=1 alone (live today).
-WRITES_FEATURES="code-net-guard rust-auth rust-projects rust-project-chats rust-free-chats rust-project-writes"
+WRITES_FEATURES="code-net-guard rust-auth rust-projects rust-project-chats rust-free-chats rust-project-writes project-store"
 reset; touch "$work/die-front"
 run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1; rc=$?
 check "NOEVIA_RUST_PROJECTS=1 alone never confirms the project writes, even for a front with the slice" 'grep -q "^node WCONF=$" "$work/log" && grep -q "^node .* PCONF=1 CONF=1$" "$work/log"'
@@ -385,21 +383,24 @@ reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_PROJECT_WRITES=1 NOEVIA_RUST_PROJECT_WRITES_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops an inherited project-writes confirmation" 'grep -q "^node WCONF=$" "$work/log"'
 
-# The project store (#1264): a per-start secret and UI_PORT+2000 for both processes, confirmed to
-# Node only; never from the environment; refused without the free-chat slice or project-store.
+# The project store (#1264), permanent: whenever projects are confirmed, a per-start secret and
+# UI_PORT+2000 for both processes, confirmed to Node only; never from the environment; refused
+# without the free-chat slice or project-store. The retired NOEVIA_RUST_PROJECT_STORE is not read.
 STORE_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats project-store"
 reset; touch "$work/die-front"
-run NOEVIA_FRONT=rust UI_PORT=8021 NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$STORE_FEATURES" NOEVIA_PROJECT_STORE_TOKEN=inherited-secret-0123456789abcdef0123456789 NOEVIA_PROJECT_STORE_PORT=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED=1 >/dev/null 2>&1; rc=$?
-check "off (live today): no store, and inherited store values are dropped" 'grep -q "^node SSTORE= SPORT= STOKLEN=0$" "$work/log" && grep -q "^front SSTORE= SPORT= STOKLEN=0$" "$work/log"'
-reset; touch "$work/die-front"
-run NOEVIA_FRONT=rust UI_PORT=8021 NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_STORE=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$STORE_FEATURES" >/dev/null 2>&1; rc=$?
-check "on: Node is confirmed, both get UI_PORT+2000 and a fresh 64-character secret" 'grep -q "^node SSTORE=1 SPORT=10021 STOKLEN=64$" "$work/log" && grep -q "^front SSTORE= SPORT=10021 STOKLEN=64$" "$work/log"'
+run NOEVIA_FRONT=rust UI_PORT=8021 NOEVIA_RUST_AUTH=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$STORE_FEATURES" NOEVIA_PROJECT_STORE_TOKEN=inherited-secret-0123456789abcdef0123456789 NOEVIA_PROJECT_STORE_PORT=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED=1 NOEVIA_RUST_PROJECT_STORE=1 >/dev/null 2>&1; rc=$?
+check "projects off: no store, even with the retired switch, and inherited store values are dropped" 'grep -q "^node SSTORE= SPORT= STOKLEN=0$" "$work/log" && grep -q "^front SSTORE= SPORT= STOKLEN=0$" "$work/log"'
+for v in "" 0 1; do
+  reset; touch "$work/die-front"
+  run NOEVIA_FRONT=rust UI_PORT=8021 NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_STORE="$v" NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$STORE_FEATURES" NOEVIA_PROJECT_STORE_TOKEN=inherited-secret-0123456789abcdef0123456789 >/dev/null 2>&1; rc=$?
+  check "projects on (retired switch '$v'): Node is confirmed, both get UI_PORT+2000 and a fresh 64-character secret" 'grep -q "^node SSTORE=1 SPORT=10021 STOKLEN=64$" "$work/log" && grep -q "^front SSTORE= SPORT=10021 STOKLEN=64$" "$work/log" && ! grep -q "inherited-secret" "$work/log"'
+done
 reset
-run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_STORE=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats" >/dev/null 2>"$work/err"; rc=$?
-check "on with a front without project-store is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no project-store" "$work/err" && [ ! -s "$work/log" ]'
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats" >/dev/null 2>"$work/err"; rc=$?
+check "projects with a front without project-store is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no project-store" "$work/err" && [ ! -s "$work/log" ]'
 reset
-run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_STORE=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects project-store" >/dev/null 2>"$work/err"; rc=$?
-check "on without the free-chat slice is refused, nothing started" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_PROJECT_STORE=1 needs" "$work/err" && [ ! -s "$work/log" ]'
+run NOEVIA_FRONT=rust UI_PORT=64000 NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$STORE_FEATURES" >/dev/null 2>"$work/err"; rc=$?
+check "a UI_PORT without room for UI_PORT+2000 is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no room for the project store port" "$work/err" && [ ! -s "$work/log" ]'
 
 # The client address (noevia-core server/auth.cjs, #1578): Node is told to believe X-Noevia-Client-Ip
 # only when the front reports client-address-header (it strips client copies of the header).

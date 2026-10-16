@@ -260,19 +260,20 @@ if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 64535 ]; th
 fi
 legacy=$((port + 1000))
 
-# The project store (sbstndalton/noevia#1264): with NOEVIA_RUST_PROJECT_STORE=1 Node writes
-# projects.json and free-chats.json only through the front's loopback store, at UI_PORT+2000, with
-# a secret made here for this start and handed to both processes (never taken from the
-# environment). Needs the confirmed free-chat slice and a front that lists project-store; the
-# supervisor refuses to start otherwise.
+# The project store (sbstndalton/noevia#1264): permanent. Node writes projects.json and
+# free-chats.json only through the front's loopback store and refuses to start projects without it,
+# so whenever NOEVIA_RUST_PROJECTS is confirmed the store is too: at UI_PORT+2000, with a secret
+# made here for this start and handed to both processes (never taken from the environment). The
+# retired NOEVIA_RUST_PROJECT_STORE switch is not read. Needs the confirmed free-chat slice and a
+# front that lists project-store; the supervisor refuses to start otherwise.
 rust_project_store_confirmed="" store_port="" store_token=""
-if [ "${NOEVIA_RUST_PROJECT_STORE:-}" = 1 ]; then
+if [ "$rust_projects_confirmed" = 1 ]; then
   if [ "$rust_free_chats_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_PROJECT_STORE=1 needs NOEVIA_RUST_PROJECTS=1 (with NOEVIA_RUST_AUTH=1) and a noevia-server with rust-free-chats" >&2
+    echo "web-supervisor: NOEVIA_RUST_PROJECTS=1 needs a noevia-server with rust-free-chats (Node writes projects only through the project store)" >&2
     exit 2
   fi
   if ! grep -qx 'project-store' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_PROJECT_STORE=1 but this noevia-server has no project-store" >&2
+    echo "web-supervisor: NOEVIA_RUST_PROJECTS=1 but this noevia-server has no project-store" >&2
     exit 2
   fi
   store_port=$((port + 2000))
