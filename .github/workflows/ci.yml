@@ -447,6 +447,11 @@ jobs:
             grep -qx rust-free-chats /tmp/features \
               || { echo "::error::the pinned noevia-rs has rust-free-chats but the web image's noevia-server was built without it"; exit 1; }
           fi
+          # Likewise the project writes (cargo feature rust-project-writes, #1264).
+          if grep -qx 'rust-project-writes = \[\]' "$TREE/rs/bins/noevia-server/Cargo.toml"; then
+            grep -qx rust-project-writes /tmp/features \
+              || { echo "::error::the pinned noevia-rs has rust-project-writes but the web image's noevia-server was built without it"; exit 1; }
+          fi
           # Likewise GET /api/routing-default (cargo feature rust-routing-default, #1305/#1648).
           if grep -qx 'rust-routing-default = \[\]' "$TREE/rs/bins/noevia-server/Cargo.toml"; then
             grep -qx rust-routing-default /tmp/features \
