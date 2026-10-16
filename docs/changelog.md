@@ -8,6 +8,30 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 3b23d181 — 2026-10-16 03:54Z (web only; #1894, #1895, #1896)
+
+What changed for you: the Models page's local-engine health check now asks the model manager's `/api/v1/health` (#1894). When a model change is still finishing, a chat waits up to 3 s for it and then gets a retryable "still finishing" answer instead of an error; the client retries once (#1896). The composer pill is fixed (#1895).
+
+### Services
+
+- **Web:** `cowork-web:3b23d181` (`sha256:15f94505…87ad`), #1897, replacing `cowork-web:88adc3a1`.
+  - core `383ba449` (was `9570e32a`): #1894 (local engine probe on `/api/v1/health`), #1896 (chat admission waits ≤3 s for the maintenance gate, then a retryable 503 with one reason log line).
+  - web `dd7f7558` (was `50b89bea`): #1895 (composer pill), #1896 (single client retry, "still finishing" message).
+  - rs `95980a44`, services `77964567`: unchanged.
+- **Model manager, Diary, OCR, Docling, Laya, code sandbox, egress:** no change, not rebuilt or recreated (`MODEL_MANAGER_VERSION` 88adc3a1, OCR/Docling eb5a4523, Diary a5d9cbf2).
+- **Kev, llama, embed, rerank, kiwix, Nextcloud:** not touched.
+- **Deploy/infra:** no compose change. No new env keys: the core diff reads only the existing `MODEL_LOADER_URL`/`MODEL_LOADER_TOKEN`, which web already receives. `.env`: only `COWORK_VERSION` changed. `current` points to `releases/3b23d181`.
+
+**Evidence.**
+- Pins: core and web tarballs each fetched twice with identical results (core `b0705357…`, web `1264bc7e…`). Main CI on both repos was green at the pinned SHAs. #1897 CI was green, including "Assembled release (pinned repos)". The release tarball `79959c66…5fd5` matched on the Mac and on the box.
+- Candidates: `candidate-boot.sh` returned `{"ready":true,"version":"3b23d181"}` with 0 error lines on both the node and rust fronts. `version.json` lists web `dd7f7558` and core `383ba449`. `chat-admission-1896` and `machine-health-1856` ran inside the image (no network, read-only): 18/18 passed.
+- Gate: Coding jobs `idle`, llama idle count 0, GTT 29 MiB, MemAvailable 14.1 GiB, no autotune (the last job `failed`, none running), no compose/build or document work.
+- Backup `/mnt/disk3/noevia-backups/web_3b23d181_20261016T035341Z`: web state (5 `projects.json`, 69 project-document files, counts equal to live), online `cowork.db` copy (`integrity_check` ok), the compose files and the `.env` copy, all with SHA256SUMS verified.
+- Cutover (`release-prep/3b23d181/cutover.sh`, `up.sh ... --no-build --no-deps --wait web`): web healthy, 0 restarts, PID 1 `docker-init`. `/api/ready` is `3b23d181` on loopback and on the public URL. Signed-out `/api/projects` and `/api/models/reranker` return 401 on both. The served dist equals the image dist (145 files). The allow-listed flags are identical apart from `COWORK_VERSION`. The embedding service answers 200 (managed, `embeddinggemma-2-Q8_0` loaded) and embed `/health` 200. Kev decision: `kev-0.8b`, 0.41 s. Model loader `/api/v1/health` with the token: 200 in 47 ms. Decision config and project counts are unchanged. Preflight reported no missing keys. Only `cowork-web-1` changed among `cowork-*` containers.
+- Watch (10 min): web healthy, 0 restarts, PID 1 `docker-init`, 0 error/warn lines, 0 new OOM lines. Among `cowork-*` containers only `cowork-web-1` changed; none restarted.
+
+**Rollback:** `ln -sfn /mnt/docker/appdata/cowork/releases/88adc3a1 /mnt/docker/appdata/cowork/current`, restore `config/.env.bak.before-3b23d181` (`COWORK_VERSION=88adc3a1`), then `bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web`. The image `cowork-web:88adc3a1` is kept.
+
 ## Release 88adc3a1 — 2026-10-16 02:54Z (web + model manager; #1886, #1891, #1889, #1318)
 
 What changed for you: when a large PDF's storage read fails during a refresh, the source reopens from the copy noevia already stored, and every sync logs one `[sources] sync` count line (#1891). Opening a project no longer saves its settings when nothing changed (#1886). The model manager can serve model detail natively (#1318, #1889), but that is switched off.
