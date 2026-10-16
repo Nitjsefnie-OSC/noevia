@@ -30,6 +30,7 @@ echo "\$name BCONF=\${NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED:-}" >> "$work/log"
 echo "\$name ECONF=\${NOEVIA_RUST_EXPORT_CONFIRMED:-}" >> "$work/log"
 echo "\$name HCONF=\${NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED:-}" >> "$work/log"
 echo "\$name WCONF=\${NOEVIA_RUST_PROJECT_WRITES_CONFIRMED:-}" >> "$work/log"
+echo "\$name SSTORE=\${NOEVIA_RUST_PROJECT_STORE_CONFIRMED:-} SPORT=\${NOEVIA_PROJECT_STORE_PORT:-} STOKLEN=\${#NOEVIA_PROJECT_STORE_TOKEN}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
 # The supervisor TERMs the survivor as soon as one child exits. A front told to die at once would
@@ -383,6 +384,22 @@ check "an inherited project-writes confirmation is dropped" 'grep -q "^node WCON
 reset; touch "$work/die-node"
 run NOEVIA_FRONT=node NOEVIA_RUST_PROJECT_WRITES=1 NOEVIA_RUST_PROJECT_WRITES_CONFIRMED=1 >/dev/null 2>&1; rc=$?
 check "node mode drops an inherited project-writes confirmation" 'grep -q "^node WCONF=$" "$work/log"'
+
+# The project store (#1264): a per-start secret and UI_PORT+2000 for both processes, confirmed to
+# Node only; never from the environment; refused without the free-chat slice or project-store.
+STORE_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats project-store"
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust UI_PORT=8021 NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$STORE_FEATURES" NOEVIA_PROJECT_STORE_TOKEN=inherited-secret-0123456789abcdef0123456789 NOEVIA_PROJECT_STORE_PORT=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED=1 >/dev/null 2>&1; rc=$?
+check "off (live today): no store, and inherited store values are dropped" 'grep -q "^node SSTORE= SPORT= STOKLEN=0$" "$work/log" && grep -q "^front SSTORE= SPORT= STOKLEN=0$" "$work/log"'
+reset; touch "$work/die-front"
+run NOEVIA_FRONT=rust UI_PORT=8021 NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_STORE=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="$STORE_FEATURES" >/dev/null 2>&1; rc=$?
+check "on: Node is confirmed, both get UI_PORT+2000 and a fresh 64-character secret" 'grep -q "^node SSTORE=1 SPORT=10021 STOKLEN=64$" "$work/log" && grep -q "^front SSTORE= SPORT=10021 STOKLEN=64$" "$work/log"'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_STORE=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects rust-free-chats" >/dev/null 2>"$work/err"; rc=$?
+check "on with a front without project-store is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no project-store" "$work/err" && [ ! -s "$work/log" ]'
+reset
+run NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_RUST_PROJECT_STORE=1 NOEVIA_SERVER_BIN="$work/noevia-server" STUB_FEATURES="code-net-guard rust-auth rust-projects project-store" >/dev/null 2>"$work/err"; rc=$?
+check "on without the free-chat slice is refused, nothing started" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_PROJECT_STORE=1 needs" "$work/err" && [ ! -s "$work/log" ]'
 
 # The client address (noevia-core server/auth.cjs, #1578): Node is told to believe X-Noevia-Client-Ip
 # only when the front reports client-address-header (it strips client copies of the header).

@@ -14,7 +14,7 @@ set -uo pipefail
 
 # Only this script may confirm rust-auth / rust-projects / rust-project-chats / rust-free-chats to
 # Node (below); never trust a value from the environment.
-unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED NOEVIA_RUST_PROJECT_WRITES_CONFIRMED NOEVIA_FRONT_CLIENT_IP
+unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED NOEVIA_RUST_PROJECT_WRITES_CONFIRMED NOEVIA_RUST_PROJECT_STORE_CONFIRMED NOEVIA_PROJECT_STORE_PORT NOEVIA_PROJECT_STORE_TOKEN NOEVIA_FRONT_CLIENT_IP
 front="${NOEVIA_FRONT:-node}"
 case "$front" in
   node) exec node server/index.cjs ;;
@@ -260,6 +260,34 @@ if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 64535 ]; th
 fi
 legacy=$((port + 1000))
 
+# The project store (sbstndalton/noevia#1264): with NOEVIA_RUST_PROJECT_STORE=1 Node writes
+# projects.json and free-chats.json only through the front's loopback store, at UI_PORT+2000, with
+# a secret made here for this start and handed to both processes (never taken from the
+# environment). Needs the confirmed free-chat slice and a front that lists project-store; the
+# supervisor refuses to start otherwise.
+rust_project_store_confirmed="" store_port="" store_token=""
+if [ "${NOEVIA_RUST_PROJECT_STORE:-}" = 1 ]; then
+  if [ "$rust_free_chats_confirmed" != 1 ]; then
+    echo "web-supervisor: NOEVIA_RUST_PROJECT_STORE=1 needs NOEVIA_RUST_PROJECTS=1 (with NOEVIA_RUST_AUTH=1) and a noevia-server with rust-free-chats" >&2
+    exit 2
+  fi
+  if ! grep -qx 'project-store' <<<"$rust_features"; then
+    echo "web-supervisor: NOEVIA_RUST_PROJECT_STORE=1 but this noevia-server has no project-store" >&2
+    exit 2
+  fi
+  store_port=$((port + 2000))
+  if [ "$store_port" -gt 65535 ]; then
+    echo "web-supervisor: UI_PORT '$port' leaves no room for the project store port UI_PORT+2000" >&2
+    exit 2
+  fi
+  store_token="$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')"
+  if [ "${#store_token}" -ne 64 ]; then
+    echo "web-supervisor: could not make the project store secret" >&2
+    exit 2
+  fi
+  rust_project_store_confirmed=1
+fi
+
 # Node binds UI_HOST for the UI listener AND the Diary file-sharing (DAV) listener. With DAV off
 # the legacy port is loopback-only; with DAV on, Node keeps UI_HOST so DAV stays reachable, and
 # the legacy port is then reachable from the container's networks too (never published by
@@ -294,9 +322,12 @@ UI_HOST="$node_host" UI_PORT="$legacy" NOEVIA_RUST_AUTH_CONFIRMED="$rust_auth_co
   NOEVIA_RUST_STORAGE_READS_CONFIRMED="$rust_storage_reads_confirmed" \
   NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED="$rust_chatgpt_status_confirmed" \
   NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED="$rust_storage_browse_confirmed" \
+  NOEVIA_RUST_PROJECT_STORE_CONFIRMED="$rust_project_store_confirmed" \
+  NOEVIA_PROJECT_STORE_PORT="$store_port" NOEVIA_PROJECT_STORE_TOKEN="$store_token" \
   NOEVIA_RUST_EXPORT_CONFIRMED="$rust_export_confirmed" node server/index.cjs &
 node_pid=$!
-NOEVIA_LEGACY_UPSTREAM="http://127.0.0.1:$legacy" "$bin" &
+NOEVIA_PROJECT_STORE_PORT="$store_port" NOEVIA_PROJECT_STORE_TOKEN="$store_token" \
+  NOEVIA_LEGACY_UPSTREAM="http://127.0.0.1:$legacy" "$bin" &
 front_pid=$!
 
 # Whichever exits first (or a signal) ends the wait.
