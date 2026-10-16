@@ -321,6 +321,16 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release 7ac94a2f — 2026-10-16 (web + model manager; #1863, #1880, #1901, #1751, #1264 slice 1 dark)
+
+### Services
+
+- **Web:** `cowork-web:7ac94a2f` (core `51e788b2`, web `bbe59802`, rs `73d77536`, services `9c4bd37f`; `sha256:487c9ca1…3e1a`).
+- **Model manager:** `cowork-model-loader:7ac94a2f` (`sha256:b8b7033f…7dc8`); idle-unload admin setting, default 1800 s; startup reconcile set `models.ini` `sleep-idle-seconds` 900 → 1800.
+- **Everything else:** no change, not recreated.
+
+Order: services#65 rs lockstep pin, #1912 pins, assembled on the Mac, `build.sh` (web + model-loader) on the box, `candidates.sh` (node and rust fronts) and the isolated `ml-candidate.sh`, idle gate, then `release-prep/7ac94a2f/cutover.sh`: scoped backup, compose sync (`NOEVIA_RUST_PROJECT_WRITES: ${NOEVIA_RUST_PROJECT_WRITES:-0}` on web), model-loader then web via `up.sh ... --no-build --no-deps --wait`, and automatic rollback. A synthetic simple-route probe must use an unprefixed prompt: the #1901 pre-check is anchored at the start of the message. Rollback and evidence are in `docs/changelog.md` (release 7ac94a2f).
+
 ## Release 3b23d181 — 2026-10-16 (web only; #1894, #1895, #1896)
 
 ### Services
