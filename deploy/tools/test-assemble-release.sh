@@ -183,7 +183,7 @@ owner = "node"
 [[route]]
 path = "/api/usage"
 owner = "rust"
-switch = "NOEVIA_RUST_USAGE"
+switch = "NOEVIA_RUST_AUTH"
 methods = ["GET"]
 TOML
 tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
