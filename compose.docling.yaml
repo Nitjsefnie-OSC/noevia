@@ -56,6 +56,8 @@ services:
       # Native extraction switch (#1322, #1690). The image defaults to python; without this line
       # NOEVIA_DOCLING_IMPL=rust in .env never reaches the container. Owner flips it.
       NOEVIA_DOCLING_IMPL: ${NOEVIA_DOCLING_IMPL:-python}
+      # #1867: ranged-convert body cap; empty keeps the image default (96 MiB, fits the 1 GiB /tmp).
+      DOCLING_RANGED_MAX_BYTES: ${DOCLING_RANGED_MAX_BYTES:-}
     tmpfs:
       - /tmp:size=1073741824,mode=1777
     networks: [ocr]

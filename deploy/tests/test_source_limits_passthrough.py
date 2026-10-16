@@ -27,6 +27,16 @@ KEYS = [
     'PROJECT_SYNC_OCR_PAGES',
     'LARGE_DOCUMENT_ACQUIRE_WAIT_MS',
     'LARGE_DOCUMENT_HOLD_WARN_MS',
+    # core#156/#158 (#1868, #1869, #1881): long-document tail backfill budgets.
+    'PROJECT_TAIL_EMBED_PER_PASS',
+    'PROJECT_TAIL_EMBED_PER_HOUR',
+    'PROJECT_TAIL_EMBED_PER_DOCUMENT',
+    'PROJECT_TAIL_EMBED_BATCH',
+    'PROJECT_UPLOAD_COMPLETION_PER_PASS',
+    'PROJECT_BACKFILL_DUTY',
+    'PROJECT_BACKFILL_MIN_PAUSE_MS',
+    'PROJECT_BACKFILL_DELAY_MS',
+    'PROJECT_BACKFILL_INTERVAL_MS',
 ]
 PREFLIGHT_KEYS = ROOT / 'deploy/preflight/web-env-keys.txt'
 COPIES = ['compose.yaml', 'deploy/examples/unraid-compose-manager.yml']
