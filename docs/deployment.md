@@ -321,6 +321,19 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release eb5a4523 — 2026-10-16 (whole stack: web + OCR + Docling; long-document backfill, sidecar ranges)
+
+### Services
+
+- **Web:** `cowork-web:eb5a4523` (core `d0aa3d7a`, web `01b34ccd`, rs `0c540008`, services `419a72bd`; `sha256:7bc578bf…a9`). The long-document tail backfill (#1868, #1869, #1881) runs 90 s after start and every 5 minutes. Its budgets are the nine `PROJECT_TAIL_EMBED_*` / `PROJECT_BACKFILL_*` / `PROJECT_UPLOAD_COMPLETION_PER_PASS` keys, passed with empty defaults and not set in `.env`.
+- **OCR:** `cowork-ocr:eb5a4523` (`sha256:0fe9ed42…b8`), the first OCR image since `9e9bdc0f`.
+- **Docling:** `cowork-docling:eb5a4523` (`sha256:dff30cc8…8f`), native binary overlay on `d37a16e5`; `NOEVIA_DOCLING_IMPL=rust` unchanged.
+- **Model manager, Diary, Laya, code sandbox, egress, llama, embed, rerank, Kev:** no change, not recreated.
+
+**OCR overlay (new, used for the first time here).** As with Docling, a full OCR build would rerun the unpinned `apt-get` layer. When only `server.py`/`docx_text.py`/`pdf_reduce.py`/`entrypoint.sh` and the rs pin changed, build the release Dockerfile's `--target docx-text` stage (checksum-pinned rs), then a two-line overlay: `FROM cowork-ocr:<running tag>`, copy `docx-text` and `noevia-ocr` from that stage into `/usr/local/bin/`, rerun `noevia-ocr --features | grep -qx native-ocr`, and copy the four app files into `/app/`. User, entrypoint and healthcheck are inherited. Qualify with the old and new image side by side on `synthetic_pdfs.py` fixtures (no network): `/extract` bodies must match byte for byte. The scripts are in `release-prep/eb5a4523/{build,candidates}.sh` on the box.
+
+**Order.** The new core uses sidecar ranges and `X-OCR-DPI` as soon as `/health` advertises them, so OCR, Docling and web are cut over back-to-back in one guarded script (`release-prep/eb5a4523/cutover.sh`: gate, backup, compose sync, preflight, then ocr → docling → web, rolling back all three on any failed check). Evidence and rollback are in `docs/changelog.md`, entry eb5a4523.
+
 ## Release 4a7f9d0b — 2026-10-15 (web; multimodal RAG on: model-loader, embed, web; #1762, #1726)
 
 ### Services
