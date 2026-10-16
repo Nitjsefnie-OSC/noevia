@@ -321,6 +321,15 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release 092bc8e0 — 2026-10-16 (web only; #1885 large-PDF SAB upload fix)
+
+### Services
+
+- **Web:** `cowork-web:092bc8e0` (core `f7d9cc99`, web `01b34ccd`, rs `0c540008`, services `419a72bd`; `sha256:1c65e7bb…cd`). Uploads of SAB-backed large reads go as sized streams (core#158).
+- **OCR, Docling:** unchanged at `eb5a4523`. **Everything else:** no change, not recreated.
+
+Order: assembled on the Mac from merged main, `build-web-release.sh`, `candidate-boot.sh` node and rust, a real-OCR SAB probe (old image fails, new passes) and the #1885 test file, then `release-prep/092bc8e0/cutover.sh` (gate, scoped backup, web-only `up.sh`, automatic rollback). Only `cowork-web-1` changed id. Evidence and rollback commands are in `docs/changelog.md`, entry 092bc8e0.
+
 ## Release eb5a4523 — 2026-10-16 (whole stack: web + OCR + Docling; long-document backfill, sidecar ranges)
 
 ### Services

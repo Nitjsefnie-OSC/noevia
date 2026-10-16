@@ -8,6 +8,24 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 092bc8e0 — 2026-10-16 01:21Z (web only; core#158, #1885)
+
+### Services
+
+- **Web:** `cowork-web:092bc8e0` (core `f7d9cc99`, web `01b34ccd`, rs `0c540008`, services `419a72bd`; `sha256:1c65e7bb…cd`), #1887. core#158 fixes #1885: a large read from storage (over 25 MiB) sits in a SharedArrayBuffer, and Node 22's fetch refused it as an upload body ("SharedArrayBuffer is not allowed"), so every OCR/Docling/DOCX upload of a large PDF failed. Such bytes now go as a stream of 1 MiB copies with an explicit Content-Length. Records that failed with that error are reopened once on the next sync.
+- **Diary, model manager, code sandbox, OCR, Docling, Laya, llama, embed, rerank, Kev:** no change, not recreated (`OCR_VERSION`/`DOCLING_VERSION` stay `eb5a4523`).
+- **Deploy/infra:** no change. No new env keys in core `d0aa3d7a..f7d9cc99`; no preflight install, no Compose edit; `.env` changed only `COWORK_VERSION`.
+
+**Candidates.** `build-web-release.sh` from merged main (tarball `9a989e47…4237`, same sha256 on the Mac and the box), `candidate-boot.sh` node and rust fronts (ready, 0 error lines). Real OCR check: a throwaway `--rm`, no-network `cowork-ocr:eb5a4523` plus a `--rm` web container sharing its network namespace ran a synthetic probe (a valid 27 MiB one-page PDF read through core's real `storage-client` large-read path, so SAB-backed, then `ocr.extractPages`). Old image `eb5a4523`: `SharedArrayBuffer is not allowed` (the live error). New image: stream body, `Content-Length: 28312234`, no Transfer-Encoding, 1 page with the marker text recognised in 0.7 s. `server/upload-sab-1885.test.cjs` in the new image under Node 22: 12/12 pass.
+
+**Cutover.** `release-prep/092bc8e0/cutover.sh`: idle gate (jobs idle, llama 0, GTT 29 MiB, MemAvailable 15.9 GiB, no autotune, no document work), pre-checks (embedding service, Kev decision), scoped backup `/mnt/disk3/noevia-backups/web_092bc8e0_20261016T012116Z` (web state, 5 `projects.json`, 30 project-document records / 69 files, `cowork.db` online backup integrity ok, compose, `.env`; SHA256SUMS verified), `current` → `releases/092bc8e0`, `COWORK_VERSION` by `sed`, web-only `up.sh ... -d --no-build --no-deps --wait --wait-timeout 120 web`. The first run aborted before any live change on a counting bug in the script's own backup check (it globbed only per-user `projects.json`); fixed and rerun.
+
+**Post-checks.** Healthy, restarts 0, PID 1 `docker-init`; `/api/ready` `092bc8e0` on loopback and public; signed-out `/api/projects` and `/api/models/reranker` 401 on both; served dist equals image dist (145 files; `index.html`, `manifest.webmanifest`, `version.json` and 16 hashed asset names differ from `eb5a4523` although web is unchanged); allow-listed switches identical apart from `COWORK_VERSION`; embedding service 200 and `embed:8080/health` 200; Kev decision 0.33 s; decision config unchanged; project counts unchanged; preflight 0 missing keys. Only `cowork-web-1` changed id.
+
+**Watch (20 min, read-only).** Web and OCR healthy, 0 restarts, 0 OOM, 0 web error/warn lines, OCR memory 27 MiB. The one record carrying the #1885 error (9 of 9 pages `ocr-needed`) was not processed: no `[documents]` or `[large-document-lock]` lines and no OCR `/extract` requests. The reopen happens on the next source sync/refresh.
+
+**Rollback.** Run the idle gate first. No data migration. `ln -sfn /mnt/docker/appdata/cowork/releases/eb5a4523 current.new && mv -T current.new current`, `sed -i 's/^COWORK_VERSION=092bc8e0$/COWORK_VERSION=eb5a4523/' config/.env`, then `bash tools/preflight/up.sh --env-file config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web`. Old core leaves reopened records as they are; large PDFs fail again with the #1885 error.
+
 ## Release eb5a4523 — 2026-10-16 00:19Z (whole stack: web + OCR + Docling; #1854, #1867, #1868, #1869, #1876, #1878, #1879, #1881, #1882, #1853)
 
 What changed for you: very long documents keep becoming searchable after the first sync: a background pass, 90 s after start and then every 5 minutes, embeds the rest of each long document within an hourly budget, and pauses whenever a chat or Diary turn runs (#1868, #1869, #1881). Large PDFs reach the OCR and Docling sidecars in page ranges of up to 96 MiB, stay within the sync's OCR budget, and pages left incomplete are retried at 400 dpi (#1867, #1882). Inference machines show per-machine measurements (#1854). The code relay is hardened (#1876), the Code pipeline and sandbox follow the Code role to its machine (#1853), and logs and the source count are fixed (#1878, #1879).
