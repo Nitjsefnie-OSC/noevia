@@ -8,6 +8,59 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release eb5a4523 — 2026-10-16 00:19Z (whole stack: web + OCR + Docling; #1854, #1867, #1868, #1869, #1876, #1878, #1879, #1881, #1882, #1853)
+
+What changed for you: very long documents keep becoming searchable after the first sync: a background pass, 90 s after start and then every 5 minutes, embeds the rest of each long document within an hourly budget, and pauses whenever a chat or Diary turn runs (#1868, #1869, #1881). Large PDFs reach the OCR and Docling sidecars in page ranges of up to 96 MiB, stay within the sync's OCR budget, and pages left incomplete are retried at 400 dpi (#1867, #1882). Inference machines show per-machine measurements (#1854). The code relay is hardened (#1876), the Code pipeline and sandbox follow the Code role to its machine (#1853), and logs and the source count are fixed (#1878, #1879).
+
+### Services
+
+- **Web:** #1883 (noevia `eb5a4523`).
+  - core `d0aa3d7a` (was `4374b333`): core#152 (#1853), core#153 (#1876), core#154 (#1878, #1879), core#155 (#1854), core#156 (#1868, #1869, #1881), core#157 (#1867, #1882).
+  - web `01b34ccd` (was `2a781aa4`): web#82 (#1878, #1879), web#83 (#1854), web#84 (#1868).
+  - rs `0c540008` (was `418cd4d0`): rs#127 (#1867): `noevia-ocr` and `docling-service` ranges, 96 MiB bodies, DPI.
+  - services `419a72bd` (was `1d7a4a3b`): services#60 (#1867): Python OCR and Docling ranges, `OCR_EXTRACT_MAX_BYTES` and `DOCLING_RANGED_MAX_BYTES` defaulting to 96 MiB.
+  - Image: `cowork-web:eb5a4523`, `sha256:7bc578bfb4ee75933eb9706500330433a31f9d198adb841e3d2fd749aadcf469`, replacing `cowork-web:9b238027`.
+- **OCR:** `cowork-ocr:eb5a4523`, `sha256:0fe9ed42c96bc74ee920b7162d36ac4292ac1805f8545815b1f004f31cca1ab8`, replacing `cowork-ocr:9e9bdc0f`. Overlay `FROM cowork-ocr:9e9bdc0f`: the release Dockerfile's own checksum-pinned rs stage (`--target docx-text`, `docx-text` and `noevia-ocr` with `native-ocr`) plus `server.py`, `docx_text.py`, `pdf_reduce.py` and `entrypoint.sh`. There is no apt step, so the Tesseract/Poppler/Ghostscript packages are byte-identical to the running image. Between services `373f75ba` (its last build) and `419a72bd`, only `server.py` and the rs pin changed in what the image ships. It also replaces the old draft rs pin `7406050a` with merged rs. `NOEVIA_OCR_IMPL` stays `python` (image default).
+- **Docling:** `cowork-docling:eb5a4523`, `sha256:dff30cc837ab75759a3328c8b7c5eb06d4d951610b79fc5d3c650702ece8d08f`, replacing `cowork-docling:d37a16e5`. Native binary overlay (#1322 path) `FROM cowork-docling:d37a16e5`: `--target native-docling` binary plus the six application files, `CMD ["noevia-docling"]`. The engine and the 669 MB of baked models are reused, and nothing was downloaded (the overlay adds about 1.6 MB). Between services `97ccd8ac` and `419a72bd`, only app files and the rs pin changed. `NOEVIA_DOCLING_IMPL=rust` unchanged.
+- **Model manager, Diary, Laya, code sandbox, egress:** no change, not rebuilt or recreated. Only the rs pin line changed in their Dockerfiles (and `deploy/egress-proxy/Dockerfile`). The rs diff touches only `bins/noevia-ocr`, `crates/docling-service`, `bins/noevia-docling/README.md` and one Cargo.lock line adding `http-body-util` to `noevia-ocr`; no crate they build depends on those. Core's `code-sandbox/` is unchanged.
+- **Kev, llama, embed, rerank, kiwix, Nextcloud:** not touched.
+- **Deploy/infra:**
+  - #1883: the repo compose copies and the preflight list pass nine new web keys with empty defaults (`PROJECT_TAIL_EMBED_PER_PASS`, `_PER_HOUR`, `_PER_DOCUMENT`, `_BATCH`, `PROJECT_UPLOAD_COMPLETION_PER_PASS`, `PROJECT_BACKFILL_DUTY`, `_MIN_PAUSE_MS`, `_DELAY_MS`, `_INTERVAL_MS`). They also pass `OCR_EXTRACT_MAX_BYTES` to ocr and `DOCLING_RANGED_MAX_BYTES` to docling, both empty. Tests cover every copy. `CODE_ENGINE_RELAY_HOST`/`_BIND` are not passed on purpose: core reads `BIND !== undefined`, so an empty passthrough would change behaviour.
+  - Live compose: `docker-compose.yml` gains an `environment:` block on ocr with the one key (2 lines). `docker-compose.override.yml` gains the docling key and the nine web keys (10 lines). Nothing was removed. Rendered config: only `ocr`, `docling` and `web` changed, by added env keys only, with 0 other fields changed. Limits are unchanged: ocr 1 GiB and `/tmp` 512 MiB; docling 6 GiB and `/tmp` 1 GiB. Backups: `docker-compose.{yml,override.yml}.bak.before-eb5a4523`.
+  - Preflight reinstalled from the release; web declares all 93 expected keys.
+  - `.env`: only `COWORK_VERSION`, `OCR_VERSION` and `DOCLING_VERSION` changed, to `eb5a4523`. No new key set. `current` points to `releases/eb5a4523`.
+
+**Evidence.**
+- Pins: each tarball fetched twice with identical results (core `630c4325…`, web `8409d04c…`, rs `b5a5e2ed…`, services `1f87e2dd…`). The rs checksum equals every services Dockerfile pin. #1883 CI green, including "Assembled release (pinned repos)". The release tarball `00349861…` matched on the Mac and the box.
+- Build on DaServer: web 110 s, OCR rs stage 22 s, Docling rs stage 11 s, overlays under 3 s each; no apt, pip or model download step ran.
+- Candidates (no network, read-only, caps dropped, live memory/tmpfs limits):
+  - `candidate-boot.sh` node and rust fronts both returned `{"ready":true,"version":"eb5a4523"}`, with 0 error lines.
+  - OCR old versus new on synthetic PDFs (`synthetic_pdfs.py`, one page): `scanned.pdf` and `mixed-page.pdf` `/extract` bodies are byte-identical (same sha256). Malformed input and 404 behaviour are the same. New `/health` is `{"ranges":true,"maxBytes":100663296,"dpis":[300,400,600]}`. `X-OCR-DPI: 400` read the scan; `250` returned 400.
+  - Docling (rust mode, as live) old versus new on a one-page synthetic PDF: same page signature, keys `pages,total,truncatedPages`. New `/health` adds `"ranges":true,"rangedMaxBytes":100663296`. The d37a16e5 probe passes (text read, figures only on request, `.md` 415). PID 1 `docker-init`, 0 zombies, peak 1.15 GiB, 0 error lines. Candidates removed.
+- Gate before cutover: Coding jobs `idle`, llama idle 0, GTT 29 MiB, MemAvailable 15.6 GiB, no autotune, 0 `[documents]` lines in 3 min, 0 OCR engine processes, 0 Docling workers, sidecar CPU 0.01 %.
+- Backup `/mnt/disk3/noevia-backups/release_eb5a4523_20261016T001909Z`: web state (464 files: 5 projects.json, 69 project-documents files, 30 result records), online `cowork.db` copy with `integrity_check` ok, both compose files and `.env`; SHA256SUMS verified.
+- Cutover, back-to-back, each `up.sh ... --no-build --no-deps --wait`:
+  - OCR at 00:19:22Z: healthy, restarts 0; `/health` from web advertises ranges and 96 MiB.
+  - Docling at 00:19:28Z: healthy, restarts 0; `/health` from web advertises ranges and `rangedMaxBytes` 96 MiB.
+  - Web at 00:19:35Z: healthy, restarts 0, PID 1 `docker-init`. `/api/ready` returns `eb5a4523` on loopback and public. Signed out, `/api/projects` and `/api/models/reranker` return 401 on both. Served dist equals the image (145 files). Allow-listed flags are identical apart from `COWORK_VERSION`.
+  - embedding-service returned 200 (managed, `embeddinggemma-2-Q8_0`). A synthetic Kev decision returned `kev-0.8b` in 0.44 s. `COWORK_DECISION_URL` is `kev:11435`. Decision config and the rerank and OCR networks are unchanged. Project and file counts are unchanged.
+- 20-minute read-only watch (00:21–00:41Z):
+  - Web, OCR and Docling healthy, restarts 0, OOMKilled false, 0 kernel OOM lines. 0 error/warn lines in web, 0 in OCR and Docling.
+  - GTT 29 MiB at start, peak and end. MemAvailable 15.7 GiB at start, 15.4 GiB minimum, 15.9 GiB at end. OCR used 24–27 MiB of 1 GiB and Docling 4–10 MiB of 6 GiB (idle, models load per conversion).
+  - `[large-document-lock]` waits 0, give-ups 0. `[documents] OCR budget deferred` 0. Backfill passes logged 0, chunks embedded 0, failed 0. A pass logs only when it embeds, completes, defers, fails or yields, and embed got 0 requests, so the passes found no tail work. No document sync ran.
+  - Project-documents records were unchanged against the backup: 30 records (27 ready, 1 partial, 2 failed). Page statuses: 66 native, 1 ocr, 9 ocr-needed, 8 blank, 2 none.
+  - Of 45 containers, only `cowork-web-1`, `cowork-ocr-1` and `cowork-docling-1` changed id.
+
+**Rollback.** Run the idle gate first. Restore all three together: the tested pairs are old core with old sidecars and new with new. Core sends `X-OCR-DPI` and ranges only when `/health` advertises them, so a partial state degrades to unranged reads rather than failing. No data migration. The added compose keys are empty and inert for the old images.
+
+```sh
+A=/mnt/docker/appdata/cowork; ENV=$A/config/.env
+ln -sfn $A/releases/9b238027 $A/current
+sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=9b238027/; s/^OCR_VERSION=.*/OCR_VERSION=9e9bdc0f/; s/^DOCLING_VERSION=.*/DOCLING_VERSION=d37a16e5/' $ENV
+for s in web ocr docling; do bash $A/tools/preflight/up.sh --env-file $ENV -- -d --no-build --no-deps --wait --wait-timeout 120 $s; done
+# optional: restore docker-compose.{yml,override.yml}.bak.before-eb5a4523; bash $A/releases/9b238027/noevia/deploy/preflight/install.sh
+```
+
 ## Release 9b238027 — 2026-10-15 21:48Z (web + model manager; #1861, #1862, #1863, #1864, #1865, #1866, #1871, #1872, #1318)
 
 What changed for you: Kev's health is checked at `/v1/models`, and a saved ChatGPT model the account no longer offers is flagged (#1861, #1862). Automatic routing pre-loads the shared Fast/Smart model while it decides, and cancels a wrong guess (#1863). Large PDFs are read in page ranges, up to 96 MiB per read, one large read at a time. Degraded pages are retried with OCR, at most 40 OCR pages per sync (#1864, #1865, #1871). The large-document lock has an acquire timeout (#1872). Citations show page numbers (#1866). Sources show where a PDF stopped and each page's OCR retry outcome. The model manager can serve model updates natively (#1318), but that is switched off.
