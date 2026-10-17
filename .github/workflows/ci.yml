@@ -382,43 +382,31 @@ jobs:
           [ "$(jq -r .version <<<"$v")" = "$SHA" ] && [ "$(jq -r .web <<<"$v")" = "$WEB_REF" ] && [ "$(jq -r .core <<<"$v")" = "$CORE_REF" ]
       # #337: prove the container boots. Synthetic env only (no real secrets, no sidecars); poll
       # /api/ready so a runtime-only crash (a file the runtime stage never copied) fails here.
-      - name: Boot web image and check /api/ready
+      # sbstndalton/noevia#1071: NOEVIA_FRONT=node fails closed before either process starts: Node
+      # no longer answers sign-in or the read routes the Rust front owns.
+      - name: The web image refuses to start without the Rust front
         if: env.RUN_JOB == 'true'
         env:
           SHA: ${{ steps.assemble.outputs.sha }}
         run: |
-          set -e
-          docker run -d --name noevia-web-ci \
-            -p 8021:8021 \
-            -e UI_PORT=8021 \
-            -e UI_AUTH_TOKEN=ci-synthetic-token-$RANDOM \
-            -e DIARY_AUTH_TOKEN=ci-synthetic-diary-token-$RANDOM \
-            -e DIARY_TENANT_KEY=$(openssl rand -hex 32) \
-            -e INFERENCE_BASE_URL=http://127.0.0.1:1 \
-            -e DIARY_BASE_URL=http://127.0.0.1:1 \
-            "cowork-web:$SHA"
-          ok=""
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8021/api/ready -o /tmp/ready.json; then
-              echo "Response: $(cat /tmp/ready.json)"
-              ok=1
-              break
-            fi
-            sleep 2
+          set -u
+          # NOEVIA_FRONT=rust (the image default) needs no switch any more: sign-in, the project
+          # routes and the store are the front's. Only a Node front is a refusal case.
+          for front in node; do
+            code=0
+            out=$(timeout 60 docker run --rm -e NOEVIA_FRONT=$front -e UI_PORT=8021 "cowork-web:$SHA" 2>&1) || code=$?
+            echo "$out"
+            [ "$code" -eq 2 ] || { echo "::error::NOEVIA_FRONT=$front exited $code, not 2"; exit 1; }
+            grep -q '#1071' <<<"$out" || { echo "::error::the refusal does not name #1071"; exit 1; }
+            ! grep -qi 'listening' <<<"$out" || { echo "::error::a process started before the refusal"; exit 1; }
           done
-          if [ -z "$ok" ]; then
-            echo "web image never became ready; container logs follow:"
-            docker logs noevia-web-ci || true
-            docker rm -f noevia-web-ci || true
-            exit 1
-          fi
-          grep -q "$SHA" /tmp/ready.json || { echo "::error::/api/ready does not report $SHA"; exit 1; }
-          docker logs noevia-web-ci || true
-          docker rm -f noevia-web-ci
-      # M1: the same boot with NOEVIA_FRONT=rust (noevia-server on 8021, Node on 9021 behind it),
-      # (NOEVIA_RS_REF must have the front). The page shell and /api/ready come from Rust, a Node
-      # route through the proxy; the container must keep running.
-      - name: Boot web image with NOEVIA_FRONT=rust
+      # M1: the boot with NOEVIA_FRONT=rust (noevia-server on 8021, Node on 9021 behind it) and, since
+      # #1071; sign-in, the project routes and the store are the front's with no switch (NOEVIA_RS_REF
+      # must have the front, with rust-auth; NOEVIA_RUST_AUTH and NOEVIA_RUST_PROJECTS are retired
+      # and not passed). The page
+      # shell and /api/ready come from Rust, /api/setup/status natively too; the container must keep
+      # running.
+      - name: Boot web image with NOEVIA_FRONT=rust and check /api/ready
         if: env.RUN_JOB == 'true'
         env:
           SHA: ${{ steps.assemble.outputs.sha }}
@@ -433,15 +421,12 @@ jobs:
           grep -qx code-net-guard /tmp/features \
             || { echo "::error::the web image's noevia-server does not report code-net-guard"; exit 1; }
           grep -qx rust-auth /tmp/features \
-            || { echo "::error::the web image's noevia-server does not report rust-auth (NOEVIA_RUST_AUTH=1 needs it)"; exit 1; }
-          grep -qx rust-projects /tmp/features \
-            || { echo "::error::the web image's noevia-server does not report rust-projects (NOEVIA_RUST_PROJECTS=1 needs it)"; exit 1; }
-          # A pinned noevia-rs that has the chat-list slice (cargo feature rust-project-chats) is
-          # built with it, so the supervisor can confirm that slice to Node (#1409).
-          if grep -qx 'rust-project-chats = \[\]' "$TREE/rs/bins/noevia-server/Cargo.toml"; then
-            grep -qx rust-project-chats /tmp/features \
-              || { echo "::error::the pinned noevia-rs has rust-project-chats but the web image's noevia-server was built without it"; exit 1; }
-          fi
+            || { echo "::error::the web image's noevia-server does not report rust-auth (the supervisor requires it, #1071)"; exit 1; }
+          # The project routes and the store are permanent (#1071): the supervisor requires these.
+          for f in rust-projects rust-project-chats rust-free-chats project-store; do
+            grep -qx "$f" /tmp/features \
+              || { echo "::error::the web image's noevia-server does not report $f (the project routes are the front's, #1071)"; exit 1; }
+          done
           # Likewise the free-chat slice (cargo feature rust-free-chats).
           if grep -qx 'rust-free-chats = \[\]' "$TREE/rs/bins/noevia-server/Cargo.toml"; then
             grep -qx rust-free-chats /tmp/features \
@@ -478,6 +463,8 @@ jobs:
           docker run -d --name noevia-web-rust \
             -p 8021:8021 \
             -e NOEVIA_FRONT=rust \
+            -e UI_DATA_DIR=/app/server/ui-data \
+            -e PUBLIC_ORIGIN=http://localhost:8021 \
             -e UI_PORT=8021 \
             -e UI_AUTH_TOKEN=ci-synthetic-token-$RANDOM \
             -e DIARY_AUTH_TOKEN=ci-synthetic-diary-token-$RANDOM \

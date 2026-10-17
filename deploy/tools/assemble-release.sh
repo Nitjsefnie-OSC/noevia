@@ -165,17 +165,19 @@ if [ -n "$rs_sum" ]; then
 fi
 
 # Full-Rust migration M4: the Rust front and Node share projects.json. Every project route the
-# front can own (rs/contracts/http/routes.toml, owner "rust", switch NOEVIA_RUST_PROJECTS) must be
-# one this release's core knows the front may own (core/server/rust-projects.cjs OWNED_ROUTES):
+# front owns (rs/contracts/http/routes.toml, owner "rust", no switch since sbstndalton/noevia#1071:
+# a path under /api/projects/ or /api/freechats) must be one this release's core knows the front
+# owns (core/server/rust-projects.cjs OWNED_ROUTES):
 # Node merges what the front writes for those routes per item and refuses its own copies of them.
 # A front that saves a project's chat list over a core from before noevia-core#75 would have its
 # chats dropped by Node's whole-field merge (sbstndalton/noevia#1409), so that pairing is refused
 # here; likewise a front that saves the free-chat list (GET/POST /api/freechats) over a core from
 # before noevia-core#76, whose own free-list writers would overwrite free-chats.json whole. Placeholder names ({id}, {projectId}) are compared as one.
+# $2 names the switch; unset, the unswitched project routes.
 project_routes_rs() {
-  awk -v want="${2:-NOEVIA_RUST_PROJECTS}" '
+  awk -v want="${2:-}" '
     function flush(  n, i, m) {
-      if (owner == "rust" && sw == want) {
+      if (owner == "rust" && sw == want && (want != "" || path ~ /^\/api\/(projects\/|freechats$)/)) {
         if (methods == "") print "ALL " path
         n = split(methods, m, /[^A-Z]+/)
         for (i = 1; i <= n; i++) if (m[i] != "") print m[i] " " path
@@ -191,11 +193,38 @@ project_routes_rs() {
     END { flush() }
   ' "$1" | sed 's/{[^}]*}/{}/g' | sort -u
 }
+# Whether routes.toml gives GET /api/auth/session to Rust with no switch (sign-in is the front's
+# permanently, sbstndalton/noevia#1071).
+rust_auth_unswitched() {
+  awk '
+    function flush() {
+      if (path == "/api/auth/session" && owner == "rust" && sw == "") found = 1
+      path = ""; owner = ""; sw = ""
+    }
+    function value(line) { sub(/^[a-z_]+ *= */, "", line); gsub(/"/, "", line); return line }
+    /^\[\[route\]\]/ { flush(); next }
+    /^path *=/ { path = value($0) }
+    /^owner *=/ { owner = value($0) }
+    /^switch *=/ { sw = value($0) }
+    END { flush(); exit(found ? 0 : 1) }
+  ' "$1"
+}
 project_routes_core() {
   [ -f "$1" ] || return 0
   sed -n "/^const ${2:-OWNED_ROUTES} = /,/]))/p" "$1" | grep -o "'[A-Z]* /[^']*'" | tr -d "'" | sed 's/{[^}]*}/{}/g' | sort -u
 }
 if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
+  # sbstndalton/noevia#1071: the project routes are the front's with no switch. The web supervisor
+  # no longer passes NOEVIA_RUST_PROJECTS, so a front that still gates them on it (before the
+  # noevia-rs retirement) would leave them to a Node that refuses them; and a front that owns them
+  # with no switch needs a core whose refusal is unconditional (rust-projects.cjs refuseOwnedRoute)
+  # and that always writes through the project store.
+  if grep -q '^switch *= *"NOEVIA_RUST_PROJECTS"' "$tree/rs/contracts/http/routes.toml"; then
+    die "noevia-rs at $rs_ref still gates the project routes on NOEVIA_RUST_PROJECTS, which this web supervisor no longer passes; pin a noevia-rs that owns them with no switch (sbstndalton/noevia#1071)"
+  fi
+  if ! grep -q '^function refuseOwnedRoute' "$tree/core/server/rust-projects.cjs" 2>/dev/null; then
+    die "noevia-core at $(lock_value NOEVIA_CORE_REF) still gates its project routes on NOEVIA_RUST_PROJECTS (no unconditional refuseOwnedRoute in server/rust-projects.cjs), which this web supervisor no longer passes; pin a core that refuses them always (sbstndalton/noevia#1071)"
+  fi
   missing="$(comm -23 <(project_routes_rs "$tree/rs/contracts/http/routes.toml") <(project_routes_core "$tree/core/server/rust-projects.cjs"))"
   [ -z "$missing" ] || die "noevia-rs at $rs_ref owns project routes that noevia-core at $(lock_value NOEVIA_CORE_REF) does not list in server/rust-projects.cjs OWNED_ROUTES (pin a core that does): $(printf '%s' "$missing" | tr '\n' ';')"
   # sbstndalton/noevia#1264: the project writes the front answers under NOEVIA_RUST_PROJECT_WRITES
@@ -203,6 +232,19 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   # both processes would write them.
   missing="$(comm -23 <(project_routes_rs "$tree/rs/contracts/http/routes.toml" NOEVIA_RUST_PROJECT_WRITES) <(project_routes_core "$tree/core/server/rust-projects.cjs" PROJECT_WRITE_ROUTES))"
   [ -z "$missing" ] || die "noevia-rs at $rs_ref owns project write routes that noevia-core at $(lock_value NOEVIA_CORE_REF) does not list in server/rust-projects.cjs PROJECT_WRITE_ROUTES (pin a core that does): $(printf '%s' "$missing" | tr '\n' ';')"
+  # sbstndalton/noevia#1071: a front that owns sign-in with no switch (routes.toml: GET
+  # /api/auth/session owner "rust", no `switch`) needs a core whose rust-auth guard is unconditional
+  # (server/rust-auth.cjs refuseOwned). The web supervisor no longer hands Node NOEVIA_RUST_AUTH or
+  # its confirmation, so an older core would run as a second writer of the account tables.
+  # sbstndalton/noevia#1931: this repo's web supervisor no longer passes NOEVIA_RUST_AUTH, so a
+  # front that still gates sign-in on it (before noevia-rs#146) would refuse NOEVIA_RUST_PROJECTS
+  # and web would restart-loop. Every pinned rs must own sign-in with no switch.
+  rust_auth_unswitched "$tree/rs/contracts/http/routes.toml" \
+    || die "noevia-rs at $rs_ref still gates sign-in on NOEVIA_RUST_AUTH (GET /api/auth/session is not Rust-owned without a switch), which this web supervisor no longer passes; pin a noevia-rs with rs#146 (sbstndalton/noevia#1931)"
+  if rust_auth_unswitched "$tree/rs/contracts/http/routes.toml" \
+     && ! grep -q '^function refuseOwned' "$tree/core/server/rust-auth.cjs" 2>/dev/null; then
+    die "noevia-rs at $rs_ref owns sign-in with no switch, but noevia-core at $(lock_value NOEVIA_CORE_REF) still gates its rust-auth guard on NOEVIA_RUST_AUTH (pin a core with an unconditional server/rust-auth.cjs, sbstndalton/noevia#1071)"
+  fi
 fi
 
 for need in web/package.json web/package-lock.json web/src web/index.html core/server/package.json core/server/index.cjs core/contracts \
