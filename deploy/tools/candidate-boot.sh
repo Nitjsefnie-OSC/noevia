@@ -5,7 +5,9 @@
 #
 # Usage: candidate-boot.sh <release-sha> [image]
 #   image defaults to cowork-web:<sha>.
-#   CANDIDATE_FRONT=node|rust   front to boot (default node; rust needs NOEVIA_RUST_* switches off).
+#   CANDIDATE_FRONT=rust        the only front since sbstndalton/noevia#1071 (the web supervisor
+#                               refuses node); no switches (#1071: sign-in, the project routes and
+#                               the store are the front's with no switch).
 #   CANDIDATE_WAIT_SECONDS=N    bound on the readiness wait (default 120).
 #
 # Runs on the Docker host. Nothing here reads .env, and the throwaway tokens are never printed.
@@ -16,10 +18,11 @@ if [[ ! "$sha" =~ ^[0-9a-f]{7,40}$ ]]; then
   exit 2
 fi
 image="${2:-cowork-web:$sha}"
-front="${CANDIDATE_FRONT:-node}"
+front="${CANDIDATE_FRONT:-rust}"
 case "$front" in
-  node|rust) ;;
-  *) echo "candidate-boot: CANDIDATE_FRONT must be node or rust" >&2; exit 2 ;;
+  rust) ;;
+  node) echo "candidate-boot: the node front is gone (sbstndalton/noevia#1071); the web supervisor refuses it" >&2; exit 2 ;;
+  *) echo "candidate-boot: CANDIDATE_FRONT must be rust" >&2; exit 2 ;;
 esac
 wait_s="${CANDIDATE_WAIT_SECONDS:-120}"
 if [[ ! "$wait_s" =~ ^[0-9]+$ ]]; then

@@ -158,22 +158,56 @@ check "a non-sha NOEVIA_RS_REF with a checksum is refused" '[ $rc -ne 0 ] && gre
 
 # M4 (#1409): a front that owns project routes its core's rust-projects.cjs OWNED_ROUTES does not
 # list (a chat-list front over a core from before noevia-core#75) is refused; names of path
-# placeholders do not matter.
-mkdir -p "$work/remote/noevia-rs-y/bins/noevia-server" "$work/remote/noevia-rs-y/contracts/http"
-echo '[workspace]' > "$work/remote/noevia-rs-y/Cargo.toml"
-echo synthetic > "$work/remote/noevia-rs-y/bins/noevia-server/Cargo.toml"
-cat > "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
+# placeholders do not matter. Since sbstndalton/noevia#1071 those routes have no switch (the
+# supervisor no longer passes NOEVIA_RUST_PROJECTS): a front or core that still waits on it is
+# refused first.
+mkdir -p "$work/remote/noevia-rs-old/bins/noevia-server" "$work/remote/noevia-rs-old/contracts/http"
+echo '[workspace]' > "$work/remote/noevia-rs-old/Cargo.toml"
+echo synthetic > "$work/remote/noevia-rs-old/bins/noevia-server/Cargo.toml"
+cat > "$work/remote/noevia-rs-old/contracts/http/routes.toml" <<'TOML'
 [[route]]
 path = "/api/projects/{id}/assets"
 owner = "rust"
 switch = "NOEVIA_RUST_PROJECTS"
+methods = ["POST"]
+TOML
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-old
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+cat > "$w/server/rust-projects.cjs" <<'JS'
+function refuseOwnedRoute() {}
+const OWNED_ROUTES = Object.freeze(new Set([
+  'POST /api/projects/{id}/assets',
+]));
+JS
+g add -A && g commit -qm rs-switched; po="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$po" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071: a front that still gates the project routes on NOEVIA_RUST_PROJECTS is refused, even over a current core" \
+  '[ $rc -ne 0 ] && grep -q "still gates the project routes on NOEVIA_RUST_PROJECTS" "$work/err" && [ ! -f "$out/noevia-release-$po.tar.gz" ]'
+g rm -q apps/web/server/rust-projects.cjs && g commit -qm core-plain-again
+
+mkdir -p "$work/remote/noevia-rs-y/bins/noevia-server" "$work/remote/noevia-rs-y/contracts/http"
+echo '[workspace]' > "$work/remote/noevia-rs-y/Cargo.toml"
+echo synthetic > "$work/remote/noevia-rs-y/bins/noevia-server/Cargo.toml"
+# sbstndalton/noevia#1931: every rs pinned under this supervisor must own sign-in with no switch
+# (rs#146 level), and its core must carry the unconditional rust-auth guard.
+printf '%s\n' "function refuseOwned(req, res, pathname, json) { return false; }" > "$w/server/rust-auth.cjs"
+g add -A
+cat > "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
+[[route]]
+path = "/api/auth/session"
+owner = "rust"
+methods = ["GET"]
+
+[[route]]
+path = "/api/projects/{id}/assets"
+owner = "rust"
 methods = ["POST"]
 client = false
 
 [[route]]
 path = "/api/projects/{projectId}/chats"
 owner = "rust"
-switch = "NOEVIA_RUST_PROJECTS"
 methods = ["GET", "POST"]
 
 [[route]]
@@ -183,7 +217,6 @@ owner = "node"
 [[route]]
 path = "/api/usage"
 owner = "rust"
-switch = "NOEVIA_RUST_USAGE"
 methods = ["GET"]
 TOML
 tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
@@ -192,8 +225,21 @@ printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_
 g commit -qam rs-projects; pa="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pa" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "a front owning project routes over a core without rust-projects.cjs is refused" \
-  '[ $rc -ne 0 ] && grep -q "POST /api/projects/{}/assets" "$work/err" && [ ! -f "$out/noevia-release-$pa.tar.gz" ]'
+  '[ $rc -ne 0 ] && grep -q "refuseOwnedRoute" "$work/err" && [ ! -f "$out/noevia-release-$pa.tar.gz" ]'
+# #1071: a core that lists the routes but still gates its refusal on the switch (no refuseOwnedRoute).
 cat > "$w/server/rust-projects.cjs" <<'JS'
+const OWNED_ROUTES = Object.freeze(new Set([
+  'POST /api/projects/{id}/assets',
+  'GET /api/projects/{id}/chats',
+  'POST /api/projects/{id}/chats',
+]));
+JS
+g add -A && g commit -qm core-switched; pq="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pq" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071: an unswitched front over a core that still gates its project routes on NOEVIA_RUST_PROJECTS is refused" \
+  '[ $rc -ne 0 ] && grep -q "still gates its project routes on NOEVIA_RUST_PROJECTS" "$work/err" && [ ! -f "$out/noevia-release-$pq.tar.gz" ]'
+cat > "$w/server/rust-projects.cjs" <<'JS'
+function refuseOwnedRoute() {}
 const OWNED_ROUTES = Object.freeze(new Set([
   'POST /api/projects/{id}/assets',
   'GET /api/projects/{id}/assets/{assetId}',
@@ -205,6 +251,7 @@ PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pb" "$out
 check "a chat-list front over a core that lists only the image routes is refused, naming both methods" \
   '[ $rc -ne 0 ] && grep -q "GET /api/projects/{}/chats;POST /api/projects/{}/chats$" "$work/err" && ! grep -q "assets" "$work/err" && [ ! -f "$out/noevia-release-$pb.tar.gz" ]'
 cat > "$w/server/rust-projects.cjs" <<'JS'
+function refuseOwnedRoute() {}
 const OWNED_ROUTES = Object.freeze(new Set([
   'POST /api/projects/{id}/assets',
   'GET /api/projects/{id}/assets/{assetId}',
@@ -225,7 +272,6 @@ cat >> "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
 [[route]]
 path = "/api/freechats"
 owner = "rust"
-switch = "NOEVIA_RUST_PROJECTS"
 methods = ["GET", "POST"]
 
 [[route]]
@@ -240,6 +286,7 @@ PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pd" "$out
 check "a free-chat front over a core that lists only the project routes is refused, naming both methods" \
   '[ $rc -ne 0 ] && grep -q "GET /api/freechats;POST /api/freechats$" "$work/err" && ! grep -q "/api/projects" "$work/err" && [ ! -f "$out/noevia-release-$pd.tar.gz" ]'
 cat > "$w/server/rust-projects.cjs" <<'JS'
+function refuseOwnedRoute() {}
 const OWNED_ROUTES = Object.freeze(new Set([
   'POST /api/projects/{id}/assets',
   'GET /api/projects/{id}/assets/{assetId}',
@@ -255,7 +302,7 @@ PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pe" "$out
 check "the same front over a core that lists the free-chat routes assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pe.tar.gz" ]'
 # sbstndalton/noevia#1264: a front that answers project writes under NOEVIA_RUST_PROJECT_WRITES over a
 # core whose PROJECT_WRITE_ROUTES lacks them (Node would write them too) is refused, naming only
-# those; a core that lists them assembles. NOEVIA_RUST_PROJECTS routes are not asked of that list.
+# those; a core that lists them assembles. The unswitched project routes are not asked of that list.
 cat >> "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
 
 [[route]]
@@ -280,6 +327,45 @@ JS
 g add -A && g commit -qm core-project-writes; pg="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pg" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "the same front over a core that lists the project-write routes assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pg.tar.gz" ]'
+# sbstndalton/noevia#1071: a front that owns sign-in with no switch over a core whose rust-auth guard
+# still waits for NOEVIA_RUST_AUTH (which the supervisor no longer passes, so Node would write the
+# account tables too) is refused; a core with the unconditional guard (refuseOwned) assembles.
+cat >> "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
+
+[[route]]
+path = "/api/auth/session"
+owner = "rust"
+methods = ["GET"]
+TOML
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g rm -q apps/web/server/rust-auth.cjs
+g commit -qam rs-auth-unswitched; ph="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "an unswitched sign-in front over a core without server/rust-auth.cjs is refused" \
+  '[ $rc -ne 0 ] && grep -q "still gates its rust-auth guard on NOEVIA_RUST_AUTH" "$work/err" && [ ! -f "$out/noevia-release-$ph.tar.gz" ]'
+printf '%s\n' "function enabledFrom(env) { return env.NOEVIA_RUST_AUTH === '1' && env.NOEVIA_RUST_AUTH_CONFIRMED === '1'; }" > "$w/server/rust-auth.cjs"
+g add -A && g commit -qm core-switched-auth; pi="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pi" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "...and over a core whose guard still waits for the switch" \
+  '[ $rc -ne 0 ] && grep -q "still gates its rust-auth guard" "$work/err" && [ ! -f "$out/noevia-release-$pi.tar.gz" ]'
+printf '%s\n' "function refuseOwned(req, res, pathname, json) { return false; }" > "$w/server/rust-auth.cjs"
+g add -A && g commit -qm core-unconditional-auth; pj="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pj" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "the same front over a core with the unconditional guard assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pj.tar.gz" ]'
+# sbstndalton/noevia#1931: a front that still gates sign-in on NOEVIA_RUST_AUTH (a pre-rs#146 pin)
+# under this supervisor, which no longer passes that switch, is refused even over a good core.
+rt="$work/remote/noevia-rs-y/contracts/http/routes.toml"
+awk '{ print } s && /^owner = "rust"$/ { print "switch = \"NOEVIA_RUST_AUTH\""; s = 0 } /^path = "\/api\/auth\/session"$/ { s = 1 }' "$rt" > "$rt.new" && mv "$rt.new" "$rt"
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g commit -qam rs-auth-switched; pk="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pk" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "a switched sign-in front (pre-rs#146) under this supervisor is refused" \
+  '[ $rc -ne 0 ] && grep -q "still gates sign-in on NOEVIA_RUST_AUTH" "$work/err" && [ ! -f "$out/noevia-release-$pk.tar.gz" ]'
+g rm -q apps/web/server/rust-auth.cjs && g commit -qm core-no-auth
 g rm -q apps/web/server/rust-projects.cjs && g commit -qm core-plain
 
 # A failing final tar must not leave out.partial (or a final tarball) behind. The shim writes a

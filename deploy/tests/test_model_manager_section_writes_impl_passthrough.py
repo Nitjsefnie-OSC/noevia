@@ -1,7 +1,7 @@
 """MODEL_MANAGER_SECTION_WRITES_IMPL reaches the model-loader container, defaulting to python, in each repo compose copy.
 
-#1318 (noevia-services#67, noevia-rs#139): the model-manager image reads MODEL_MANAGER_SECTION_WRITES_IMPL to decide whether
-the native front answers the models.ini writers. The image defaults it to python; without a compose
+#1318 (noevia-services#66/#67, noevia-rs#138/#139): the model-manager image reads MODEL_MANAGER_SECTION_WRITES_IMPL to decide whether
+the native front answers its section writes routes. The image defaults it to python; without a compose
 passthrough the owner could not switch it from .env, and an empty value must never be passed. Only key
 names and the default expression are read here; no .env value is ever read.
 """

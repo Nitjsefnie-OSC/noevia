@@ -1,30 +1,46 @@
 #!/usr/bin/env bash
 # The web image's entrypoint (full-Rust migration M1, docs/adr-0001-rust-and-repo-split.md
-# "Amendment 2026-10-10"). NOEVIA_FRONT picks who faces the network on UI_PORT:
+# "Amendment 2026-10-10"). noevia-server (noevia-rs bins/noevia-server) faces the network on
+# UI_HOST:UI_PORT, Node behind it on UI_PORT+1000 (NOEVIA_LEGACY_UPSTREAM). The front answers the
+# routes noevia-rs contracts/http/routes.toml gives to Rust and streams the rest to Node.
 #
-#   node (default)  Node alone, exactly as before: `node server/index.cjs` on UI_HOST:UI_PORT.
-#   rust            noevia-server (noevia-rs bins/noevia-server) on UI_HOST:UI_PORT, Node behind
-#                   it on UI_PORT+1000 (NOEVIA_LEGACY_UPSTREAM). The front answers the routes
-#                   noevia-rs contracts/http/routes.toml gives to Rust and streams the rest to Node.
-#
-# This is a deployment switch, not an interposer: it is removed once the Rust front is proven.
+# sbstndalton/noevia#1071: the front read routes (usage, sampling and reasoning settings, routing
+# mode and default, engine statistics, ChatGPT status, connected-storage metadata/list/read and the
+# conversation export) and sign-in and the account (rust-auth) are the Rust front's permanently;
+# Node no longer has them. So are the project routes (images, project and free chat lists) and the
+# project store. The deployment switches NOEVIA_RUST_AUTH and NOEVIA_RUST_PROJECTS are retired: a
+# leftover value only warns. So the image runs only with NOEVIA_FRONT=rust and a noevia-server
+# whose --features lists rust-auth and every front route feature (FRONT_ROUTE_FEATURES). Anything else stops here, non-zero, before either process starts.
+# NOEVIA_FRONT=node is refused for the same reason: Node alone would answer those routes 503.
 # If either process exits, the other is stopped and the container exits non-zero, so Docker's
 # restart policy brings both back together.
 set -uo pipefail
 
-# Only this script may confirm rust-auth / rust-projects / rust-project-chats / rust-free-chats to
-# Node (below); never trust a value from the environment.
+# Only this script may confirm the project writes to Node and hand out the project store (below);
+# never trust a value from the environment. (The retired confirmations, rust-auth's, the projects'
+# and the front routes', are scrubbed too, so an inherited value can never reach a Node of either age.)
 unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED NOEVIA_RUST_PROJECT_WRITES_CONFIRMED NOEVIA_RUST_PROJECT_STORE_CONFIRMED NOEVIA_PROJECT_STORE_PORT NOEVIA_PROJECT_STORE_TOKEN NOEVIA_FRONT_CLIENT_IP
+FRONT_ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode rust-projects rust-project-chats project-store"
+# Their old switches only earn a warning now (noevia-server says the same), and neither process
+# gets them (each would only warn again).
+for retired in NOEVIA_RUST_AUTH NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS NOEVIA_RUST_REASONING_SETTINGS NOEVIA_RUST_ROUTING_MODE \
+  NOEVIA_RUST_ROUTING_DEFAULT NOEVIA_RUST_STATS NOEVIA_RUST_EXPORT NOEVIA_RUST_CHATGPT_STATUS NOEVIA_RUST_STORAGE_READS \
+  NOEVIA_RUST_STORAGE_BROWSE NOEVIA_RUST_PROJECTS; do
+  if [ -n "${!retired+set}" ]; then
+    echo "web-supervisor: $retired is retired (sbstndalton/noevia#1071) and ignored; remove it from the environment" >&2
+    unset "$retired"
+  fi
+done
 front="${NOEVIA_FRONT:-node}"
 case "$front" in
-  node) exec node server/index.cjs ;;
   rust) ;;
-  *) echo "web-supervisor: NOEVIA_FRONT must be rust or node, got '$front'" >&2; exit 2 ;;
+  node) echo "web-supervisor: NOEVIA_FRONT=node is no longer supported: the Rust front owns sign-in and routes Node no longer has (sbstndalton/noevia#1071); set NOEVIA_FRONT=rust" >&2; exit 2 ;;
+  *) echo "web-supervisor: NOEVIA_FRONT must be rust, got '$front'" >&2; exit 2 ;;
 esac
 
 bin="${NOEVIA_SERVER_BIN:-/usr/local/bin/noevia-server}"
 if [ ! -x "$bin" ]; then
-  echo "web-supervisor: NOEVIA_FRONT=rust but this image has no noevia-server (its NOEVIA_RS_REF predates bins/noevia-server); set NOEVIA_FRONT=node" >&2
+  echo "web-supervisor: NOEVIA_FRONT=rust but this image has no noevia-server (its NOEVIA_RS_REF predates bins/noevia-server); update the image" >&2
   exit 2
 fi
 # The code-network guard (sbstndalton/noevia#1246): with COWORK_CODE_NET_ADDR set, Node behind
@@ -37,7 +53,7 @@ else
   features=code-net-guard
 fi
 if ! grep -qx 'code-net-guard' <<<"$features"; then
-  echo "web-supervisor: COWORK_CODE_NET_ADDR is set but this noevia-server has no code-net-guard; set NOEVIA_FRONT=node or update the image" >&2
+  echo "web-supervisor: COWORK_CODE_NET_ADDR is set but this noevia-server has no code-net-guard; update the image" >&2
   exit 2
 fi
 # The client address (noevia-core server/auth.cjs, #1578): Node believes X-Noevia-Client-Ip from its
@@ -52,201 +68,29 @@ if grep -qx 'client-address-header' <<<"$client_features"; then
 else
   echo "web-supervisor: this noevia-server has no client-address-header; Node ignores X-Noevia-Client-Ip and sees every client as the front" >&2
 fi
-# Rust-owned sign-in (noevia-core server/rust-auth.cjs): with NOEVIA_RUST_AUTH=1 Node refuses to
-# write the account tables, so the front facing the network must answer those routes. Only a front
-# whose --features lists rust-auth may do that; Node is told so with NOEVIA_RUST_AUTH_CONFIRMED=1
-# and stays a full writer without it.
-rust_auth_confirmed=""
-if [ "${NOEVIA_RUST_AUTH:-}" = 1 ]; then
-  rust_features="$("$bin" --features 2>/dev/null || true)"
-  if ! grep -qx 'rust-auth' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_AUTH=1 but this noevia-server has no rust-auth; unset NOEVIA_RUST_AUTH, set NOEVIA_FRONT=node or update the image" >&2
-    exit 2
-  fi
-  rust_auth_confirmed=1
+# Rust-owned sign-in (noevia-core server/rust-auth.cjs), permanent since #1071: Node always refuses
+# to write the account tables and no longer answers sign-in, so the front facing the network must.
+# A front whose --features does not list rust-auth never starts.
+rust_features="$("$bin" --features 2>/dev/null || true)"
+if ! grep -qx 'rust-auth' <<<"$rust_features"; then
+  echo "web-supervisor: this noevia-server has no rust-auth; Node no longer answers sign-in (sbstndalton/noevia#1071), so update the image" >&2
+  exit 2
 fi
-# Rust-owned project routes, M4 (noevia-core server/rust-projects.cjs): with NOEVIA_RUST_PROJECTS=1
-# the front answers a project's image routes and shares projects.json with Node under one lock, and
-# Node refuses its copies of those writes. It builds on rust-auth (the front gates those routes
-# itself), and only a front whose --features lists rust-projects may take them; Node is told so
-# with NOEVIA_RUST_PROJECTS_CONFIRMED=1. The front refuses NOEVIA_RUST_PROJECTS=1 without
-# NOEVIA_RUST_AUTH=1 too; this stops before either process starts.
-rust_projects_confirmed=""
-if [ "${NOEVIA_RUST_PROJECTS:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_PROJECTS=1 needs NOEVIA_RUST_AUTH=1; set both or unset NOEVIA_RUST_PROJECTS" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-projects' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_PROJECTS=1 but this noevia-server has no rust-projects; unset NOEVIA_RUST_PROJECTS, set NOEVIA_FRONT=node or update the image" >&2
-    exit 2
-  fi
-  rust_projects_confirmed=1
-fi
-# M4's chat-list slice (sbstndalton/noevia#1409): the front answers a project's chat list only when
-# built with it, and then lists rust-project-chats; only then is Node told so, with
-# NOEVIA_RUST_PROJECT_CHATS_CONFIRMED=1, and refuses its own chat-list save. A front that lists
-# rust-projects alone answers the images only and leaves the chat list to Node: not an error.
-rust_project_chats_confirmed=""
-if [ "$rust_projects_confirmed" = 1 ] && grep -qx 'rust-project-chats' <<<"$rust_features"; then
-  rust_project_chats_confirmed=1
-fi
-# M4's free-chat slice: the same, for GET/POST /api/freechats and the cargo feature rust-free-chats.
-# Confirmed, Node takes free-chats.json.lock and merges the free list per item for its own writers
-# of the file, and refuses its own free-list save. Independent of the project chat slice.
-rust_free_chats_confirmed=""
-if [ "$rust_projects_confirmed" = 1 ] && grep -qx 'rust-free-chats' <<<"$rust_features"; then
-  rust_free_chats_confirmed=1
-fi
-# M6 reporting is a native owner only with validated Rust auth and its compiled feature.
-rust_usage_confirmed=""
-if [ "${NOEVIA_RUST_USAGE:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_USAGE=1 needs NOEVIA_RUST_AUTH=1" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-usage' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_USAGE=1 but this noevia-server has no rust-usage" >&2
-    exit 2
-  fi
-  rust_usage_confirmed=1
-fi
-# Sampling settings own one fixed key only after native auth and feature confirmation.
-rust_sampling_settings_confirmed=""
-if [ "${NOEVIA_RUST_SAMPLING_SETTINGS:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_SAMPLING_SETTINGS=1 needs NOEVIA_RUST_AUTH=1" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-sampling-settings' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_SAMPLING_SETTINGS=1 but this noevia-server has no rust-sampling-settings" >&2
-    exit 2
-  fi
-  rust_sampling_settings_confirmed=1
-fi
-# Reasoning default PUT owns one fixed key after native auth and compiled feature confirmation.
-rust_reasoning_settings_confirmed=""
-if [ "${NOEVIA_RUST_REASONING_SETTINGS:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_REASONING_SETTINGS=1 needs NOEVIA_RUST_AUTH=1" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-reasoning-settings' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_REASONING_SETTINGS=1 but this noevia-server has no rust-reasoning-settings" >&2
-    exit 2
-  fi
-  rust_reasoning_settings_confirmed=1
-fi
-# Routing configuration owns its fixed settings/audit and tenant file only with auth and capability.
-rust_routing_mode_confirmed=""
-if [ "${NOEVIA_RUST_ROUTING_MODE:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_ROUTING_MODE=1 needs NOEVIA_RUST_AUTH=1" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-routing-mode' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_ROUTING_MODE=1 but this noevia-server has no rust-routing-mode" >&2
-    exit 2
-  fi
-  rust_routing_mode_confirmed=1
-fi
-# The routing default (M6, #1305): Node refuses its GET only once the front has confirmed it owns it.
-rust_routing_default_confirmed=""
-if [ "${NOEVIA_RUST_ROUTING_DEFAULT:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_ROUTING_DEFAULT=1 needs NOEVIA_RUST_AUTH=1" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-routing-default' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_ROUTING_DEFAULT=1 but this noevia-server has no rust-routing-default" >&2
-    exit 2
-  fi
-  rust_routing_default_confirmed=1
-fi
-# The engine statistics (M6, #1650): Node refuses GET /api/stats only once the front has confirmed it
-# owns it. The front itself refuses to start with this switch on a Lemonade or https engine.
-rust_stats_confirmed=""
-if [ "${NOEVIA_RUST_STATS:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_STATS=1 needs NOEVIA_RUST_AUTH=1" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-stats' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_STATS=1 but this noevia-server has no rust-stats" >&2
-    exit 2
-  fi
-  rust_stats_confirmed=1
-fi
-# Connected-storage metadata (M4, #1368): Node refuses GET /api/integrations/storage only once the
-# front has confirmed it owns it (noevia-core features.cjs rustStorageReadsOwned). The list and
-# file-read routes stay Node's under this switch.
-rust_storage_reads_confirmed=""
-if [ "${NOEVIA_RUST_STORAGE_READS:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_STORAGE_READS=1 needs NOEVIA_RUST_AUTH=1" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-storage-reads' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_STORAGE_READS=1 but this noevia-server has no rust-storage-reads" >&2
-    exit 2
-  fi
-  rust_storage_reads_confirmed=1
-fi
-# The ChatGPT connection status (M6, #1373): Node refuses GET /api/providers/chatgpt only once the
-# front has confirmed it owns it (noevia-core features.cjs rustChatgptStatusOwned). Every sibling
-# (device login, poll, cancel, models) and every other method stays Node's.
-rust_chatgpt_status_confirmed=""
-if [ "${NOEVIA_RUST_CHATGPT_STATUS:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_CHATGPT_STATUS=1 needs NOEVIA_RUST_AUTH=1" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-chatgpt-status' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_CHATGPT_STATUS=1 but this noevia-server has no rust-chatgpt-status" >&2
-    exit 2
-  fi
-  rust_chatgpt_status_confirmed=1
-fi
-# Connected-storage list and text read (M4, #1368): outbound calls from the front, in owned child
-# processes. Node refuses them only once the front has confirmed it owns them (noevia-core
-# features.cjs rustStorageBrowseOwned).
-rust_storage_browse_confirmed=""
-if [ "${NOEVIA_RUST_STORAGE_BROWSE:-}" = 1 ]; then
-  if [ "$rust_auth_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_STORAGE_BROWSE=1 needs NOEVIA_RUST_AUTH=1" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-storage-browse' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_STORAGE_BROWSE=1 but this noevia-server has no rust-storage-browse" >&2
-    exit 2
-  fi
-  rust_storage_browse_confirmed=1
-fi
-# The conversation export (M4, #1315): Node refuses GET /api/export/conversations only once the front
-# has confirmed it owns it. The front reads the user's files from disk, so it needs the confirmed
-# project and free-chat slices (the owner's 2026-10-12 condition); it refuses to start without them.
-rust_export_confirmed=""
-if [ "${NOEVIA_RUST_EXPORT:-}" = 1 ]; then
-  if [ "$rust_free_chats_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_EXPORT=1 needs NOEVIA_RUST_PROJECTS=1 (with NOEVIA_RUST_AUTH=1) and a noevia-server with rust-free-chats" >&2
-    exit 2
-  fi
-  if ! grep -qx 'rust-export' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_EXPORT=1 but this noevia-server has no rust-export" >&2
-    exit 2
-  fi
-  rust_export_confirmed=1
+# The permanent front read routes (#1071): every feature, or nothing starts.
+missing=""
+for feature in $FRONT_ROUTE_FEATURES; do
+  grep -qx -- "$feature" <<<"$rust_features" || missing="$missing $feature"
+done
+if [ -n "$missing" ]; then
+  echo "web-supervisor: this noevia-server lacks the front route feature(s):$missing; Node no longer answers those routes (sbstndalton/noevia#1071), so update the image" >&2
+  exit 2
 fi
 # The project writes moved off Node (sbstndalton/noevia#1264): their own switch,
-# NOEVIA_RUST_PROJECT_WRITES=1, off by default (NOEVIA_RUST_PROJECTS=1 alone never moves them). Node
-# refuses its copies only once this front is confirmed to answer them: confirmed projects and a
-# noevia-server that lists rust-project-writes. The front refuses to start otherwise.
+# NOEVIA_RUST_PROJECT_WRITES=1, off by default (the permanent project routes never move them). Node
+# refuses its copies only once this front is confirmed to answer them: a noevia-server that lists
+# rust-project-writes. The front refuses to start otherwise.
 rust_project_writes_confirmed=""
 if [ "${NOEVIA_RUST_PROJECT_WRITES:-}" = 1 ]; then
-  if [ "$rust_projects_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_PROJECT_WRITES=1 needs NOEVIA_RUST_PROJECTS=1 (with NOEVIA_RUST_AUTH=1)" >&2
-    exit 2
-  fi
   if ! grep -qx 'rust-project-writes' <<<"$rust_features"; then
     echo "web-supervisor: NOEVIA_RUST_PROJECT_WRITES=1 but this noevia-server has no rust-project-writes" >&2
     exit 2
@@ -260,32 +104,19 @@ if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 64535 ]; th
 fi
 legacy=$((port + 1000))
 
-# The project store (sbstndalton/noevia#1264): with NOEVIA_RUST_PROJECT_STORE=1 Node writes
-# projects.json and free-chats.json only through the front's loopback store, at UI_PORT+2000, with
-# a secret made here for this start and handed to both processes (never taken from the
-# environment). Needs the confirmed free-chat slice and a front that lists project-store; the
-# supervisor refuses to start otherwise.
-rust_project_store_confirmed="" store_port="" store_token=""
-if [ "${NOEVIA_RUST_PROJECT_STORE:-}" = 1 ]; then
-  if [ "$rust_free_chats_confirmed" != 1 ]; then
-    echo "web-supervisor: NOEVIA_RUST_PROJECT_STORE=1 needs NOEVIA_RUST_PROJECTS=1 (with NOEVIA_RUST_AUTH=1) and a noevia-server with rust-free-chats" >&2
-    exit 2
-  fi
-  if ! grep -qx 'project-store' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_PROJECT_STORE=1 but this noevia-server has no project-store" >&2
-    exit 2
-  fi
-  store_port=$((port + 2000))
-  if [ "$store_port" -gt 65535 ]; then
-    echo "web-supervisor: UI_PORT '$port' leaves no room for the project store port UI_PORT+2000" >&2
-    exit 2
-  fi
-  store_token="$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')"
-  if [ "${#store_token}" -ne 64 ]; then
-    echo "web-supervisor: could not make the project store secret" >&2
-    exit 2
-  fi
-  rust_project_store_confirmed=1
+# The project store (sbstndalton/noevia#1264): permanent. Node writes projects.json and
+# free-chats.json only through the front's loopback store and refuses to start without it, so it is
+# always set up: at UI_PORT+2000, with a secret made here for this start and handed to both
+# processes (never taken from the environment). The front lists project-store (FRONT_ROUTE_FEATURES).
+store_port=$((port + 2000))
+if [ "$store_port" -gt 65535 ]; then
+  echo "web-supervisor: UI_PORT '$port' leaves no room for the project store port UI_PORT+2000" >&2
+  exit 2
+fi
+store_token="$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')"
+if [ "${#store_token}" -ne 64 ]; then
+  echo "web-supervisor: could not make the project store secret" >&2
+  exit 2
 fi
 
 # Node binds UI_HOST for the UI listener AND the Diary file-sharing (DAV) listener. With DAV off
@@ -308,23 +139,11 @@ stop() {
 }
 trap 'signalled=1; stop' TERM INT
 
-UI_HOST="$node_host" UI_PORT="$legacy" NOEVIA_RUST_AUTH_CONFIRMED="$rust_auth_confirmed" \
+UI_HOST="$node_host" UI_PORT="$legacy" \
   NOEVIA_FRONT_CLIENT_IP="$client_ip_confirmed" \
-  NOEVIA_RUST_PROJECTS_CONFIRMED="$rust_projects_confirmed" NOEVIA_RUST_PROJECT_CHATS_CONFIRMED="$rust_project_chats_confirmed" \
-  NOEVIA_RUST_FREE_CHATS_CONFIRMED="$rust_free_chats_confirmed" \
   NOEVIA_RUST_PROJECT_WRITES_CONFIRMED="$rust_project_writes_confirmed" \
-  NOEVIA_RUST_USAGE_CONFIRMED="$rust_usage_confirmed" \
-  NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED="$rust_sampling_settings_confirmed" \
-  NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED="$rust_reasoning_settings_confirmed" \
-  NOEVIA_RUST_ROUTING_MODE_CONFIRMED="$rust_routing_mode_confirmed" \
-  NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED="$rust_routing_default_confirmed" \
-  NOEVIA_RUST_STATS_CONFIRMED="$rust_stats_confirmed" \
-  NOEVIA_RUST_STORAGE_READS_CONFIRMED="$rust_storage_reads_confirmed" \
-  NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED="$rust_chatgpt_status_confirmed" \
-  NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED="$rust_storage_browse_confirmed" \
-  NOEVIA_RUST_PROJECT_STORE_CONFIRMED="$rust_project_store_confirmed" \
   NOEVIA_PROJECT_STORE_PORT="$store_port" NOEVIA_PROJECT_STORE_TOKEN="$store_token" \
-  NOEVIA_RUST_EXPORT_CONFIRMED="$rust_export_confirmed" node server/index.cjs &
+  node server/index.cjs &
 node_pid=$!
 NOEVIA_PROJECT_STORE_PORT="$store_port" NOEVIA_PROJECT_STORE_TOKEN="$store_token" \
   NOEVIA_LEGACY_UPSTREAM="http://127.0.0.1:$legacy" "$bin" &
