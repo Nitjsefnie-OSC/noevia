@@ -43,7 +43,7 @@ Candidates (`candidates.out`, `candidates-ml.out`):
 - in-image tests: 156/156;
 - isolated model-loader: 14 native features advertised, the new switches `python` with confirmations 0, and updates and detail digests equal between the native parent and the Python child.
 
-**Cutover** at 10:26:51Z finished with ALL DONE OK at 10:29:00Z (`cutover.log`). It used the a8121f10 script with this release's compose sync and checks for all 16 `rust` switches, their 16 confirmations and `TZ=UTC`. The first attempt, at 10:26:18Z (`cutover.attempt1-aborted.log`), aborted before any live change: a `sed` delimiter bug in the TZ insert was caught by the sync check, and the override and preflight were restored. Results:
+**Cutover** at 10:26:51Z finished with ALL DONE OK at 10:29:00Z (`cutover.log`). It used the a8121f10 script with this release's compose sync and checks for all 16 `rust` switches, their 16 confirmations and `TZ=UTC`. The first attempt, at 10:26:18Z (`cutover.attempt1-aborted.log`), aborted before any live change: a `sed` delimiter bug in the TZ insert was caught by the sync check, and the override and preflight were restored. It left a second, unused backup, `release_26160903_20261017T102618Z`. Results:
 - Backup `/mnt/disk3/noevia-backups/release_26160903_20261017T102651Z`: DB integrity ok; projects.json and free-chats.json byte-identical, 10/10.
 - Model-loader: healthy with 0 restarts; ML probe passed; `models.ini` unchanged; 16 switches still `rust` with 16 confirmations; DRAFT_HEADS, BACKENDS, MODEL_DELETE and DIAGNOSE `python`; `TZ=UTC` in the container and the Python child.
 - Web: healthy with 0 restarts; loopback and public ready at 26160903; signed-out routes 401; served dist equals the image dist (145 files); store unpublished and its token in no args.
@@ -56,7 +56,7 @@ Candidates (`candidates.out`, `candidates-ml.out`):
 **Rollback** (check that no tune or Coding job is running first):
 - The flip only: copy `config/.env.bak.before-flip-MODEL_MANAGER_DIAGNOSE_IMPL` back to `config/.env`, then recreate model-loader only.
 - The release:
-  1. Restore the whole `config/.env` from `config/.env.bak.before-26160903`. That also reverts the DIAGNOSE flip; a8121f10 was never run with DIAGNOSE=rust.
+  1. Restore the whole `config/.env` from `config/.env.bak.before-26160903`. That also reverts the DIAGNOSE flip; a8121f10 ships with DIAGNOSE=python.
   2. Restore the override from `docker-compose.override.yml.bak.before-26160903`.
   3. Restore `tools/preflight` from the backup's `preflight.tar.zst`.
   4. Point `current` at `releases/a8121f10`.
