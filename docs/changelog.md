@@ -8,6 +8,31 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release f1ad65f4 — 2026-10-17 03:56Z (web + model manager; #1318 slices 9–10, #1957, #1953, #1962)
+
+What changed for you: nothing visible. The model manager now has native code for the benchmark runner (#1318 slice 9) and the download job table (#1318 slice 10). Both stay off: `MODEL_MANAGER_BENCHMARK_RUNNER_IMPL` and `MODEL_MANAGER_DOWNLOADS_IMPL` are `python`, as are all other `MODEL_MANAGER_*_IMPL`. A leftover `MODEL_FILES_IMPL` is now only a "retired and ignored" notice (#1957). The web image adds the #1953 import/replace review fixes and the #1962 contract test.
+
+### Services
+- **Web:** `cowork-web:6adf2033` → `cowork-web:f1ad65f4` (core `ccf40fb5`, web `bbe59802`, rs `0f29e91c`, services `0fd6f87e`; `sha256:1b102d04…3c3a`). Includes core#180 (#1953) and core#181 (#1962).
+- **Model manager:** `cowork-model-loader:6adf2033` → `cowork-model-loader:f1ad65f4` (`sha256:af0e9ee1…c49c`). Includes rs#151/#154 + services#76 + #1941 (benchmark runner; review fixes #1943–#1948, including copying iGPU `Devices`) and rs#158 + services#78 + #1955 (downloads; fixes #1952, #1958–#1960), plus #1957. The image advertises `native-benchmark-runner` and `native-downloads`. 14 `MODEL_MANAGER_*_IMPL` switches are `python`, and every per-route confirmation is 0.
+- **Diary, OCR, Docling, Laya, Code sandbox, egress:** no change, not rebuilt. In services, only their rs pin lines changed. In Cargo.lock, existing entries keep the same versions, and the new TLS crates are only behind model-manager features. No Diary overlay.
+- **Deploy/infra:** the override compose gained the model-loader `MODEL_MANAGER_{BENCHMARK_RUNNER,DOWNLOADS}_IMPL: ${…:-python}`. No key was removed. The preflight was reinstalled from the release (`web-env-keys.txt` is unchanged). In `.env`, only `COWORK_VERSION` and `MODEL_MANAGER_VERSION` changed.
+
+**Order.** services#80 (rs 99c2ca8a → 0f29e91c in all five Dockerfiles), then noevia#1968 pins (each sha256 was fetched twice; the egress-proxy rs pin was bumped too) → f1ad65f4. #1318 slice 11 (rs#160, services#79, #1963) was still open at pin time and is not included. Assembled on the Mac, built on the box (`release-prep/f1ad65f4/`). Candidates:
+- The clean rust web candidate was ready. A candidate with leftover retired keys was ready, warned for each one, and had 0 confirmations.
+- In-image tests: 107/110 passed. The same 3 files as in 6adf2033 failed with `MODULE_NOT_FOUND` because the repo-only `tests/server` stub isn't shipped in the image.
+- The isolated model-loader candidate (synthetic GGUF, no network): native parent confirmed, all IMPLs `python`, `/api/v1/internal/*` 404 on both parent and child, updates/detail byte-identical to the Python child, #1934 probe 400 with the ini unchanged. The `MODEL_FILES_IMPL` leftover produced only the retired notice.
+
+**Gate:** jobs idle, llama idle 0, GTT 16 MiB, MemAvailable 14.0 GiB, no autotune process (last state `failed`). **Attempt 1** at 03:54:23Z finished with ALL DONE OK:
+- Backup `/mnt/disk3/noevia-backups/release_f1ad65f4_20261017T035423Z`: DBs integrity ok, projects.json + free-chats.json 10/10 byte-identical.
+- Model-loader: healthy, 0 restarts. Pid1 is `noevia-model-manager`. The ML probe passed (`internal_runtime` 404). `models.ini` unchanged. No containers with label `noevia.model-manager.bench=1`.
+- Web: healthy, 0 restarts. Loopback and public ready at f1ad65f4, public `/` 200. Signed-out routes returned 401. Served dist equals the image dist (145 files).
+- Retired-key warnings only, 0 `*_CONFIRMED` processes. The store is on 127.0.0.1:10021, unpublished, and its token is in no args or inspect env.
+- Embed, Kev decision and #1901 route probes passed. Decision config and project counts were unchanged. Only the web and model-loader containers changed.
+- 10-minute watch: 0 restarts, healthy, public ready 200, model-loader error lines 0. The 2 web "error" hits were `[sources] sync … errors=0` lines, a substring match. Nextcloud AIO restarted for its daily ~04:00Z backup, which is unrelated; no cowork container changed.
+
+**Rollback:** set `COWORK_VERSION` and `MODEL_MANAGER_VERSION` to 6adf2033 (`config/.env.bak.before-f1ad65f4`), restore the override from `docker-compose.override.yml.bak.before-f1ad65f4`, restore `tools/preflight` from the backup's `preflight.tar.zst`, point `current` at `releases/6adf2033`, then run `up.sh … --no-build --no-deps --wait` for model-loader, then web.
+
 ## Release 6adf2033 — 2026-10-17 00:56Z (web + model manager; #1949, #1950, #1264, #1071, #1937, #1939, #1942, #1318)
 
 What changed for you: importing conversations no longer deletes the imported chats' transcripts when the project store is on (#1949, a live data-loss bug), and replacing a project document no longer shows a false "Project changed; retry" (#1950). Sign-in, the project routes and the project store are now always the native front's: `NOEVIA_RUST_AUTH`, `NOEVIA_RUST_PROJECTS` and `NOEVIA_RUST_PROJECT_STORE` are retired, and leftover values only warn. The model manager's native parent is permanent. Every #1318 switch stays `python`.
