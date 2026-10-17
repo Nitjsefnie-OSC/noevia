@@ -321,6 +321,16 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release 6adf2033 — 2026-10-17 (web + model manager; #1949, #1950, #1071 auth/projects retired, native MM parent permanent)
+
+### Services
+
+- **Web:** `cowork-web:6adf2033` (core `25d71eec`, web `bbe59802`, rs `4bb49e87`, services `09f7d016`; `sha256:55a5e98f…c778`). It needs no `NOEVIA_RUST_*` switch. Leftover values warn, and the store is always on 127.0.0.1:UI_PORT+2000.
+- **Model manager:** `cowork-model-loader:6adf2033` (`sha256:56e6e252…0f67`). The native parent is permanent, and all 12 `MODEL_MANAGER_*_IMPL` are `python`.
+- **Everything else:** no change, not recreated.
+
+The flow is the same as 8207bb96 (`release-prep/6adf2033/`), plus `deploy/preflight/install.sh` from the release before the recreate. The compose sync adds 4 model-loader `_IMPL` keys (default python). The post-checks are new: supervisor retired-key warnings instead of the old per-route confirmations, no `*_CONFIRMED` process, and store bind/token checks. Rollback and evidence: `docs/changelog.md` (release 6adf2033).
+
 ## Release 8207bb96 — 2026-10-16 (web + model manager; #1264 project store, #1934; then NOEVIA_RUST_PROJECT_STORE=1)
 
 ### Services

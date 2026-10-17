@@ -8,6 +8,34 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 6adf2033 — 2026-10-17 00:56Z (web + model manager; #1949, #1950, #1264, #1071, #1937, #1939, #1942, #1318)
+
+What changed for you: importing conversations no longer deletes the imported chats' transcripts when the project store is on (#1949, a live data-loss bug), and replacing a project document no longer shows a false "Project changed; retry" (#1950). Sign-in, the project routes and the project store are now always the native front's: `NOEVIA_RUST_AUTH`, `NOEVIA_RUST_PROJECTS` and `NOEVIA_RUST_PROJECT_STORE` are retired, and leftover values only warn. The model manager's native parent is permanent. Every #1318 switch stays `python`.
+
+### Services
+- **Web:** `cowork-web:8207bb96` → `cowork-web:6adf2033` (core `25d71eec`, web `bbe59802`, rs `4bb49e87`, services `09f7d016`; `sha256:55a5e98f…c778`). It includes #1949/#1950 (core), #1264 final (rs#150, core#176, #1938), #1071 groups A/B (#1927, #1930, #1951), rs#152 (#1937), rs#153 (#1939) and #1942.
+- **Model manager:** `cowork-model-loader:8207bb96` → `cowork-model-loader:6adf2033` (`sha256:56e6e252…0f67`). The native parent is permanent (rs#142, services#69, #1926). Check-updates, benchmark-overview, backend-control and settings-write are built in (#1924 passthroughs), but all 12 `MODEL_MANAGER_*_IMPL` switches are `python` and every per-route native confirmation is 0.
+- **Diary, OCR, Docling, Laya, Code sandbox, egress:** no change, not rebuilt. Their Cargo.lock closures contain none of the changed crates. Their services changes are rs pin lines only. No Diary overlay.
+- **Deploy/infra:** the override compose gained the model-loader `MODEL_MANAGER_{BACKEND_CONTROL,BENCHMARK_OVERVIEW,CHECK_UPDATES,SETTINGS_WRITE}_IMPL: ${…:-python}`. No key was removed. The preflight was reinstalled from the release, and its `web-env-keys.txt` no longer expects the retired switches. `.env` changed `COWORK_VERSION` and `MODEL_MANAGER_VERSION` only.
+
+**Order.** First services#77 (rs 4bb49e87), then noevia#1954 pins (each sha256 was fetched twice; the egress-proxy rs pin was bumped too). Then #1951. Then #1930, with main merged in and both retirements kept. Assembled on the Mac and built on the box (`release-prep/6adf2033/`). Candidates:
+- The clean rust candidate was ready.
+- A candidate with leftover `NOEVIA_RUST_AUTH/PROJECTS/PROJECT_STORE/STATS` was ready, warned for each, and had 0 confirmations. The store listened on 127.0.0.1:10021.
+- In-image tests passed 106/109. The 3 failing files need the repo-only `tests/server` stub, and pass 47/47 with it mounted read-only; `routes/import.test.cjs` is one of them.
+- The isolated model-loader candidate had the native parent confirmed, all IMPLs python, and `/api/v1/internal/*` returned 404 on both parent and child.
+
+**Gate (each run):** jobs idle, llama idle 0, GTT 19 MiB, MemAvailable 15.0–16.7 GiB, no autotune process (last state `failed`). Attempt 1 aborted at the gate (sidecar CPU 6.85%). Attempt 2 aborted at the Kev decision pre-check (cold load, as in 8207bb96). Neither made a change. **Attempt 3** at 00:54:55Z finished with ALL DONE OK:
+- Backup `/mnt/disk3/noevia-backups/release_6adf2033_20261017T005455Z`: DBs integrity ok, projects.json + free-chats.json 10/10 byte-identical.
+- Model-loader: healthy, 0 restarts. Pid1 is `noevia-model-manager`. ML probe passed (`internal_runtime` 404). `models.ini` unchanged.
+- Web: healthy, 0 restarts. Loopback and public ready at 6adf2033, public `/` 200. Signed-out projects, freechats, session and idle-unload all returned 401. Served dist equals the image dist (145 files).
+- The supervisor warned for the 12 retired `NOEVIA_RUST_*` keys still passed. 0 `*_CONFIRMED` processes. The store is on 127.0.0.1:10021, unpublished, and its token is in no args or inspect env.
+- Embed, Kev decision and route probes passed (unprefixed prompts). Decision config and project counts were unchanged. Only web and model-loader containers changed.
+- 10-minute watch: clean.
+
+**Rollback:** set `COWORK_VERSION` and `MODEL_MANAGER_VERSION` to 8207bb96, restore the override from `docker-compose.override.yml.bak.before-6adf2033`, restore `tools/preflight` from the backup's `preflight.tar.zst`, point `current` at `releases/8207bb96`, then run `up.sh … --no-build --no-deps --wait` for model-loader, then web.
+
+**Owner:** these retired keys are still in `.env` and only warn or do nothing: `NOEVIA_RUST_{AUTH,PROJECTS,PROJECT_STORE,USAGE,SAMPLING_SETTINGS,REASONING_SETTINGS,ROUTING_MODE,ROUTING_DEFAULT,STATS,CHATGPT_STATUS,STORAGE_READS,STORAGE_BROWSE,EXPORT}`, `MODEL_MANAGER_IMPL` and `MODEL_FILES_IMPL`.
+
 ## Release 8207bb96 and the project store flip — 2026-10-16 20:25Z / 20:39Z (web + model manager; #1264, #1934, #1922, #1906, #1908, #1902, #1318)
 
 What changed for you: nothing visible. Saves to the project list and the free-chat list now go through the native front's internal project store instead of Node writing the files under a `flock` (#1264). A model settings name ending in a newline can no longer write an unparseable `models.ini` (#1934, a live Python bug). The owner approved the `NOEVIA_RUST_PROJECT_STORE` flip on 2026-10-16. Every other new switch ships off.
