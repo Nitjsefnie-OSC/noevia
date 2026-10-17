@@ -19,7 +19,7 @@ What changed for you: nothing you will see day to day. These are bug fixes:
 ### Services
 - **Web:** `cowork-web:26160903` → `cowork-web:58cf299c` (core `a3966557`, web `30fc017d`, rs `204e6a2e`, services `0863a9d6`; `sha256:eb4f7258…2d45`, `release-prep/58cf299c/build.out`). Includes core#183 (#1979). In-image server tests: 173/173, including `inference-machines-1979.test.cjs` (26160903: 156/156).
 - **Model manager:** `cowork-model-loader:26160903` → `cowork-model-loader:58cf299c` (`sha256:a3125b03…3cdc`). Includes rs#174 (#1997, #1998), rs#175 (#2001, test only), services#89 (#1940) and services#90 (the rs repin).
-- **Diary, OCR, Docling, Laya, Code sandbox, egress:** no change, not rebuilt (services#90 changes only their rs pin lines; rs#175 touches only a laya-service test).
+- **Other sidecars (diary, OCR, document extraction, sensitivity, code sandbox, egress):** no change, not rebuilt (services#90 changes only their rs pin lines; rs#175 touches only a sensitivity-service test).
 - **Deploy/infra:** no Compose change; the override is byte-identical. `.env`: only `COWORK_VERSION` and `MODEL_MANAGER_VERSION` changed. Host tools refreshed from the release (noevia#2004, #1980): `tools/preflight` (`install.sh`), `tools/remote-services.sh` and `tools/sidecar-restart-alert.sh` (previous copies `*.bak.before-58cf299c`). They stay inert: no `NOEVIA_REMOTE_*` key and no key file.
 
 **Order.** rs#174 and rs#175 merged (204e6a2e); services#89 merged, then services#90 repinned rs; noevia#2004 merged; noevia#2007 pinned rs, core and services, plus the egress-proxy rs pin. noevia CI at 58cf299c is green. The "Deep research gate harness" job, an offline experiment that is not shipped, failed once on the push and passed on re-run. Release 58cf299c was assembled on the MS-01 (tarball `c3d0a4e9…c4ab`, the same on both ends) and built on the box (`release-prep/58cf299c/`).
@@ -38,7 +38,7 @@ Results:
 - Backup `/mnt/disk3/noevia-backups/release_58cf299c_20261017T173541Z`: DB integrity ok; projects.json and free-chats.json byte-identical, 10/10.
 - Model-loader: healthy with 0 restarts; ML probe passed; `models.ini` unchanged; 17 switches still `rust` with 17 confirmations; DRAFT_HEADS, BACKENDS and MODEL_DELETE `python`; `TZ=UTC` in the container and the Python child.
 - Web: healthy with 0 restarts; loopback and public ready at 58cf299c; signed-out routes 401; served dist equals the image dist (145 files); store unpublished and its token in no args.
-- MS-01 via the app: Kev decision and Laya sensitivity on .131, 768-dim embeddings; the decision and route probes passed.
+- MS-01 via the app: the decision and sensitivity services on .131, 768-dim embeddings; the decision and route probes passed.
 - Only the web and model-loader containers changed. The other 51 kept their ids and start times.
 - Watch: 10 one-minute samples, 17:38–17:47Z. 0 restarts, healthy, public ready 200, 0 errors, no container changes.
 
@@ -90,7 +90,7 @@ Candidates (`candidates.out`, `candidates-ml.out`):
 - Backup `/mnt/disk3/noevia-backups/release_26160903_20261017T102651Z`: DB integrity ok; projects.json and free-chats.json byte-identical, 10/10.
 - Model-loader: healthy with 0 restarts; ML probe passed; `models.ini` unchanged; 16 switches still `rust` with 16 confirmations; DRAFT_HEADS, BACKENDS, MODEL_DELETE and DIAGNOSE `python`; `TZ=UTC` in the container and the Python child.
 - Web: healthy with 0 restarts; loopback and public ready at 26160903; signed-out routes 401; served dist equals the image dist (145 files); store unpublished and its token in no args.
-- MS-01 via the app: Kev decision and Laya sensitivity on .131, 768-dim embeddings; the decision and route probes passed.
+- MS-01 via the app: the decision and sensitivity services on .131, 768-dim embeddings; the decision and route probes passed.
 - Only the web and model-loader containers changed.
 - Watch: 10 one-minute samples, 10:29–10:38Z. 0 restarts, healthy, public ready 200, 0 errors, no container changes.
 
