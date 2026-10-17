@@ -321,6 +321,16 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release 8207bb96 — 2026-10-16 (web + model manager; #1264 project store, #1934; then NOEVIA_RUST_PROJECT_STORE=1)
+
+### Services
+
+- **Web:** `cowork-web:8207bb96` (core `a11598b7`, web `bbe59802`, rs `44e89709`, services `d475f427`; `sha256:a158e508…80ed`); `NOEVIA_RUST_PROJECT_STORE=1` flipped after the release (store on `127.0.0.1:UI_PORT+2000`, per-start secret, never published).
+- **Model manager:** `cowork-model-loader:8207bb96` (`sha256:32b955d7…0b03`); download-targets, badges, bench-runs and section-writes built in, all `python`.
+- **Everything else:** no change, not recreated.
+
+Same flow as 7ac94a2f (`release-prep/8207bb96/`): compose sync of the web store key (default 0) and four model-loader `_IMPL` keys (default python), model-loader then web, then `flip.sh`. A process-args check for a secret must skip its own pid and use a `[b]racket` pattern, or it matches itself. Rollback and evidence: `docs/changelog.md` (release 8207bb96).
+
 ## Release 7ac94a2f — 2026-10-16 (web + model manager; #1863, #1880, #1901, #1751, #1264 slice 1 dark)
 
 ### Services
@@ -1049,11 +1059,11 @@ switches are live after a release, run on the box:
 ```sh
 bash deploy/tools/flags.sh cowork-web-1            # KEY=value, allow-listed non-secret keys only
 bash deploy/tools/flags.sh --keys cowork-web-1     # key names only, no values
-bash deploy/tools/flags.sh cowork-web-1 GGUF_PARSER MODEL_FILES_IMPL   # just these (others refused)
+bash deploy/tools/flags.sh cowork-web-1 GGUF_PARSER MODEL_AUTOCONFIG   # just these (others refused)
 ```
 
 The allow-list (`*_IMPL`, `NOEVIA_FEATURE_*`, `LAYA_LOAD_ADVISOR`, `MODEL_AUTOCONFIG`,
-`GGUF_PARSER`, `MODEL_FILES_IMPL`, `COWORK_CODE_NET_ADDR`, `COWORK_VERSION`, `DIARY_VERSION`,
+`GGUF_PARSER`, `COWORK_CODE_NET_ADDR`, `COWORK_VERSION`, `DIARY_VERSION`,
 `MODEL_MANAGER_VERSION`) is matched on the key name inside `jq` before any value is emitted; a key
 off the list is refused. Run it for `web`, `model-loader` and `diary` after the recreate and compare
 with the intended flags. For anything else, list key names only:
@@ -1121,17 +1131,22 @@ docling, laya, model-manager and ocr in
   and the conversation export are the front's permanently, and so are sign-in and the account
   (setup, password and passkey sign-in, sessions, profile, appearance, app passwords, invitations,
   recovery, the device flow); Node no longer has them and always refuses to write the account
-  tables (core `server/rust-auth.cjs`). The supervisor therefore refuses to start (exit 2, before
-  either process) without `NOEVIA_FRONT=rust` and `NOEVIA_RUST_PROJECTS=1`, and without a
-  `noevia-server` whose `--features` lists `rust-auth`, `rust-chatgpt-status`, `rust-storage-reads`,
-  `rust-storage-browse`, `rust-export`, `rust-free-chats`, `rust-usage`, `rust-stats`,
-  `rust-routing-default`, `rust-sampling-settings`, `rust-reasoning-settings` and
-  `rust-routing-mode`. `noevia-server` itself refuses to start without `UI_DATA_DIR`, with an
-  invalid auth environment, a Lemonade or `https` stats engine, or a build without those features.
+  tables (core `server/rust-auth.cjs`). The project routes (images, project and free chat lists)
+  and the project store are the front's permanently too: Node refuses those routes and will not
+  start without the store, which the supervisor always sets up (UI_PORT+2000, a per-start secret).
+  The supervisor therefore refuses to start (exit 2, before either process) without
+  `NOEVIA_FRONT=rust`, and without a `noevia-server` whose `--features` lists `rust-auth`,
+  `rust-chatgpt-status`, `rust-storage-reads`, `rust-storage-browse`, `rust-export`,
+  `rust-free-chats`, `rust-usage`, `rust-stats`, `rust-routing-default`, `rust-sampling-settings`,
+  `rust-reasoning-settings`, `rust-routing-mode`, `rust-projects`, `rust-project-chats` and
+  `project-store`. `noevia-server` itself refuses to start without `UI_DATA_DIR`, with an invalid
+  auth environment, a Lemonade or `https` stats engine, or a build without those features.
   There is no `NOEVIA_FRONT=node` rollback any more: roll back to the previous release instead.
   `assemble-release.sh` refuses a release whose noevia-rs owns sign-in with no switch over a
-  noevia-core whose rust-auth guard still waits for `NOEVIA_RUST_AUTH`. The switches
-  `NOEVIA_RUST_AUTH` (with `NOEVIA_RUST_AUTH_CONFIRMED`, which the supervisor no longer sets), `NOEVIA_RUST_USAGE`, `_SAMPLING_SETTINGS`,
+  noevia-core whose rust-auth guard still waits for `NOEVIA_RUST_AUTH`, and one whose noevia-rs or
+  noevia-core still gates the project routes on `NOEVIA_RUST_PROJECTS`. The switches
+  `NOEVIA_RUST_AUTH` (with `NOEVIA_RUST_AUTH_CONFIRMED`, which the supervisor no longer sets),
+  `NOEVIA_RUST_PROJECTS`, `NOEVIA_RUST_USAGE`, `_SAMPLING_SETTINGS`,
   `_REASONING_SETTINGS`, `_ROUTING_MODE`, `_ROUTING_DEFAULT`, `_STATS`, `_CHATGPT_STATUS`,
   `_STORAGE_READS`, `_STORAGE_BROWSE` and `_EXPORT` are retired: a leftover value only logs a
   warning, so drop them from `.env` and the live Compose Manager file at the next edit (the
@@ -1160,7 +1175,7 @@ nothing from `.env`. On the Docker host:
 bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/candidate-boot.sh $SHA   # cowork-web:$SHA, the Rust front
 ```
 
-Since #1071 the Rust front (with `NOEVIA_RUST_PROJECTS=1`; it owns sign-in with no switch) is the
+Since #1071 the Rust front (no switches: it owns sign-in, the project routes and the store) is the
 only bootable configuration, so there is no separate node candidate; `CANDIDATE_FRONT=node` is
 refused.
 
@@ -1283,25 +1298,37 @@ checksum-verified tarball at build time, so the box needs no git credentials). I
 - **Rollback:** remove `GGUF_PARSER` (or set it to `python`) and recreate model-loader. An
   unknown value also means `python`, with one warning in the log.
 
-### Model-files front (`MODEL_FILES_IMPL`, #964)
+### Model-files (`model-files`, #964): permanent since #1071
 
-Model-loader images built from #964 on also carry `/usr/local/bin/model-files`, the bounded Rust
-port of the step that turns a Hugging Face repository tree listing (untrusted, from the network)
-into the file entries the model manager uses: paths, sizes, quant labels and shard groups. It
-comes from the same `NOEVIA_RS_REF` as `gguf-meta`. It is dark: `MODEL_FILES_IMPL` defaults to
-`python`, and the Python code keeps producing every listing.
+Model-loader images carry `/usr/local/bin/model-files`, the bounded Rust port of the step that
+turns a Hugging Face repository tree listing (untrusted, from the network) into the file entries
+the model manager uses (paths, sizes, quant labels and shard groups), and of the models.ini
+recovery-copy plan (#1021). It comes from the same `NOEVIA_RS_REF` as `gguf-meta`. Since #1071 it
+is the only implementation: `MODEL_FILES_IMPL` is retired and the Python code is gone.
 
-- **Switch on (owner only):** add `MODEL_FILES_IMPL=rust` to the model-loader service's
-  environment (in the hand-kept live Compose Manager override too) and recreate model-loader
-  only.
-- **Behaviour with `rust`:** listings go through `model-files tree` (no shell, 10 s timeout).
-  Unlike `GGUF_PARSER`, it **fails closed**: a missing binary, nonzero exit, timeout, input over
-  16 MB or malformed output means that repository's files are not used, and the API answers
-  502. The log gets one `model-files failed (<reason>)` warning per reason per process.
-  Results are otherwise identical to Python (601 shared differential fixtures plus seeded
-  random corpora in CI).
-- **Rollback:** remove `MODEL_FILES_IMPL` (or set it to `python`) and recreate model-loader. An
-  unknown value also means `python`, with one warning in the log.
+- **Behaviour:** listings go through `model-files tree` and models.ini writes through
+  `model-files backups` (no shell, 10 s timeout). It **fails closed**: a nonzero exit, timeout,
+  input over 16 MB or malformed output means that repository's files are not used (the API
+  answers 502) or the write is refused before models.ini is touched. The log gets one
+  `model-files failed (<reason>)` warning per reason per process.
+- **Missing binary:** the model manager refuses to start (its Python app checks at startup), so
+  the container never reports healthy.
+- **No rollback switch.** Rolling back means the previous model-loader image.
+
+### Retired model-loader switches (#1071)
+
+`MODEL_MANAGER_IMPL` and `MODEL_FILES_IMPL` are retired: the native model manager front
+(`noevia-model-manager`, owning health and backend logs) and `model-files` always run. Neither
+Compose copy passes them any more. A leftover `.env` line does nothing and can be deleted; a
+leftover `MODEL_MANAGER_IMPL` other than `rust` makes the front log one "retired and ignored"
+warning.
+
+**Image floor.** Images built before noevia-services#69 still read `MODEL_MANAGER_IMPL`, and their
+default is the old Python-only front. Ship this Compose change only together with a model-loader
+image from noevia-services#69 on (it sets `MODEL_MANAGER_IMPL=rust` in the image) or from the
+noevia-rs#142 pin on (no Python-only mode at all). After the recreate, check
+`deploy/tools/flags.sh cowork-model-loader-1` and that pid 1 is `noevia-model-manager` with a
+child `uvicorn` on `127.0.0.1:8091`.
 
 ### Autoconfig size core (`MODEL_AUTOCONFIG`, services#8)
 
