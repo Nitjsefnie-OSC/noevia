@@ -3,10 +3,11 @@
 # processes. Needs bash >= 4.3 (wait -n), like the image; skips on macOS's bash 3.2. CI runs it on
 # Linux.
 #
-# sbstndalton/noevia#1071: the front read routes are the Rust front's permanently, so the
-# supervisor starts nothing unless NOEVIA_FRONT=rust, NOEVIA_RUST_AUTH=1 and a noevia-server whose
-# --features lists every front route feature. The project routes and the project store are among
-# them: NOEVIA_RUST_PROJECTS is retired, and a leftover value only warns.
+# sbstndalton/noevia#1071: sign-in and the account, the front read routes and the project routes and
+# store are the Rust front's permanently, so the supervisor starts nothing unless NOEVIA_FRONT=rust
+# and a noevia-server whose --features lists rust-auth and every front route feature.
+# NOEVIA_RUST_AUTH and NOEVIA_RUST_PROJECTS are retired: whatever their value, they only warn and
+# reach neither process.
 set -u
 here="$(cd -- "$(dirname -- "$0")" && pwd)"
 sup="$here/../../build/web-supervisor.sh"
@@ -21,7 +22,7 @@ check() { if eval "$2"; then passes=$((passes+1)); echo "ok - $1"; else fails=$(
 # The features build/web-supervisor.sh requires (FRONT_ROUTE_FEATURES), and a front that has them.
 ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode rust-projects rust-project-chats project-store"
 BASE_FEATURES="code-net-guard rust-auth $ROUTE_FEATURES"
-RETIRED="NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS NOEVIA_RUST_REASONING_SETTINGS NOEVIA_RUST_ROUTING_MODE NOEVIA_RUST_ROUTING_DEFAULT NOEVIA_RUST_STATS NOEVIA_RUST_EXPORT NOEVIA_RUST_CHATGPT_STATUS NOEVIA_RUST_STORAGE_READS NOEVIA_RUST_STORAGE_BROWSE NOEVIA_RUST_PROJECTS NOEVIA_RUST_PROJECT_CHATS NOEVIA_RUST_FREE_CHATS NOEVIA_RUST_PROJECT_STORE"
+RETIRED="NOEVIA_RUST_AUTH NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS NOEVIA_RUST_REASONING_SETTINGS NOEVIA_RUST_ROUTING_MODE NOEVIA_RUST_ROUTING_DEFAULT NOEVIA_RUST_STATS NOEVIA_RUST_EXPORT NOEVIA_RUST_CHATGPT_STATUS NOEVIA_RUST_STORAGE_READS NOEVIA_RUST_STORAGE_BROWSE NOEVIA_RUST_PROJECTS NOEVIA_RUST_PROJECT_CHATS NOEVIA_RUST_FREE_CHATS NOEVIA_RUST_PROJECT_STORE"
 
 mkdir -p "$work/bin"
 # Each stub records its environment, then lives until killed or until its "die" file appears.
@@ -38,6 +39,7 @@ echo "\$name RETIRED=\$retired" >> "$work/log"
 echo "\$name PROJECTS=\${NOEVIA_RUST_PROJECTS-unset}" >> "$work/log"
 echo "\$name WCONF=\${NOEVIA_RUST_PROJECT_WRITES_CONFIRMED:-}" >> "$work/log"
 echo "\$name SSTORE=\${NOEVIA_RUST_PROJECT_STORE_CONFIRMED:-} SPORT=\${NOEVIA_PROJECT_STORE_PORT:-} STOKLEN=\${#NOEVIA_PROJECT_STORE_TOKEN}" >> "$work/log"
+echo "\$name AUTH=\${NOEVIA_RUST_AUTH-unset}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
 # The supervisor TERMs the survivor as soon as one child exits. A front told to die at once would
@@ -57,7 +59,7 @@ stub "$work/bin/node" node
 stub "$work/noevia-server" front
 export PATH="$work/bin:$PATH"
 # The live deployment; a test overrides any of it by naming the key again (env: last one wins).
-run() { (cd "$work" && env NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_SERVER_BIN="$work/noevia-server" "$@" bash "$sup"); }
+run() { (cd "$work" && env NOEVIA_FRONT=rust NOEVIA_SERVER_BIN="$work/noevia-server" "$@" bash "$sup"); }
 reset() { : > "$work/log"; rm -f "$work"/die-* "$work/rc"; }
 wait_log() { for _ in $(seq 1 100); do grep -q "$1" "$work/log" 2>/dev/null && return 0; sleep 0.05; done; return 1; }
 without() { local out="" f; for f in $BASE_FEATURES; do [ "$f" = "$1" ] || out="$out $f"; done; echo "$out"; }
@@ -72,10 +74,11 @@ check "NOEVIA_FRONT=node is refused, nothing started" '[ $rc -eq 2 ] && grep -q 
 reset
 run NOEVIA_FRONT=bogus >/dev/null 2>"$work/err"; rc=$?
 check "an unknown NOEVIA_FRONT is refused" '[ $rc -eq 2 ] && grep -q "must be rust" "$work/err" && [ ! -s "$work/log" ]'
-for missing in "NOEVIA_RUST_AUTH=" "NOEVIA_RUST_AUTH=true"; do
+# A Node front cannot be selected by turning either retired switch off.
+for value in "" 0 1; do
   reset
-  run "$missing" >/dev/null 2>"$work/err"; rc=$?
-  check "$missing is refused, nothing started" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_AUTH=1 is required" "$work/err" && [ ! -s "$work/log" ]'
+  run NOEVIA_FRONT=node NOEVIA_RUST_AUTH="$value" NOEVIA_RUST_PROJECTS="$value" >/dev/null 2>"$work/err"; rc=$?
+  check "NOEVIA_FRONT=node with NOEVIA_RUST_AUTH/NOEVIA_RUST_PROJECTS='$value' is refused, nothing started" '[ $rc -eq 2 ] && grep -q "NOEVIA_FRONT=node is no longer supported" "$work/err" && [ ! -s "$work/log" ]'
 done
 reset
 run NOEVIA_SERVER_BIN="$work/missing" >/dev/null 2>"$work/err"; rc=$?
@@ -106,21 +109,30 @@ check "a UI_PORT with no room for +1000 is refused" '[ $rc -eq 2 ] && [ ! -s "$w
 reset; touch "$work/die-front"
 retired_env=(); for v in $RETIRED; do retired_env+=("$v=1" "${v}_CONFIRMED=1"); done
 run "${retired_env[@]}" UI_PORT=8021 >/dev/null 2>"$work/err"; rc=$?
-check "a full front starts both; Node gets the auth confirmation, and no retired project confirmation" 'grep -q "^node .* CCONF= FCONF= PCONF= CONF=1$" "$work/log" && grep -q "^front .* CCONF= FCONF= PCONF= CONF=$" "$work/log"'
-check "no retired front-route confirmation reaches either process, inherited or not" 'grep -q "^node RETIRED=$" "$work/log" && grep -q "^front RETIRED=$" "$work/log"'
-check "a leftover retired switch earns a warning and changes nothing" 'grep -q "NOEVIA_RUST_STATS is retired" "$work/err" && grep -q "NOEVIA_RUST_EXPORT is retired" "$work/err"'
+check "a full front starts both; Node gets no auth, project or free-chat confirmation" 'grep -q "^node .* CCONF= FCONF= PCONF= CONF=$" "$work/log" && grep -q "^front .* CCONF= FCONF= PCONF= CONF=$" "$work/log"'
+check "no retired confirmation reaches either process, inherited or not" 'grep -q "^node RETIRED=$" "$work/log" && grep -q "^front RETIRED=$" "$work/log"'
+check "a leftover retired switch earns a warning and changes nothing" 'grep -q "NOEVIA_RUST_STATS is retired" "$work/err" && grep -q "NOEVIA_RUST_EXPORT is retired" "$work/err" && grep -q "NOEVIA_RUST_AUTH is retired" "$work/err" && grep -q "NOEVIA_RUST_PROJECTS is retired" "$work/err"'
+check "the retired sign-in and projects switches reach neither process" 'grep -q "^node AUTH=unset$" "$work/log" && grep -q "^front AUTH=unset$" "$work/log" && grep -q "^node PROJECTS=unset$" "$work/log" && grep -q "^front PROJECTS=unset$" "$work/log"'
 check "...and the run itself went ahead" '[ $rc -eq 3 ]'
 
+# #1071: NOEVIA_RUST_AUTH is retired. Whatever is left in the environment (the old live 1, a 0 or
+# empty) warns, starts both and reaches neither process; the front still owns sign-in.
+for v in 1 0 ""; do
+  reset; touch "$work/die-front"
+  run NOEVIA_RUST_AUTH="$v" NOEVIA_RUST_AUTH_CONFIRMED=1 >/dev/null 2>"$work/err"; rc=$?
+  check "a leftover NOEVIA_RUST_AUTH='$v' warns, is passed to neither process, and the run goes ahead" '[ $rc -eq 3 ] && grep -q "NOEVIA_RUST_AUTH is retired" "$work/err" && grep -q "^node AUTH=unset$" "$work/log" && grep -q "^front AUTH=unset$" "$work/log" && grep -q "^node .* CONF=$" "$work/log"'
+done
 # #1071: NOEVIA_RUST_PROJECTS is retired. Whatever is left in the environment (the old live 1, a 0
-# or empty) warns, starts both and reaches neither process; its old confirmations never reach Node.
+# or empty) warns, starts both and reaches neither process; its old confirmations never reach Node,
+# and the project store is still set up.
 for v in 1 0 ""; do
   reset; touch "$work/die-front"
   run NOEVIA_RUST_PROJECTS="$v" NOEVIA_RUST_PROJECTS_CONFIRMED=1 NOEVIA_RUST_PROJECT_CHATS_CONFIRMED=1 NOEVIA_RUST_FREE_CHATS_CONFIRMED=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED=1 >/dev/null 2>"$work/err"; rc=$?
-  check "a leftover NOEVIA_RUST_PROJECTS='$v' warns, is passed to neither process, and the run goes ahead" '[ $rc -eq 3 ] && grep -q "NOEVIA_RUST_PROJECTS is retired" "$work/err" && grep -q "^node PROJECTS=unset$" "$work/log" && grep -q "^front PROJECTS=unset$" "$work/log" && grep -q "^node .* CCONF= FCONF= PCONF= CONF=1$" "$work/log" && grep -q "^node SSTORE= SPORT=" "$work/log"'
+  check "a leftover NOEVIA_RUST_PROJECTS='$v' warns, is passed to neither process, and the run goes ahead" '[ $rc -eq 3 ] && grep -q "NOEVIA_RUST_PROJECTS is retired" "$work/err" && grep -q "^node PROJECTS=unset$" "$work/log" && grep -q "^front PROJECTS=unset$" "$work/log" && grep -q "^node .* CCONF= FCONF= PCONF= CONF=$" "$work/log" && grep -q "^node SSTORE= SPORT=" "$work/log"'
 done
 reset; touch "$work/die-front"
 run >/dev/null 2>"$work/err"; rc=$?
-check "without NOEVIA_RUST_PROJECTS there is no warning and the run goes ahead" '[ $rc -eq 3 ] && ! grep -q "NOEVIA_RUST_PROJECTS" "$work/err"'
+check "without NOEVIA_RUST_AUTH or NOEVIA_RUST_PROJECTS both start, with no warning about either" '[ $rc -eq 3 ] && grep -q "^node AUTH=unset$" "$work/log" && ! grep -q "NOEVIA_RUST_AUTH" "$work/err" && ! grep -q "NOEVIA_RUST_PROJECTS" "$work/err"'
 
 # The project writes (#1264): their own switch over the confirmed project slice and the compiled
 # The project writes (#1264) keep their own switch: never confirmed by the permanent project routes.
@@ -184,7 +196,7 @@ for _ in $(seq 1 100); do [ -s "$work/rc" ] && break; sleep 0.05; done
 check "Node dying stops the front, non-zero exit" 'grep -q "^front TERM" "$work/log" && [ "$(cat "$work/rc")" = 3 ]'
 
 reset
-(cd "$work" && exec env NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_SERVER_BIN="$work/noevia-server" UI_PORT=8021 COWORK_DAV_PORT=8040 bash "$sup" >/dev/null 2>"$work/err") &
+(cd "$work" && exec env NOEVIA_FRONT=rust NOEVIA_SERVER_BIN="$work/noevia-server" UI_PORT=8021 COWORK_DAV_PORT=8040 bash "$sup" >/dev/null 2>"$work/err") &
 pid=$!
 wait_log "^front" && wait_log "^node"
 check "with DAV on, Node keeps UI_HOST (default 0.0.0.0) and says so" 'grep -q "^node UI_HOST=0.0.0.0 UI_PORT=9021 " "$work/log" && grep -q "not loopback only" "$work/err"'

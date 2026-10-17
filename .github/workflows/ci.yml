@@ -382,26 +382,28 @@ jobs:
           [ "$(jq -r .version <<<"$v")" = "$SHA" ] && [ "$(jq -r .web <<<"$v")" = "$WEB_REF" ] && [ "$(jq -r .core <<<"$v")" = "$CORE_REF" ]
       # #337: prove the container boots. Synthetic env only (no real secrets, no sidecars); poll
       # /api/ready so a runtime-only crash (a file the runtime stage never copied) fails here.
-      # sbstndalton/noevia#1071: the image alone (no NOEVIA_RUST_AUTH) and
-      # NOEVIA_FRONT=node fail closed before either process starts: Node no longer answers the read
-      # routes the Rust front owns.
-      - name: The web image refuses to start without the Rust front configuration
+      # sbstndalton/noevia#1071: NOEVIA_FRONT=node fails closed before either process starts: Node
+      # no longer answers sign-in or the read routes the Rust front owns.
+      - name: The web image refuses to start without the Rust front
         if: env.RUN_JOB == 'true'
         env:
           SHA: ${{ steps.assemble.outputs.sha }}
         run: |
           set -u
-          for front in rust node; do
+          # NOEVIA_FRONT=rust (the image default) needs no switch any more: sign-in, the project
+          # routes and the store are the front's. Only a Node front is a refusal case.
+          for front in node; do
             code=0
             out=$(timeout 60 docker run --rm -e NOEVIA_FRONT=$front -e UI_PORT=8021 "cowork-web:$SHA" 2>&1) || code=$?
             echo "$out"
-            [ "$code" -eq 2 ] || { echo "::error::NOEVIA_FRONT=$front without the Rust front configuration exited $code, not 2"; exit 1; }
+            [ "$code" -eq 2 ] || { echo "::error::NOEVIA_FRONT=$front exited $code, not 2"; exit 1; }
             grep -q '#1071' <<<"$out" || { echo "::error::the refusal does not name #1071"; exit 1; }
             ! grep -qi 'listening' <<<"$out" || { echo "::error::a process started before the refusal"; exit 1; }
           done
       # M1: the boot with NOEVIA_FRONT=rust (noevia-server on 8021, Node on 9021 behind it) and, since
-      # #1071, the native auth it requires and the permanent project routes and store (NOEVIA_RS_REF
-      # must have the front; NOEVIA_RUST_PROJECTS is retired and not passed). The page
+      # #1071; sign-in, the project routes and the store are the front's with no switch (NOEVIA_RS_REF
+      # must have the front, with rust-auth; NOEVIA_RUST_AUTH and NOEVIA_RUST_PROJECTS are retired
+      # and not passed). The page
       # shell and /api/ready come from Rust, /api/setup/status natively too; the container must keep
       # running.
       - name: Boot web image with NOEVIA_FRONT=rust and check /api/ready
@@ -419,7 +421,7 @@ jobs:
           grep -qx code-net-guard /tmp/features \
             || { echo "::error::the web image's noevia-server does not report code-net-guard"; exit 1; }
           grep -qx rust-auth /tmp/features \
-            || { echo "::error::the web image's noevia-server does not report rust-auth (NOEVIA_RUST_AUTH=1 needs it)"; exit 1; }
+            || { echo "::error::the web image's noevia-server does not report rust-auth (the supervisor requires it, #1071)"; exit 1; }
           # The project routes and the store are permanent (#1071): the supervisor requires these.
           for f in rust-projects rust-project-chats rust-free-chats project-store; do
             grep -qx "$f" /tmp/features \
@@ -461,7 +463,6 @@ jobs:
           docker run -d --name noevia-web-rust \
             -p 8021:8021 \
             -e NOEVIA_FRONT=rust \
-            -e NOEVIA_RUST_AUTH=1 \
             -e UI_DATA_DIR=/app/server/ui-data \
             -e PUBLIC_ORIGIN=http://localhost:8021 \
             -e UI_PORT=8021 \
