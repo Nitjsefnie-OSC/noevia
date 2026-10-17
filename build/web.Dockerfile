@@ -93,6 +93,10 @@ COPY core/server ./server
 COPY --from=dav-parse /out/dav-parse.wasm ./server/wasm/dav-parse.wasm
 # core owns contracts/; server/ requires it as ../contracts.
 COPY core/contracts ./contracts
+# #1990: the in-image server tests (release-candidate check, run from /app/server) require these two
+# fixtures from ../tests/server; the runtime stage otherwise ships no tests/ directory. Only the
+# project-store stand-ins are copied, not the rest of core/tests/server.
+COPY core/tests/server/project-store-stub.cjs core/tests/server/project-store-server.cjs ./tests/server/
 # noevia-server on UI_PORT and Node on loopback UI_PORT+1000 (build/web-supervisor.sh). Since
 # sbstndalton/noevia#1071 that is the only front, and it owns sign-in, the project routes and the
 # store with no switch; the supervisor refuses to start without it. The rs-less build leaves
