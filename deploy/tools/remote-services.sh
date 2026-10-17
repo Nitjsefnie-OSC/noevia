@@ -140,7 +140,21 @@ remote_auth_path_problem() { # path -> prints why the path is unsafe, nothing wh
   done
 }
 
+# #2005: the header text sits in shell variables (and in the printf that feeds curl) while these run, and
+# `bash -x` would print it. remote_auth_read and remote_probe are therefore thin wrappers: they save whether
+# xtrace was on, turn it off, run the real body (_remote_auth_read_body / _remote_probe_body), and turn it back
+# on only if it was on. Because the wrapper owns the restore, every return path of the body is covered, and the
+# `&& rc=0 || rc=$?` form keeps `set -e` from leaving the shell before xtrace is restored.
 remote_auth_read() { # path -> 0 and $remote_auth_header, or 1 and $remote_auth_why
+  local _xt=0 _rc
+  case $- in *x*) _xt=1 ;; esac
+  set +x
+  _remote_auth_read_body "$@" && _rc=0 || _rc=$?
+  if [ "$_xt" -eq 1 ]; then set -x; fi
+  return "$_rc"
+}
+
+_remote_auth_read_body() {
   local f="$1" st uid mode size type content rest line out="" n=0 me LC_ALL=C
   remote_auth_header=""; remote_auth_why=""
   if [ ! -f "$f" ] || [ ! -r "$f" ] || ! { exec 9<"$f"; } 2>/dev/null; then
@@ -201,6 +215,15 @@ remote_auth_load() {
 #   401/403 to a key that was sent, or an auth file that is set but unusable), unreachable (timeout /
 #   connection), unconfigured, refused.
 remote_probe() {
+  local _xt=0 _rc
+  case $- in *x*) _xt=1 ;; esac
+  set +x
+  _remote_probe_body "$@" && _rc=0 || _rc=$?
+  if [ "$_xt" -eq 1 ]; then set -x; fi
+  return "$_rc"
+}
+
+_remote_probe_body() {
   local svc="$1" url timeout host code rc
   url="$(remote_var "$svc" HEALTH_URL)"
   if [ -z "$url" ]; then echo "unconfigured|no $(remote_var_name "$svc" HEALTH_URL) set"; return 0; fi
