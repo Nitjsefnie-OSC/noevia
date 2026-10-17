@@ -5,8 +5,8 @@
 # fails if either default differs from the lock). Dark: used only with CODE_EGRESS_IMPL=rust and
 # deploy/examples/code-egress-rust.override.yml. See docs/egress-grant-contract.md.
 FROM rust:1.99-slim-bookworm@sha256:2c3a22f0a5533ea2dd5a16627bc841228151faa2d4de2644ac9987e4a2f1f2fa AS build
-ARG NOEVIA_RS_REF=44e8970977604ae30b7fcefcc55ac548394001fd
-ARG NOEVIA_RS_SHA256=07fcff3ed8817ccc7e0fea45df10b06413344c6a3dc8fc8dc76c8fad555019aa
+ARG NOEVIA_RS_REF=4bb49e87b606d9dea7e86160d0badb8394a92a7c
+ARG NOEVIA_RS_SHA256=ec72b2da7fced8cc9c3b6d301dad75e5cc32e779d7bf344225c337f3a74a62b9
 ENV RUSTUP_TOOLCHAIN=1.99.0 CARGO_TERM_COLOR=never
 WORKDIR /src
 ADD https://codeload.github.com/sbstndalton/noevia-rs/tar.gz/${NOEVIA_RS_REF} /tmp/noevia-rs.tar.gz
