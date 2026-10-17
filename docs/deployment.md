@@ -321,6 +321,16 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release f1ad65f4 — 2026-10-17 (web + model manager; #1318 slices 9–10, #1957, #1953)
+
+### Services
+
+- **Web:** `cowork-web:f1ad65f4` (core `ccf40fb5`, web `bbe59802`, rs `0f29e91c`, services `0fd6f87e`; `sha256:1b102d04…3c3a`).
+- **Model manager:** `cowork-model-loader:f1ad65f4` (`sha256:af0e9ee1…c49c`). It advertises native-benchmark-runner and native-downloads, and all 14 `MODEL_MANAGER_*_IMPL` are `python`.
+- **Everything else:** no change, not recreated.
+
+Same flow as 6adf2033 (`release-prep/f1ad65f4/`). The compose sync adds `MODEL_MANAGER_BENCHMARK_RUNNER_IMPL` and `MODEL_MANAGER_DOWNLOADS_IMPL` (default python). New post-checks: both features advertised, and no containers with label `noevia.model-manager.bench=1`. Rollback and evidence: `docs/changelog.md` (release f1ad65f4).
+
 ## Release 6adf2033 — 2026-10-17 (web + model manager; #1949, #1950, #1071 auth/projects retired, native MM parent permanent)
 
 ### Services
