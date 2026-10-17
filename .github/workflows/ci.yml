@@ -382,7 +382,7 @@ jobs:
           [ "$(jq -r .version <<<"$v")" = "$SHA" ] && [ "$(jq -r .web <<<"$v")" = "$WEB_REF" ] && [ "$(jq -r .core <<<"$v")" = "$CORE_REF" ]
       # #337: prove the container boots. Synthetic env only (no real secrets, no sidecars); poll
       # /api/ready so a runtime-only crash (a file the runtime stage never copied) fails here.
-      # sbstndalton/noevia#1071: the image alone (no NOEVIA_RUST_AUTH / NOEVIA_RUST_PROJECTS) and
+      # sbstndalton/noevia#1071: the image alone (no NOEVIA_RUST_AUTH) and
       # NOEVIA_FRONT=node fail closed before either process starts: Node no longer answers the read
       # routes the Rust front owns.
       - name: The web image refuses to start without the Rust front configuration
@@ -400,7 +400,8 @@ jobs:
             ! grep -qi 'listening' <<<"$out" || { echo "::error::a process started before the refusal"; exit 1; }
           done
       # M1: the boot with NOEVIA_FRONT=rust (noevia-server on 8021, Node on 9021 behind it) and, since
-      # #1071, the native auth and projects it requires (NOEVIA_RS_REF must have the front). The page
+      # #1071, the native auth it requires and the permanent project routes and store (NOEVIA_RS_REF
+      # must have the front; NOEVIA_RUST_PROJECTS is retired and not passed). The page
       # shell and /api/ready come from Rust, /api/setup/status natively too; the container must keep
       # running.
       - name: Boot web image with NOEVIA_FRONT=rust and check /api/ready
@@ -419,14 +420,11 @@ jobs:
             || { echo "::error::the web image's noevia-server does not report code-net-guard"; exit 1; }
           grep -qx rust-auth /tmp/features \
             || { echo "::error::the web image's noevia-server does not report rust-auth (NOEVIA_RUST_AUTH=1 needs it)"; exit 1; }
-          grep -qx rust-projects /tmp/features \
-            || { echo "::error::the web image's noevia-server does not report rust-projects (NOEVIA_RUST_PROJECTS=1 needs it)"; exit 1; }
-          # A pinned noevia-rs that has the chat-list slice (cargo feature rust-project-chats) is
-          # built with it, so the supervisor can confirm that slice to Node (#1409).
-          if grep -qx 'rust-project-chats = \[\]' "$TREE/rs/bins/noevia-server/Cargo.toml"; then
-            grep -qx rust-project-chats /tmp/features \
-              || { echo "::error::the pinned noevia-rs has rust-project-chats but the web image's noevia-server was built without it"; exit 1; }
-          fi
+          # The project routes and the store are permanent (#1071): the supervisor requires these.
+          for f in rust-projects rust-project-chats rust-free-chats project-store; do
+            grep -qx "$f" /tmp/features \
+              || { echo "::error::the web image's noevia-server does not report $f (the project routes are the front's, #1071)"; exit 1; }
+          done
           # Likewise the free-chat slice (cargo feature rust-free-chats).
           if grep -qx 'rust-free-chats = \[\]' "$TREE/rs/bins/noevia-server/Cargo.toml"; then
             grep -qx rust-free-chats /tmp/features \
@@ -464,7 +462,6 @@ jobs:
             -p 8021:8021 \
             -e NOEVIA_FRONT=rust \
             -e NOEVIA_RUST_AUTH=1 \
-            -e NOEVIA_RUST_PROJECTS=1 \
             -e UI_DATA_DIR=/app/server/ui-data \
             -e PUBLIC_ORIGIN=http://localhost:8021 \
             -e UI_PORT=8021 \

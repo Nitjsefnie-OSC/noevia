@@ -107,7 +107,7 @@ class CandidateBootTests(unittest.TestCase):
         # The only bootable configuration since #1071: the Rust front with native auth and projects.
         self.assertEqual(self.env_value(argv, 'NOEVIA_FRONT'), 'rust')
         self.assertEqual(self.env_value(argv, 'NOEVIA_RUST_AUTH'), '1')
-        self.assertEqual(self.env_value(argv, 'NOEVIA_RUST_PROJECTS'), '1')
+        self.assertFalse(any(a.startswith('NOEVIA_RUST_PROJECTS') for a in argv), 'the retired projects switch is not passed (#1071)')
 
     def test_ready_at_the_sha_exits_zero_and_removes_the_container(self):
         self.answer('{"ready":true,"version":"%s"}' % SHA)

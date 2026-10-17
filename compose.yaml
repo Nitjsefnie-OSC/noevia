@@ -132,11 +132,11 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-false}
       # sbstndalton/noevia#1071: the only front. noevia-server answers the read routes Node no longer
       # has (usage, settings, routing, stats, ChatGPT status, storage reads, export), so the web
-      # supervisor refuses to start without NOEVIA_FRONT=rust, NOEVIA_RUST_AUTH=1 and
-      # NOEVIA_RUST_PROJECTS=1. Their old per-route switches are retired (a leftover value only warns).
+      # supervisor refuses to start without NOEVIA_FRONT=rust and NOEVIA_RUST_AUTH=1. The project
+      # routes and store are the front's too. The old per-route switches and the projects switch
+      # are retired and no longer passed (a value left in .env does nothing).
       NOEVIA_FRONT: ${NOEVIA_FRONT:-rust}
       NOEVIA_RUST_AUTH: ${NOEVIA_RUST_AUTH:-1}
-      NOEVIA_RUST_PROJECTS: ${NOEVIA_RUST_PROJECTS:-1}
       # #1726: multimodal RAG (images embedded beside text, chosen per answer). Off by default; the
       # model-loader reads the same switch (compose.embed.yaml) for the image-embedding preset.
       NOEVIA_MULTIMODAL_RAG: ${NOEVIA_MULTIMODAL_RAG:-0}

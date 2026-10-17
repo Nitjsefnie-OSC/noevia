@@ -4,8 +4,9 @@
 # Linux.
 #
 # sbstndalton/noevia#1071: the front read routes are the Rust front's permanently, so the
-# supervisor starts nothing unless NOEVIA_FRONT=rust, NOEVIA_RUST_AUTH=1, NOEVIA_RUST_PROJECTS=1 and
-# a noevia-server whose --features lists every front route feature.
+# supervisor starts nothing unless NOEVIA_FRONT=rust, NOEVIA_RUST_AUTH=1 and a noevia-server whose
+# --features lists every front route feature. The project routes and the project store are among
+# them: NOEVIA_RUST_PROJECTS is retired, and a leftover value only warns.
 set -u
 here="$(cd -- "$(dirname -- "$0")" && pwd)"
 sup="$here/../../build/web-supervisor.sh"
@@ -18,9 +19,9 @@ fails=0; passes=0
 check() { if eval "$2"; then passes=$((passes+1)); echo "ok - $1"; else fails=$((fails+1)); echo "FAIL - $1"; fi; }
 
 # The features build/web-supervisor.sh requires (FRONT_ROUTE_FEATURES), and a front that has them.
-ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode"
-BASE_FEATURES="code-net-guard rust-auth rust-projects project-store $ROUTE_FEATURES"
-RETIRED="NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS NOEVIA_RUST_REASONING_SETTINGS NOEVIA_RUST_ROUTING_MODE NOEVIA_RUST_ROUTING_DEFAULT NOEVIA_RUST_STATS NOEVIA_RUST_EXPORT NOEVIA_RUST_CHATGPT_STATUS NOEVIA_RUST_STORAGE_READS NOEVIA_RUST_STORAGE_BROWSE"
+ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode rust-projects rust-project-chats project-store"
+BASE_FEATURES="code-net-guard rust-auth $ROUTE_FEATURES"
+RETIRED="NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS NOEVIA_RUST_REASONING_SETTINGS NOEVIA_RUST_ROUTING_MODE NOEVIA_RUST_ROUTING_DEFAULT NOEVIA_RUST_STATS NOEVIA_RUST_EXPORT NOEVIA_RUST_CHATGPT_STATUS NOEVIA_RUST_STORAGE_READS NOEVIA_RUST_STORAGE_BROWSE NOEVIA_RUST_PROJECTS NOEVIA_RUST_PROJECT_CHATS NOEVIA_RUST_FREE_CHATS NOEVIA_RUST_PROJECT_STORE"
 
 mkdir -p "$work/bin"
 # Each stub records its environment, then lives until killed or until its "die" file appears.
@@ -34,6 +35,7 @@ echo "\$name UI_HOST=\${UI_HOST:-} UI_PORT=\${UI_PORT:-} UPSTREAM=\${NOEVIA_LEGA
 retired=""
 for v in $RETIRED; do c="\${v}_CONFIRMED"; [ -n "\${!c:-}" ] && retired="\$retired \$c"; done
 echo "\$name RETIRED=\$retired" >> "$work/log"
+echo "\$name PROJECTS=\${NOEVIA_RUST_PROJECTS-unset}" >> "$work/log"
 echo "\$name WCONF=\${NOEVIA_RUST_PROJECT_WRITES_CONFIRMED:-}" >> "$work/log"
 echo "\$name SSTORE=\${NOEVIA_RUST_PROJECT_STORE_CONFIRMED:-} SPORT=\${NOEVIA_PROJECT_STORE_PORT:-} STOKLEN=\${#NOEVIA_PROJECT_STORE_TOKEN}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
@@ -55,7 +57,7 @@ stub "$work/bin/node" node
 stub "$work/noevia-server" front
 export PATH="$work/bin:$PATH"
 # The live deployment; a test overrides any of it by naming the key again (env: last one wins).
-run() { (cd "$work" && env NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" "$@" bash "$sup"); }
+run() { (cd "$work" && env NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_SERVER_BIN="$work/noevia-server" "$@" bash "$sup"); }
 reset() { : > "$work/log"; rm -f "$work"/die-* "$work/rc"; }
 wait_log() { for _ in $(seq 1 100); do grep -q "$1" "$work/log" 2>/dev/null && return 0; sleep 0.05; done; return 1; }
 without() { local out="" f; for f in $BASE_FEATURES; do [ "$f" = "$1" ] || out="$out $f"; done; echo "$out"; }
@@ -70,10 +72,10 @@ check "NOEVIA_FRONT=node is refused, nothing started" '[ $rc -eq 2 ] && grep -q 
 reset
 run NOEVIA_FRONT=bogus >/dev/null 2>"$work/err"; rc=$?
 check "an unknown NOEVIA_FRONT is refused" '[ $rc -eq 2 ] && grep -q "must be rust" "$work/err" && [ ! -s "$work/log" ]'
-for missing in "NOEVIA_RUST_AUTH=" "NOEVIA_RUST_AUTH=true" "NOEVIA_RUST_PROJECTS=" "NOEVIA_RUST_PROJECTS=0"; do
+for missing in "NOEVIA_RUST_AUTH=" "NOEVIA_RUST_AUTH=true"; do
   reset
   run "$missing" >/dev/null 2>"$work/err"; rc=$?
-  check "$missing is refused, nothing started" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_AUTH=1 and NOEVIA_RUST_PROJECTS=1 are required" "$work/err" && [ ! -s "$work/log" ]'
+  check "$missing is refused, nothing started" '[ $rc -eq 2 ] && grep -q "NOEVIA_RUST_AUTH=1 is required" "$work/err" && [ ! -s "$work/log" ]'
 done
 reset
 run NOEVIA_SERVER_BIN="$work/missing" >/dev/null 2>"$work/err"; rc=$?
@@ -85,9 +87,6 @@ reset
 run STUB_FEATURES="$(without rust-auth)" >/dev/null 2>"$work/err"; rc=$?
 check "a front without rust-auth is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no rust-auth" "$work/err" && [ ! -s "$work/log" ]'
 reset
-run STUB_FEATURES="$(without rust-projects)" >/dev/null 2>"$work/err"; rc=$?
-check "a front without rust-projects is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no rust-projects" "$work/err" && [ ! -s "$work/log" ]'
-reset
 run STUB_FEATURES= >/dev/null 2>"$work/err"; rc=$?
 check "a front whose --features prints nothing is refused" '[ $rc -eq 2 ] && [ ! -s "$work/log" ]'
 # #1071: every front route feature is required; a missing one fails closed and is named.
@@ -97,8 +96,8 @@ for feature in $ROUTE_FEATURES; do
   check "a front without $feature is refused, nothing started" '[ $rc -eq 2 ] && grep -q "lacks the front route feature(s): $feature;" "$work/err" && [ ! -s "$work/log" ]'
 done
 reset
-run STUB_FEATURES="code-net-guard rust-auth rust-projects rust-usage" >/dev/null 2>"$work/err"; rc=$?
-check "every missing feature is listed at once" '[ $rc -eq 2 ] && grep -q "rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-stats" "$work/err" && [ ! -s "$work/log" ]'
+run STUB_FEATURES="code-net-guard rust-auth rust-usage" >/dev/null 2>"$work/err"; rc=$?
+check "every missing feature is listed at once" '[ $rc -eq 2 ] && grep -q "rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-stats .* rust-projects rust-project-chats project-store;" "$work/err" && [ ! -s "$work/log" ]'
 reset
 run UI_PORT=65000 >/dev/null 2>&1; rc=$?
 check "a UI_PORT with no room for +1000 is refused" '[ $rc -eq 2 ] && [ ! -s "$work/log" ]'
@@ -107,25 +106,28 @@ check "a UI_PORT with no room for +1000 is refused" '[ $rc -eq 2 ] && [ ! -s "$w
 reset; touch "$work/die-front"
 retired_env=(); for v in $RETIRED; do retired_env+=("$v=1" "${v}_CONFIRMED=1"); done
 run "${retired_env[@]}" UI_PORT=8021 >/dev/null 2>"$work/err"; rc=$?
-check "a full front starts both; Node gets the auth, projects and free-chat confirmations" 'grep -q "^node .* FCONF=1 PCONF=1 CONF=1$" "$work/log" && grep -q "^front .* CCONF= FCONF= PCONF= CONF=$" "$work/log"'
+check "a full front starts both; Node gets the auth confirmation, and no retired project confirmation" 'grep -q "^node .* CCONF= FCONF= PCONF= CONF=1$" "$work/log" && grep -q "^front .* CCONF= FCONF= PCONF= CONF=$" "$work/log"'
 check "no retired front-route confirmation reaches either process, inherited or not" 'grep -q "^node RETIRED=$" "$work/log" && grep -q "^front RETIRED=$" "$work/log"'
 check "a leftover retired switch earns a warning and changes nothing" 'grep -q "NOEVIA_RUST_STATS is retired" "$work/err" && grep -q "NOEVIA_RUST_EXPORT is retired" "$work/err"'
 check "...and the run itself went ahead" '[ $rc -eq 3 ]'
 
-# M4's chat-list slice (#1409): confirmed to Node only for a front that lists rust-project-chats.
+# #1071: NOEVIA_RUST_PROJECTS is retired. Whatever is left in the environment (the old live 1, a 0
+# or empty) warns, starts both and reaches neither process; its old confirmations never reach Node.
+for v in 1 0 ""; do
+  reset; touch "$work/die-front"
+  run NOEVIA_RUST_PROJECTS="$v" NOEVIA_RUST_PROJECTS_CONFIRMED=1 NOEVIA_RUST_PROJECT_CHATS_CONFIRMED=1 NOEVIA_RUST_FREE_CHATS_CONFIRMED=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED=1 >/dev/null 2>"$work/err"; rc=$?
+  check "a leftover NOEVIA_RUST_PROJECTS='$v' warns, is passed to neither process, and the run goes ahead" '[ $rc -eq 3 ] && grep -q "NOEVIA_RUST_PROJECTS is retired" "$work/err" && grep -q "^node PROJECTS=unset$" "$work/log" && grep -q "^front PROJECTS=unset$" "$work/log" && grep -q "^node .* CCONF= FCONF= PCONF= CONF=1$" "$work/log" && grep -q "^node SSTORE= SPORT=" "$work/log"'
+done
 reset; touch "$work/die-front"
-run NOEVIA_RUST_PROJECT_CHATS_CONFIRMED=1 >/dev/null 2>&1
-check "a front without rust-project-chats leaves the chat list to Node; an inherited confirmation is dropped" 'grep -q "^node .* CCONF= FCONF=1 " "$work/log"'
-reset; touch "$work/die-front"
-run STUB_FEATURES="$BASE_FEATURES rust-project-chats" >/dev/null 2>&1
-check "a front with rust-project-chats has the chat slice confirmed to Node only" 'grep -q "^node .* CCONF=1 FCONF=1 PCONF=1 CONF=1$" "$work/log" && grep -q "^front .* CCONF= " "$work/log"'
+run >/dev/null 2>"$work/err"; rc=$?
+check "without NOEVIA_RUST_PROJECTS there is no warning and the run goes ahead" '[ $rc -eq 3 ] && ! grep -q "NOEVIA_RUST_PROJECTS" "$work/err"'
 
 # The project writes (#1264): their own switch over the confirmed project slice and the compiled
-# rust-project-writes; never confirmed by NOEVIA_RUST_PROJECTS=1 alone (live today).
-WRITES_FEATURES="$BASE_FEATURES rust-project-chats rust-project-writes"
+# The project writes (#1264) keep their own switch: never confirmed by the permanent project routes.
+WRITES_FEATURES="$BASE_FEATURES rust-project-writes"
 reset; touch "$work/die-front"
 run STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1
-check "NOEVIA_RUST_PROJECTS=1 alone never confirms the project writes" 'grep -q "^node WCONF=$" "$work/log"'
+check "the permanent project routes alone never confirm the project writes" 'grep -q "^node WCONF=$" "$work/log"'
 reset
 run NOEVIA_RUST_PROJECT_WRITES=1 >/dev/null 2>"$work/err"; rc=$?
 check "project writes missing the native feature refuse before startup" '[ $rc -eq 2 ] && grep -q "no rust-project-writes" "$work/err" && [ ! -s "$work/log" ]'
@@ -136,17 +138,14 @@ reset; touch "$work/die-front"
 run NOEVIA_RUST_PROJECT_WRITES_CONFIRMED=1 STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1
 check "an inherited project-writes confirmation is dropped" 'grep -q "^node WCONF=$" "$work/log"'
 
-# The project store (#1264), permanent: always set up (projects are always on), a per-start secret
-# and UI_PORT+2000 for both processes, confirmed to Node only; never from the environment; refused
-# without project-store. The retired NOEVIA_RUST_PROJECT_STORE is not read.
+# The project store (#1264), permanent: always set up, a per-start secret and UI_PORT+2000 for both
+# processes; never from the environment; refused without project-store (a front route feature,
+# above). The retired NOEVIA_RUST_PROJECT_STORE and its confirmation are not passed on.
 for v in "" 0 1; do
   reset; touch "$work/die-front"
-  run UI_PORT=8021 NOEVIA_RUST_PROJECT_STORE="$v" NOEVIA_PROJECT_STORE_TOKEN=inherited-secret-0123456789abcdef0123456789 NOEVIA_PROJECT_STORE_PORT=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED= >/dev/null 2>&1
-  check "store (retired switch '$v'): Node is confirmed, both get UI_PORT+2000 and a fresh 64-character secret, never the inherited one" 'grep -q "^node SSTORE=1 SPORT=10021 STOKLEN=64$" "$work/log" && grep -q "^front SSTORE= SPORT=10021 STOKLEN=64$" "$work/log"'
+  run UI_PORT=8021 NOEVIA_RUST_PROJECT_STORE="$v" NOEVIA_PROJECT_STORE_TOKEN=inherited-secret-0123456789abcdef0123456789 NOEVIA_PROJECT_STORE_PORT=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED=1 >/dev/null 2>&1
+  check "store (retired switch '$v'): both get UI_PORT+2000 and a fresh 64-character secret, never the inherited one or a confirmation" 'grep -q "^node SSTORE= SPORT=10021 STOKLEN=64$" "$work/log" && grep -q "^front SSTORE= SPORT=10021 STOKLEN=64$" "$work/log"'
 done
-reset
-run STUB_FEATURES="$(without project-store)" >/dev/null 2>"$work/err"; rc=$?
-check "a front without project-store is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no project-store" "$work/err" && [ ! -s "$work/log" ]'
 reset
 run UI_PORT=64000 >/dev/null 2>"$work/err"; rc=$?
 check "a UI_PORT with no room for UI_PORT+2000 is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no room for the project store port" "$work/err" && [ ! -s "$work/log" ]'
@@ -185,7 +184,7 @@ for _ in $(seq 1 100); do [ -s "$work/rc" ] && break; sleep 0.05; done
 check "Node dying stops the front, non-zero exit" 'grep -q "^front TERM" "$work/log" && [ "$(cat "$work/rc")" = 3 ]'
 
 reset
-(cd "$work" && exec env NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_RUST_PROJECTS=1 NOEVIA_SERVER_BIN="$work/noevia-server" UI_PORT=8021 COWORK_DAV_PORT=8040 bash "$sup" >/dev/null 2>"$work/err") &
+(cd "$work" && exec env NOEVIA_FRONT=rust NOEVIA_RUST_AUTH=1 NOEVIA_SERVER_BIN="$work/noevia-server" UI_PORT=8021 COWORK_DAV_PORT=8040 bash "$sup" >/dev/null 2>"$work/err") &
 pid=$!
 wait_log "^front" && wait_log "^node"
 check "with DAV on, Node keeps UI_HOST (default 0.0.0.0) and says so" 'grep -q "^node UI_HOST=0.0.0.0 UI_PORT=9021 " "$work/log" && grep -q "not loopback only" "$work/err"'

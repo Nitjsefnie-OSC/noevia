@@ -6,7 +6,7 @@
 # Usage: candidate-boot.sh <release-sha> [image]
 #   image defaults to cowork-web:<sha>.
 #   CANDIDATE_FRONT=rust        the only front since sbstndalton/noevia#1071 (the web supervisor
-#                               refuses node); booted with NOEVIA_RUST_AUTH=1 and NOEVIA_RUST_PROJECTS=1.
+#                               refuses node); booted with NOEVIA_RUST_AUTH=1 (#1071: the project routes need no switch).
 #   CANDIDATE_WAIT_SECONDS=N    bound on the readiness wait (default 120).
 #
 # Runs on the Docker host. Nothing here reads .env, and the throwaway tokens are never printed.
@@ -50,7 +50,6 @@ docker run -d --name "$name" \
   -e UI_PORT=8021 \
   -e NOEVIA_FRONT="$front" \
   -e NOEVIA_RUST_AUTH=1 \
-  -e NOEVIA_RUST_PROJECTS=1 \
   -e PUBLIC_ORIGIN=http://127.0.0.1:8021 \
   -e LEGACY_AUTH_COMPAT=false \
   -e DIARY_AUTH_TOKEN="$diary_token" \

@@ -165,17 +165,19 @@ if [ -n "$rs_sum" ]; then
 fi
 
 # Full-Rust migration M4: the Rust front and Node share projects.json. Every project route the
-# front can own (rs/contracts/http/routes.toml, owner "rust", switch NOEVIA_RUST_PROJECTS) must be
-# one this release's core knows the front may own (core/server/rust-projects.cjs OWNED_ROUTES):
+# front owns (rs/contracts/http/routes.toml, owner "rust", no switch since sbstndalton/noevia#1071:
+# a path under /api/projects/ or /api/freechats) must be one this release's core knows the front
+# owns (core/server/rust-projects.cjs OWNED_ROUTES):
 # Node merges what the front writes for those routes per item and refuses its own copies of them.
 # A front that saves a project's chat list over a core from before noevia-core#75 would have its
 # chats dropped by Node's whole-field merge (sbstndalton/noevia#1409), so that pairing is refused
 # here; likewise a front that saves the free-chat list (GET/POST /api/freechats) over a core from
 # before noevia-core#76, whose own free-list writers would overwrite free-chats.json whole. Placeholder names ({id}, {projectId}) are compared as one.
+# $2 names the switch; unset, the unswitched project routes.
 project_routes_rs() {
-  awk -v want="${2:-NOEVIA_RUST_PROJECTS}" '
+  awk -v want="${2:-}" '
     function flush(  n, i, m) {
-      if (owner == "rust" && sw == want) {
+      if (owner == "rust" && sw == want && (want != "" || path ~ /^\/api\/(projects\/|freechats$)/)) {
         if (methods == "") print "ALL " path
         n = split(methods, m, /[^A-Z]+/)
         for (i = 1; i <= n; i++) if (m[i] != "") print m[i] " " path
@@ -196,6 +198,17 @@ project_routes_core() {
   sed -n "/^const ${2:-OWNED_ROUTES} = /,/]))/p" "$1" | grep -o "'[A-Z]* /[^']*'" | tr -d "'" | sed 's/{[^}]*}/{}/g' | sort -u
 }
 if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
+  # sbstndalton/noevia#1071: the project routes are the front's with no switch. The web supervisor
+  # no longer passes NOEVIA_RUST_PROJECTS, so a front that still gates them on it (before the
+  # noevia-rs retirement) would leave them to a Node that refuses them; and a front that owns them
+  # with no switch needs a core whose refusal is unconditional (rust-projects.cjs refuseOwnedRoute)
+  # and that always writes through the project store.
+  if grep -q '^switch *= *"NOEVIA_RUST_PROJECTS"' "$tree/rs/contracts/http/routes.toml"; then
+    die "noevia-rs at $rs_ref still gates the project routes on NOEVIA_RUST_PROJECTS, which this web supervisor no longer passes; pin a noevia-rs that owns them with no switch (sbstndalton/noevia#1071)"
+  fi
+  if ! grep -q '^function refuseOwnedRoute' "$tree/core/server/rust-projects.cjs" 2>/dev/null; then
+    die "noevia-core at $(lock_value NOEVIA_CORE_REF) still gates its project routes on NOEVIA_RUST_PROJECTS (no unconditional refuseOwnedRoute in server/rust-projects.cjs), which this web supervisor no longer passes; pin a core that refuses them always (sbstndalton/noevia#1071)"
+  fi
   missing="$(comm -23 <(project_routes_rs "$tree/rs/contracts/http/routes.toml") <(project_routes_core "$tree/core/server/rust-projects.cjs"))"
   [ -z "$missing" ] || die "noevia-rs at $rs_ref owns project routes that noevia-core at $(lock_value NOEVIA_CORE_REF) does not list in server/rust-projects.cjs OWNED_ROUTES (pin a core that does): $(printf '%s' "$missing" | tr '\n' ';')"
   # sbstndalton/noevia#1264: the project writes the front answers under NOEVIA_RUST_PROJECT_WRITES
