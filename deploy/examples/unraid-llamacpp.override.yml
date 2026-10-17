@@ -82,6 +82,15 @@ services:
       # #1318: native model deletion (container check and every file removal); same rules.
       # Native only together with MODEL_MANAGER_DOWNLOADS_IMPL=rust (#1966); else it stays python.
       MODEL_MANAGER_MODEL_DELETE_IMPL: ${MODEL_MANAGER_MODEL_DELETE_IMPL:-python}
+      # #1318: native GET /api/v1/sections and /sections/{name} (reads only); the image sets python
+      # explicitly, so the compose default matches it. INI writers follow MODEL_MANAGER_SECTION_WRITES_IMPL.
+      MODEL_MANAGER_SECTIONS_IMPL: ${MODEL_MANAGER_SECTIONS_IMPL:-python}
+      # #1318: native GET /api/v1/host (Linux /proc sampler); Python host sampling is skipped when rust.
+      MODEL_MANAGER_HOST_IMPL: ${MODEL_MANAGER_HOST_IMPL:-python}
+      # #1318: native prompt library (CRUD and once-only seed move together); same rules.
+      MODEL_MANAGER_PROMPTS_IMPL: ${MODEL_MANAGER_PROMPTS_IMPL:-python}
+      # #1318: native internal backend diagnosis GET; rust refuses to start unless TZ=UTC exactly.
+      MODEL_MANAGER_DIAGNOSE_IMPL: ${MODEL_MANAGER_DIAGNOSE_IMPL:-python}
       # #1747: idle chat models unload themselves (llama.cpp sleep-idle-seconds in models.ini [*]).
       # Blank = 900 s (15 min); 0 disables. The chat router only; embedding.ini and Laya are untouched.
       CHAT_MODEL_IDLE_UNLOAD_SECONDS: ${CHAT_MODEL_IDLE_UNLOAD_SECONDS:-}
