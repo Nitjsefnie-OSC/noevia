@@ -127,18 +127,26 @@ exec "{REAL_CURL}" "$@"
         self.assertEqual(self.stub.seen, ['', ''], 'no key is sent when none is configured')
         self.assertNotIn('-H', self.curl_runs()[0])
 
-    def test_the_right_key_file_is_sent_from_the_file_and_healthy(self):
+    def test_the_right_key_file_is_read_once_and_sent_on_a_pipe(self):
         path = self.key_file()
         result = self.probe('/auth', path)
         self.assertEqual(result.stdout.strip(), 'PASS: decision runs on machine remote (HTTP 200)', result.stderr)
+        self.assertEqual(result.stderr, '')
         self.assertEqual(self.stub.seen, [f'Bearer {self.key}'])
         argv = self.curl_runs()[0]
-        self.assertIn(f'@{path}', argv)
-        self.assertEqual(argv[argv.index(f'@{path}') - 1], '-H')
+        self.assertEqual(argv[argv.index('@/dev/fd/3') - 1], '-H', 'curl reads the validated lines from a pipe')
+        self.assertNotIn(str(path), ' '.join(argv), 'curl never opens the key file itself')
         self.assertEqual(argv[-1], self.stub.url('/auth'), 'the URL stays the last argument')
-        # A stricter mode is accepted too.
+        # A stricter mode, a CRLF file (one trailing CR per line is dropped) and a sticky shared parent are fine.
         path.chmod(0o400)
         self.assertIn('(HTTP 200)', self.probe('/auth', path).stdout)
+        crlf = self.key_file('crlf.hdr', text=f'Authorization: Bearer {self.key}\r\n\r\n')
+        self.assertIn('(HTTP 200)', self.probe('/auth', crlf).stdout)
+        sticky = self.sb.root / 'sticky'
+        sticky.mkdir()
+        sticky.chmod(0o1777)
+        self.assertIn('(HTTP 200)', self.probe('/auth', self.key_file('sticky/decision.hdr')).stdout)
+        self.assertEqual(self.stub.seen[1:], [f'Bearer {self.key}'] * 3)
 
     def test_a_refused_key_is_unhealthy(self):
         wrong = self.key_file(value='synthetic-wrong-' + secrets.token_hex(8))
@@ -147,31 +155,61 @@ exec "{REAL_CURL}" "$@"
         self.assertIn('unhealthy (HTTP 403 (key refused))', self.probe('/auth403', wrong).stdout)
         self.assertIn('unhealthy (HTTP 503)', self.probe('/down', wrong).stdout)
 
-    def test_an_unsafe_or_malformed_key_file_is_ignored_with_a_warning(self):
+    UNUSABLE = 'WARN: decision on machine remote is unhealthy (NOEVIA_REMOTE_DECISION_AUTH_FILE unusable)'
+
+    def assert_unusable(self, path, reason, **extra):
+        before = len(self.stub.seen)
+        result = self.probe('/auth', path, **extra)
+        self.assertEqual(result.stdout.strip(), self.UNUSABLE, 'never "needs auth" when a key file is set (#1980)')
+        self.assertIn('warning: NOEVIA_REMOTE_DECISION_AUTH_FILE ', result.stderr)
+        self.assertIn(reason, result.stderr)
+        self.assertIn('reported unhealthy until it is fixed', result.stderr)
+        for value in [path, *extra.values()]:
+            if value is not None:
+                self.assertNotIn(str(value), result.stderr + result.stdout, 'the path is an .env value: not printed')
+        self.assertEqual(self.stub.seen[before:], [], 'nothing is sent with an unusable key file')
+
+    def test_a_key_file_owned_by_another_user_is_unusable(self):
+        path = self.key_file()
+        self.sb.shim('id', '#!/bin/bash\necho 99999\n')  # this user is someone else now
+        self.assert_unusable(path, 'is not owned by this user')
+        self.assertEqual(self.curl_runs(), [])
+
+    def test_a_set_but_unusable_key_file_is_unhealthy_and_sends_nothing(self):
         good = self.key_file('good.hdr')
         link = self.sb.root / 'link.hdr'
         link.symlink_to(good)
+        for name in ('open', 'group', 'real'):
+            (self.sb.root / name).mkdir()
+        link_dir = self.sb.root / 'linkdir'
+        link_dir.symlink_to(self.sb.root / 'real')
+        self.key_file('real/decision.hdr')
+        pad = 'a' * 9000
         cases = {
-            'mode': [self.key_file('loose644.hdr', mode=0o644), self.key_file('loose640.hdr', mode=0o640),
-                     self.key_file('loose604.hdr', mode=0o604), self.key_file('exec700.hdr', mode=0o700)],
-            'readable regular file': [link, self.sb.root / 'missing.hdr', self.sb.root],
-            'header line': [self.key_file('bare.hdr', text=f'{self.key}\n'),
-                            self.key_file('mixed.hdr', text=f'Authorization: Bearer {self.key}\n{self.key}\n'),
-                            self.key_file('empty.hdr', text='')],
+            'must have mode 0600 or stricter': [self.key_file('loose644.hdr', mode=0o644),
+                                                self.key_file('loose640.hdr', mode=0o640),
+                                                self.key_file('loose604.hdr', mode=0o604),
+                                                self.key_file('exec700.hdr', mode=0o700)],
+            'is a symlink': [link],
+            'is not a readable regular file': [self.sb.root / 'missing.hdr', self.sb.root],
+            'must hold only header lines': [self.key_file('bare.hdr', text=f'{self.key}\n'),
+                                            self.key_file('mixed.hdr', text=f'Authorization: Bearer {self.key}\n{self.key}\n'),
+                                            self.key_file('blank.hdr', text='\n\n')],
+            'between 1 byte and 8 KiB': [self.key_file('empty.hdr', text=''),
+                                         self.key_file('big.hdr', text=f'Authorization: Bearer {self.key}\nX-Pad: {pad}\n')],
+            'carriage return inside a line': [self.key_file('cr.hdr', text=f'Authorization: Bearer {self.key}\rX-Other: 1\n')],
+            'must not set the Host header': [self.key_file('host.hdr', text=f'Authorization: Bearer {self.key}\nhOsT: other.lan\n')],
+            'group- or world-writable': [self.key_file('open/decision.hdr'), self.key_file('group/decision.hdr')],
+            'is in a directory that is a symlink': [link_dir / 'decision.hdr'],
+            'must be an absolute path': [Path('decision.hdr'), Path(f'{self.sb.root}/real/../good.hdr')],
         }
+        (self.sb.root / 'open').chmod(0o777)
+        (self.sb.root / 'group').chmod(0o770)
         for reason, paths in cases.items():
             for path in paths:
-                with self.subTest(path=path.name):
-                    before = len(self.stub.seen)
-                    result = self.probe('/auth', path)
-                    self.assertIn('NOEVIA_REMOTE_DECISION_AUTH_FILE', result.stderr)
-                    self.assertIn(reason, result.stderr)
-                    self.assertIn('ignored, probing without a key', result.stderr)
-                    self.assertNotIn(str(path), result.stderr + result.stdout, 'the path is an .env value: not printed')
-                    self.assertIn('PASS: decision runs on machine remote (HTTP 401 (needs auth))', result.stdout)
-                    self.assertEqual(self.stub.seen[before:], [''], 'an ignored file sends nothing')
-        for argv in self.curl_runs():
-            self.assertNotIn('-H', argv)
+                with self.subTest(reason=reason, path=str(path)):
+                    self.assert_unusable(path, reason)
+        self.assertEqual(self.curl_runs(), [], 'curl never runs for an unusable key file')
 
     def test_earlier_names_still_probe_with_their_key_and_print_only_roles(self):
         path = self.key_file()
@@ -197,11 +235,12 @@ exec "{REAL_CURL}" "$@"
     def test_the_role_variable_wins_over_the_earlier_one(self):
         result = self.run_lib('--probe', NOEVIA_REMOTE_SERVICES='decision',
                               NOEVIA_REMOTE_DECISION_HEALTH_URL=self.stub.url('/open'),
-                              NOEVIA_REMOTE_KEV_HEALTH_URL=self.stub.url('/down'),
-                              NOEVIA_REMOTE_KEV_AUTH_FILE=str(self.key_file(mode=0o644)))
+                              NOEVIA_REMOTE_KEV_HEALTH_URL=self.stub.url('/down'))
         self.assertEqual(result.stdout.strip(), 'PASS: decision runs on machine remote (HTTP 200)')
-        self.assertIn('NOEVIA_REMOTE_DECISION_AUTH_FILE must have mode 0600', result.stderr,
-                      'warnings name the role variable even when the earlier one was set')
+        # A file set under the earlier name is checked too; messages name the role variable.
+        loose = self.key_file('kev.hdr', mode=0o644)
+        self.assert_unusable(None, 'NOEVIA_REMOTE_DECISION_AUTH_FILE must have mode 0600',
+                             NOEVIA_REMOTE_KEV_AUTH_FILE=str(loose))
 
     def test_earlier_names_in_the_env_file(self):
         path = self.key_file()
@@ -238,6 +277,35 @@ exec "{REAL_CURL}" "$@"
         self.assertEqual(len(notes), 2)
         self.assertIn('decision recovered on remote', notes[1])
 
+    def test_restart_alert_counts_an_unusable_key_file_as_a_failure(self):
+        state = self.sb.root / 'state.tsv'
+        path = self.key_file()
+        env = dict(NOEVIA_REMOTE_SERVICES='decision', NOEVIA_REMOTE_DECISION_HEALTH_URL=self.stub.url('/auth'),
+                   NOEVIA_REMOTE_DECISION_AUTH_FILE=str(path), NOEVIA_REMOTE_FAIL_THRESHOLD='2')
+        remote_state = Path(str(state) + '.remote')
+        self.alert(state, **env)
+        self.assertEqual(remote_state.read_text(), 'decision\thealthy\t0\t0\n')
+        link = self.sb.root / 'link.hdr'
+        link.symlink_to(path)
+        broken = [lambda: path.unlink(),
+                  lambda: self.key_file(mode=0o644),
+                  lambda: env.update(NOEVIA_REMOTE_DECISION_AUTH_FILE=str(link)),
+                  lambda: self.key_file('bad.hdr', text='not a header\n') and env.update(
+                      NOEVIA_REMOTE_DECISION_AUTH_FILE=str(self.sb.root / 'bad.hdr'))]
+        for fails, breakit in enumerate(broken, start=1):
+            breakit()
+            self.alert(state, **env)
+            self.assertEqual(remote_state.read_text(), f'decision\tunhealthy\t{fails}\t{int(fails >= 2)}\n',
+                             'the stub answers 401, yet an unusable key file is a failure, not "needs auth"')
+        notes = self.notifications()
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn('decision down on remote', notes[0])
+        self.assertIn('NOEVIA_REMOTE_DECISION_AUTH_FILE unusable', notes[0])
+        self.assertEqual(self.stub.seen, [f'Bearer {self.key}'], 'only the first, usable run reached the service')
+        env.update(NOEVIA_REMOTE_DECISION_AUTH_FILE=str(self.key_file('fixed.hdr')))
+        self.alert(state, **env)
+        self.assertIn('decision recovered on remote', self.notifications()[-1])
+
     def test_restart_alert_carries_over_state_written_under_the_earlier_name(self):
         state = self.sb.root / 'state.tsv'
         remote_state = Path(str(state) + '.remote')
@@ -268,6 +336,8 @@ class DocsTests(unittest.TestCase):
         text = (ROOT / 'docs/deployment.md').read_text()
         self.assertIn('NOEVIA_REMOTE_<ROLE>_AUTH_FILE', text)
         self.assertIn('HTTP 401 (needs auth)', text)
+        self.assertIn("NOEVIA_REMOTE_<ROLE>_AUTH_FILE unusable", text)
+        self.assertIn("sticky bit", text)
         for row in ('| `decision` | `kev` |', '| `sensitivity` | `laya` |', '| `embedding` | `embed` |',
                     '| `reranker` | `rerank` |'):
             self.assertIn(row, text)

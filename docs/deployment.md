@@ -2397,20 +2397,29 @@ Keep the list in step with the Settings assignment: it is a mirror, not read fro
 contacted. They follow no redirect and are bounded by the timeout. Prefer a host name to an IP literal, so
 the list does not have to change when a machine's address does.
 
-**Answers and keys (#1980).** A `2xx` answer is healthy. A `401` or `403` when no key was sent is also
-healthy and reads `HTTP 401 (needs auth)`: the service is there and wants a login, which is how core's
-machine health reads it too. Any other answer is unhealthy. To check a service that requires a key (for
-example a decision service that answers `/health` only with its bearer key), give it an auth file:
+**Answers and keys (#1980).** A `2xx` answer is healthy. A `401` or `403` when no key is configured is
+also healthy and reads `HTTP 401 (needs auth)`: the service is there and wants a login, which is how
+core's machine health reads it too. Any other answer is unhealthy. To check a service that requires a key
+(for example a decision service that answers `/health` only with its bearer key), give it an auth file:
 - `NOEVIA_REMOTE_<ROLE>_AUTH_FILE` names a file holding one full header line, for example
-  `Authorization: Bearer <the service's key>` (the same key web sends to that service). Create it with
-  `install -m 600 /dev/null <file>` and then write the line with an editor, so the key never passes
-  through a command line or shell history.
-- It must be a regular file (not a symlink) of mode `0600` or stricter, holding only `Name: value` header
-  lines. Otherwise it is ignored with a warning that names the variable (never the path or the content)
-  and the service is probed without a key.
-- It is sent as `curl -H @file`, so the key is never on a command line, in output, in a notification or
-  in the state file. With a key sent, `401`/`403` is unhealthy (`HTTP 401 (key refused)`): a wrong or
-  rotated key alerts instead of being mistaken for a running service. Needs curl 7.55 or newer.
+  `Authorization: Bearer <the service's key>` (the same key web sends to that service). Create it as the
+  user that runs the tooling (root for cron and `up.sh` on the server) with `install -m 600 /dev/null
+  <file>`, then write the line with an editor, so the key never passes through a command line or shell
+  history.
+- Rules, all required: an absolute path without `.` or `..` parts; the file is not a symlink and no
+  directory above it is a symlink; no directory above it is group- or world-writable unless it has the
+  sticky bit (as `/tmp` does); the file is a regular file owned by that same user, mode `0600` or stricter,
+  1 byte to 8 KiB, holding only `Name: value` lines (blank lines are fine, one trailing CR per line is
+  dropped, any other CR is refused, and a `Host` header is refused).
+- **A file that is set but breaks a rule makes the service `unhealthy`** with detail
+  `NOEVIA_REMOTE_<ROLE>_AUTH_FILE unusable`, and nothing is sent. It is never read as "needs auth", so a
+  deleted, re-permissioned or swapped key file alerts (after the threshold) instead of looking healthy or
+  "recovered". A warning on stderr names the variable and the broken rule, never the path or the content.
+- The file is opened once; owner, mode and type are checked on that open file and the content is read
+  from it, so it cannot be swapped between the check and the request. curl gets the validated lines on a
+  pipe (`-H @/dev/fd/3`), so the key is never on a command line, in output, in a notification or in the
+  state file. With a key sent, `401`/`403` is unhealthy (`HTTP 401 (key refused)`): a wrong or rotated
+  key alerts instead of being mistaken for a running service. Needs curl 7.55 or newer.
 
 **What runs it.**
 - `deploy/preflight/up.sh` prints `PASS: embedding runs on machine pi5`, or a `WARN` when the machine does
