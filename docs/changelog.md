@@ -10,7 +10,7 @@ notes follow as before. Entries before release 7b6942c keep their original free-
 
 ## Release 26160903 — 2026-10-17 10:29Z (web + model manager; #1318 draft heads + backends (dark), #1970, #1972, #1978, #1983, #1984, #1985, #1986, #1987, #1989, #1990, #1993, #1994, #1995, #1996)
 
-What changed for you: in Models, you can now dismiss a finished auto-tune from the Recover card (#1978, web#91; it missed a8121f10). The rest is safety and memory work:
+What changed for you: in Models, you can now dismiss a finished auto-tune from the Recover card. This is the web half of #1978 (web#91); a8121f10 shipped only the core half (core#182). The rest is safety and memory work:
 - Model deletion: a reserved model folder is released when a client drops or times out (#1983), and mixed-mode deletes are fixed (#1984, #1994).
 - Hub lookups: the draft-heads read now uses at most ~100 MiB per lookup instead of 1-2 GiB (#1985, #1995), and the update check's listing is bounded (#1996, security).
 - The GPU probe only execs into active backend containers (#1986).
@@ -18,7 +18,7 @@ What changed for you: in Models, you can now dismiss a finished auto-tune from t
 - The model-loader now runs with `TZ=UTC` (#1989). After the release, `MODEL_MANAGER_DIAGNOSE_IMPL` was flipped to `rust`, so 17 model-manager switches are now `rust`. `MODEL_MANAGER_MODEL_DELETE_IMPL` stays `python`.
 
 ### Services
-- **Web:** `cowork-web:a8121f10` → `cowork-web:26160903` (core `12db36ec`, web `30fc017d`, rs `3cfa0a7c`, services `26874a16`; `sha256:5c1ac68f…8791`). Includes web#91 (#1978) and the in-image test fixtures (#1990, noevia#1992). In-image server tests: 156/156 (they were 107/110).
+- **Web:** `cowork-web:a8121f10` → `cowork-web:26160903` (core `12db36ec`, web `30fc017d`, rs `3cfa0a7c`, services `26874a16`; `sha256:5c1ac68f…8791`, `release-prep/26160903/build.out`). Includes web#91 (#1978) and the in-image test fixtures (#1990, noevia#1992). In-image server tests: 156/156 (a8121f10: 107/110).
 - **Model manager:** `cowork-model-loader:a8121f10` → `cowork-model-loader:26160903` (`sha256:1ae9027b…83e2`). It includes:
   - rs#165 and services#83 (#1972);
   - rs#166 (#1970);
@@ -28,36 +28,39 @@ What changed for you: in Models, you can now dismiss a finished auto-tune from t
   - rs#170 (#1984, #1994), rs#172 (#1996), rs#173 (#1993) and rs#171 (#1985, #1995);
   - services#88 (the rs repin).
 
-  The image advertises `native-draft-heads` and `native-backends`.
-- **Diary, OCR, Docling, Laya, Code sandbox, egress:** no change, not rebuilt. Their Dockerfiles' rs pin moved to `3cfa0a7c` (services#88, noevia#2002), and they rebuild with the next release that touches them.
-- **Deploy/infra:** the override compose's model-loader block gained `MODEL_MANAGER_DRAFT_HEADS_IMPL` and `MODEL_MANAGER_BACKENDS_IMPL` (`${…:-python}`, noevia#1971 and #1982) and `TZ: UTC` (noevia#1991). No key was removed. In `.env`, only `COWORK_VERSION` and `MODEL_MANAGER_VERSION` changed for the release.
+  The image advertises `native-draft-heads` and `native-backends` (`release-prep/26160903/candidates-ml.out`).
+- **Diary:** no change; `cowork-diary:a5d9cbf2` is not rebuilt. Its Dockerfile's rs pin moved to `3cfa0a7c` (services#88).
+- **Code sandbox:** no change.
+- **OCR:** no change; `cowork-ocr:eb5a4523` is not rebuilt (rs pin line only).
+- **Docling:** no change; `cowork-docling:eb5a4523` is not rebuilt (rs pin line only). Laya and egress: no change; the egress rs pin moved with noevia#2002.
+- **Deploy/infra:** the override compose's model-loader block gained `MODEL_MANAGER_DRAFT_HEADS_IMPL` and `MODEL_MANAGER_BACKENDS_IMPL` (`${…:-python}`, noevia#1971 and #1982) and `TZ: UTC` (noevia#1991). No key was removed. In `.env`, only `COWORK_VERSION` and `MODEL_MANAGER_VERSION` changed for the release; the flip later added `MODEL_MANAGER_DIAGNOSE_IMPL=rust`.
 
 **Order.** rs#171 merged as 3cfa0a7c. Its one failed check, the Laya lifecycle test, was an unrelated flake (#2001) and passed on re-run. Then services#88 repinned rs to `3cfa0a7c` in all five Dockerfiles and their pin tests. Then noevia#2002 pinned rs, services and web, plus the egress-proxy rs pin. Every tarball sha256 was fetched independently, and both PRs had an independent review. Release 26160903 was assembled on the MS-01 (tarball `25c8b16f…483f`, the same on both ends) and built on the box (`release-prep/26160903/`).
 
-Candidates:
+Candidates (`candidates.out`, `candidates-ml.out`):
 - clean rust web: ready;
 - leftover keys: ready, with retired-key warnings only;
 - in-image tests: 156/156;
-- isolated model-loader: 14 native features advertised, the new switches `python` with confirmations 0, and updates and detail byte-identical to the Python child.
+- isolated model-loader: 14 native features advertised, the new switches `python` with confirmations 0, and updates and detail digests equal between the native parent and the Python child.
 
-**Cutover** at 10:26:51Z finished with ALL DONE OK. It used the a8121f10 script with this release's compose sync and checks for all 16 `rust` switches, their 16 confirmations and `TZ=UTC`. The first attempt, at 10:26:18Z, aborted before any live change: a `sed` delimiter bug in the TZ insert was caught by the sync check, and the override was restored. Results:
+**Cutover** at 10:26:51Z finished with ALL DONE OK at 10:29:00Z (`cutover.log`). It used the a8121f10 script with this release's compose sync and checks for all 16 `rust` switches, their 16 confirmations and `TZ=UTC`. The first attempt, at 10:26:18Z (`cutover.attempt1-aborted.log`), aborted before any live change: a `sed` delimiter bug in the TZ insert was caught by the sync check, and the override and preflight were restored. Results:
 - Backup `/mnt/disk3/noevia-backups/release_26160903_20261017T102651Z`: DB integrity ok; projects.json and free-chats.json byte-identical, 10/10.
 - Model-loader: healthy with 0 restarts; ML probe passed; `models.ini` unchanged; 16 switches still `rust` with 16 confirmations; DRAFT_HEADS, BACKENDS, MODEL_DELETE and DIAGNOSE `python`; `TZ=UTC` in the container and the Python child.
 - Web: healthy with 0 restarts; loopback and public ready at 26160903; signed-out routes 401; served dist equals the image dist (145 files); store unpublished and its token in no args.
 - MS-01 via the app: Kev decision and Laya sensitivity on .131, 768-dim embeddings; the decision and route probes passed.
 - Only the web and model-loader containers changed.
-- 10-minute watch: 0 restarts, healthy, public ready 200, 0 errors, no container changes.
+- Watch: 10 one-minute samples, 10:29–10:38Z. 0 restarts, healthy, public ready 200, 0 errors, no container changes.
 
 **Switch flip** (in the release plan, model-loader only, gated, `.env` backup `config/.env.bak.before-flip-MODEL_MANAGER_DIAGNOSE_IMPL`, smoke test and 3-minute soak; evidence in `release-prep/flips-20261017c-mm/`): at 10:38Z `MODEL_MANAGER_DIAGNOSE_IMPL=rust`. The native diagnose answers 200 with the same failures (0) as Python did; the Python child answers 503; an unknown backend gets 404 and a request without a token 401. The soak was clean: 0 errors and no OOM.
 
-**Rollback:**
-- The flip: copy `config/.env.bak.before-flip-MODEL_MANAGER_DIAGNOSE_IMPL` back, then recreate model-loader only.
+**Rollback** (check that no tune or Coding job is running first):
+- The flip only: copy `config/.env.bak.before-flip-MODEL_MANAGER_DIAGNOSE_IMPL` back to `config/.env`, then recreate model-loader only.
 - The release:
-  1. Set `COWORK_VERSION` and `MODEL_MANAGER_VERSION` to a8121f10 (`config/.env.bak.before-26160903`).
+  1. Restore the whole `config/.env` from `config/.env.bak.before-26160903`. That also reverts the DIAGNOSE flip; a8121f10 was never run with DIAGNOSE=rust.
   2. Restore the override from `docker-compose.override.yml.bak.before-26160903`.
   3. Restore `tools/preflight` from the backup's `preflight.tar.zst`.
   4. Point `current` at `releases/a8121f10`.
-  5. Run `up.sh … --no-build --no-deps --wait` for model-loader, then web.
+  5. In `/boot/config/plugins/compose.manager/projects/Cowork`, run `bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 model-loader`, then the same for `web`.
 
   Keep the MS-01 .131 wiring.
 
