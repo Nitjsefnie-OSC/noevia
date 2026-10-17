@@ -8,6 +8,35 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release a8121f10 — 2026-10-17 07:05Z (web + model manager; #1318 slice 11, #1964, #1966, #1965, #1967, #1976, #1977, #1978) + MS-01 at 10.69.0.131
+
+What changed for you: in Models, a saved idle-unload setting now shows a notice (#1976), and a failed auto-tune shows its failing phase with an admin Clear (#1977, #1978). Model deletion is safer: the Python delete no longer falls back to a same-named model in another folder (#1964, a data-loss fix), and it refuses while a download is queued or running into that model's folder (#1966). Native model deletion (#1318 slice 11) ships dark: `MODEL_MANAGER_MODEL_DELETE_IMPL=python`. After the release, `MODEL_MANAGER_SECTIONS_IMPL`, `MODEL_MANAGER_HOST_IMPL` and `MODEL_MANAGER_PROMPTS_IMPL` were flipped to `rust`; 16 model-manager switches are now `rust`. `MODEL_MANAGER_DIAGNOSE_IMPL` stays `python` (see below).
+
+### Services
+- **Web:** `cowork-web:f1ad65f4` → `cowork-web:a8121f10` (core `12db36ec`, web `ec48b850`, rs `db849107`, services `edc0685d`; `sha256:cb66f8dc…8627`). Includes web#89 (#1976), web#90 (#1977) and core#182 (#1978).
+- **Model manager:** `cowork-model-loader:f1ad65f4` → `cowork-model-loader:a8121f10` (`sha256:d562e2d7…828f`). Includes rs#160/#163 + services#79/#81 + #1963 (native delete, #1964/#1966 Python guards), rs#161 (#1965) and rs#162 (#1967). The image advertises `native-model-delete`. The shipped `/srv/app/services.py` has no same-name fallback.
+- **Diary, OCR, Docling, Laya, Code sandbox, egress:** no change, not rebuilt (services: rs pin lines only; rs: changes only in `bins/noevia-model-manager`, no Cargo.lock change). No Diary overlay.
+- **Deploy/infra:** the override compose gained the model-loader `MODEL_MANAGER_{MODEL_DELETE,SECTIONS,HOST,PROMPTS,DIAGNOSE}_IMPL: ${…:-python}` (noevia#1975, #1963). No key was removed. In `.env`, only `COWORK_VERSION` and `MODEL_MANAGER_VERSION` changed for the release.
+
+**MS-01 (inference offload).** Before the release, the N5 endpoints moved from 10.69.0.133 to 10.69.0.131 (`release-prep/ms01-131/cutover.sh`, 06:59Z): `.env` `COWORK_DECISION_URL`, `COWORK_SENSITIVITY_DECISION_URL`, `EMBEDDING_BASE_URL`; override web `EMBEDDING_BASE_URL` and diary `LLM_EMBED_BASE_URL`; the saved MS-01 machine address; and the project and Diary active embedding targets (same model and profile, through the app's own config module and the Diary's internal embedding endpoint; vector parity 1.0 between the two addresses). No re-embed: Diary coverage 53/53 before and after, no re-index pass. `EMBEDDING_SERVICE_URL` stays `http://embed:8080/v1` (#1979), there is no embed service, and `cowork-embed-1`, `cowork-kev` and `cowork-laya-1` stay stopped. Only diary and web were recreated. Backup `/mnt/disk3/noevia-backups/ms01-131_20261017T065823Z`; rollback `release-prep/ms01-131/rollback.sh <backup>`.
+
+**Order.** services#84 (rs → db849107 in all five Dockerfiles), then noevia#1981 pins (each sha256 fetched twice; egress-proxy rs pin too) → a8121f10. Assembled on the Mac (tarball `fdf035a6…c3bc` on both ends), built on the box (`release-prep/a8121f10/`). Candidates: clean rust web candidate ready; leftover-keys candidate ready with warnings only; in-image tests 107/110 (the same 3 `MODULE_NOT_FOUND` files as before); isolated model-loader candidate with `native-model-delete` advertised, `MODEL_DELETE_IMPL` python and its confirmation 0, updates/detail byte-identical to the Python child.
+
+**Cutover** at 07:03:50Z finished with ALL DONE OK (the f1ad65f4 script, adapted for the MS-01: checks go through the app's own path to the MS-01, the model manager's embedding endpoint answers 404 for the remote target, and the 13 `rust` switches must keep their confirmations):
+- Backup `/mnt/disk3/noevia-backups/release_a8121f10_20261017T070350Z`: DBs integrity ok, projects.json + free-chats.json byte-identical.
+- Model-loader: healthy, 0 restarts, ML probe passed, `models.ini` unchanged, 13 switches still `rust` with 13 confirmations, the 5 new switches `python`, `native-model-delete` advertised, no sweep containers.
+- Web: healthy, 0 restarts, loopback and public ready at a8121f10, signed-out routes 401, served dist equals the image dist (145 files), store unpublished and its token in no args.
+- MS-01 via the app: Kev decision and Laya sensitivity on .131, 768-dim embeddings, Diary and projects agree; Kev decision and #1901 route probes passed.
+- Only the web and model-loader containers changed. 10-minute watch: 0 restarts, healthy, public ready 200, 0 errors, no container changes.
+
+**Switch flips** (owner-approved 2026-10-16, one at a time, model-loader only, each gated with an `.env` backup `config/.env.bak.before-flip-<KEY>`, a smoke test and a 3-minute soak):
+- 07:15Z `MODEL_MANAGER_SECTIONS_IMPL=rust`: section list and section reads byte-identical to Python; Python child 503.
+- 07:19Z `MODEL_MANAGER_HOST_IMPL=rust`: same shape, plus the native `gtt_used_gb` field (#1747, intended); Python child 503.
+- 07:23Z `MODEL_MANAGER_PROMPTS_IMPL=rust`: the seed flag was already set; the prompt list is identical (4 prompts); validation probes give the same answers (400/422/404/422/401); Python child 503.
+- Not flipped: `MODEL_MANAGER_DIAGNOSE_IMPL`. The model-loader has no `TZ`, and native diagnose refuses to start unless `TZ=UTC` exactly. `MODEL_MANAGER_MODEL_DELETE_IMPL` stays `python` until it is qualified.
+
+**Rollback:** each flip: copy `config/.env.bak.before-flip-<KEY>` back and recreate model-loader only. Release: set `COWORK_VERSION` and `MODEL_MANAGER_VERSION` to f1ad65f4 (`config/.env.bak.before-a8121f10`, which also has the three flipped keys unset), restore the override from `docker-compose.override.yml.bak.before-a8121f10`, restore `tools/preflight` from the backup's `preflight.tar.zst`, point `current` at `releases/f1ad65f4`, then run `up.sh … --no-build --no-deps --wait` for model-loader, then web. Keep the MS-01 .131 wiring.
+
 ## Release f1ad65f4 — 2026-10-17 03:56Z (web + model manager; #1318 slices 9–10, #1957, #1953, #1962)
 
 What changed for you: nothing visible. The model manager now has native code for the benchmark runner (#1318 slice 9) and the download job table (#1318 slice 10). Both stay off: `MODEL_MANAGER_BENCHMARK_RUNNER_IMPL` and `MODEL_MANAGER_DOWNLOADS_IMPL` are `python`, as are all other `MODEL_MANAGER_*_IMPL`. A leftover `MODEL_FILES_IMPL` is now only a "retired and ignored" notice (#1957). The web image adds the #1953 import/replace review fixes and the #1962 contract test.
