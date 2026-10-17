@@ -39,6 +39,8 @@ services:
       MODELS_DIR: /models
       MODELS_INI_PATH: /config/models.ini
       DATA_DIR: /data
+      # #1989: the native diagnose front (MODEL_MANAGER_DIAGNOSE_IMPL=rust) refuses to start unless TZ is exactly UTC.
+      TZ: UTC
       LLAMA_CONTAINERS: ${MODEL_LOADER_LLAMA_CONTAINERS:-}
       GPU_VRAM: ${MODEL_LOADER_GPU_VRAM:-}
       HOST_RAM_RESERVE_GB: ${MODEL_LOADER_HOST_RAM_RESERVE_GB:-8}
