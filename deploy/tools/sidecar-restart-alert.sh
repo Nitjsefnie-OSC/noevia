@@ -9,10 +9,10 @@
 # container and image, exit code 0 and at most N (default 10) restarts since the last run is expected
 # and silent; a non-zero exit, a replaced container/image or a burst above N still alerts (crash loop).
 # --ack rewrites state without alerting (run right after an intentional deploy).
-# Remote services (#1843): with NOEVIA_REMOTE_SERVICES set (laya, kev, embed, rerank assigned to another
-# Inference machine) each is health-probed through remote-services.sh (see that file for the
-# NOEVIA_REMOTE_<NAME>_HEALTH_URL variables; LAN/Tailscale hosts only, bounded timeout). A service that
-# fails NOEVIA_REMOTE_FAIL_THRESHOLD (default 2) consecutive runs alerts once; its recovery sends one
+# Remote services (#1843): with NOEVIA_REMOTE_SERVICES set (decision, sensitivity, embedding, reranker on
+# another Inference machine) each is health-probed through remote-services.sh (see that file for the
+# NOEVIA_REMOTE_<ROLE>_HEALTH_URL and optional _AUTH_FILE variables; LAN/Tailscale only, bounded). A service
+# that fails NOEVIA_REMOTE_FAIL_THRESHOLD (default 2) consecutive runs alerts once; its recovery sends one
 # notice. State: "<state file>.remote". No web admin credential is used or needed. Unset: nothing runs.
 # Exit status: 0 ok, 2 docker failure, 64 usage error. Notify failures leave the
 # old state line in place so the next run retries the alert.
@@ -76,14 +76,21 @@ remote_check() {
   local threshold="${NOEVIA_REMOTE_FAIL_THRESHOLD-2}"
   [[ "$threshold" =~ ^[1-9][0-9]*$ ]] || threshold=2
   local rstate="$state.remote" t=$'\t' old="" new="" svc res st detail line pstate pfails palerted fails alerted machine
+  local legacy legacy_line
   [[ -f "$rstate" ]] && old="$(cat "$rstate")"
   while IFS= read -r svc; do
     [[ -n "$svc" ]] || continue
     res="$(remote_probe "$svc")"; st="${res%%|*}"; detail="${res#*|}"
     machine="$(remote_machine "$svc")"
-    pfails=0; palerted=0; line=""
+    pfails=0; palerted=0; line=""; legacy_line=""
+    legacy="$(remote_legacy_name "$svc")"
     local l
-    while IFS= read -r l; do [[ "${l%%"$t"*}" == "$svc" ]] && line="$l"; done <<< "$old"
+    # #1980: a state file written before the role names keys the line by the earlier name; carry it over once.
+    while IFS= read -r l; do
+      [[ "${l%%"$t"*}" == "$svc" ]] && line="$l"
+      [[ -n "$legacy" && "${l%%"$t"*}" == "$legacy" ]] && legacy_line="$l"
+    done <<< "$old"
+    [[ -n "$line" ]] || line="$legacy_line"
     if [[ -n "$line" ]]; then IFS="$t" read -r _ pstate pfails palerted <<< "$line"; fi
     [[ "$pfails" =~ ^[0-9]+$ ]] || pfails=0
     [[ "$palerted" == 1 ]] || palerted=0

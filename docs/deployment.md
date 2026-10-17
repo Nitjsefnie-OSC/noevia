@@ -2338,9 +2338,21 @@ Offline test: `bash deploy/tools/test-sidecar-restart-alert.sh`.
 
 ## Services on other Inference machines (#1843)
 
-The `laya`/`kev` decision service, `embed` and `rerank` can run on another machine (a Pi 5 or Rock 5B on
-the LAN or Tailscale) assigned in Settings → Inference machines. Defaults are unchanged: with nothing
-below configured, the sidecars, preflight and the restart alert behave exactly as before.
+The decision service, the sensitivity check's decision service, embeddings and the reranker can run on
+another machine on the LAN or Tailscale, assigned in Settings → Inference machines. Defaults are unchanged:
+with nothing below configured, the sidecars, preflight and the restart alert behave exactly as before.
+
+The host tooling names each one by its role, the service id of Settings → Inference machines. Earlier
+releases used the local service names instead; those still work everywhere the role does (in
+`NOEVIA_REMOTE_SERVICES` and as the `<ROLE>` part of every variable below), so an existing `.env` keeps
+working. When both spellings of one variable are set, the role one wins. Output always uses the role.
+
+| Role (`NOEVIA_REMOTE_SERVICES`, `NOEVIA_REMOTE_<ROLE>_*`) | Earlier name, still accepted | Local service it replaces |
+| --- | --- | --- |
+| `decision` | `kev` | the hand-run `cowork-kev` container |
+| `sensitivity` | `laya` | Compose service `laya` |
+| `embedding` | `embed` | Compose service `embed` (`compose.embed.yaml`) |
+| `reranker` | `rerank` | Compose service `rerank` (`compose.rerank.yaml`) |
 
 Inference memory budget: a remote service is not counted against this host's budget; its memory is that
 machine's concern.
@@ -2369,10 +2381,12 @@ them) and point the tooling at that file with `NOEVIA_REMOTE_ENV_FILE=/mnt/docke
 never executed:
 
 ```sh
-NOEVIA_REMOTE_SERVICES=embed,rerank                       # subset of laya, kev, embed, rerank
-NOEVIA_REMOTE_EMBED_HEALTH_URL=http://pi5.lan:8080/health
-NOEVIA_REMOTE_EMBED_MACHINE=pi5                           # label for messages, optional
-NOEVIA_REMOTE_RERANK_HEALTH_URL=http://100.64.0.7:8080/health
+NOEVIA_REMOTE_SERVICES=decision,embedding,reranker        # subset of decision, sensitivity, embedding, reranker
+NOEVIA_REMOTE_DECISION_HEALTH_URL=http://infer1.lan:8080/health
+NOEVIA_REMOTE_DECISION_AUTH_FILE=/mnt/docker/appdata/cowork/config/remote-decision.hdr   # optional, see below
+NOEVIA_REMOTE_EMBEDDING_HEALTH_URL=http://pi5.lan:8080/health
+NOEVIA_REMOTE_EMBEDDING_MACHINE=pi5                       # label for messages, optional
+NOEVIA_REMOTE_RERANKER_HEALTH_URL=http://infer2.tail1234.ts.net:8080/health
 NOEVIA_REMOTE_PROBE_TIMEOUT=3                             # seconds, 1-30
 NOEVIA_REMOTE_FAIL_THRESHOLD=2                            # consecutive 5-minute runs before an alert
 ```
@@ -2380,16 +2394,45 @@ NOEVIA_REMOTE_FAIL_THRESHOLD=2                            # consecutive 5-minute
 Keep the list in step with the Settings assignment: it is a mirror, not read from web. Probes accept only
 `http(s)` URLs without credentials whose host is a private/CGNAT IP, a single-label name or ends in
 `.local`, `.lan`, `.home.arpa`, `.internal` or `.ts.net`; anything else is reported `refused` and never
-contacted. They send no secret, follow no redirect and are bounded by the timeout.
-- `deploy/preflight/up.sh` prints `PASS: embed runs on machine pi5`, or a `WARN` when the machine does
+contacted. They follow no redirect and are bounded by the timeout. Prefer a host name to an IP literal, so
+the list does not have to change when a machine's address does.
+
+**Answers and keys (#1980).** A `2xx` answer is healthy. A `401` or `403` when no key is configured is
+also healthy and reads `HTTP 401 (needs auth)`: the service is there and wants a login, which is how
+core's machine health reads it too. Any other answer is unhealthy. To check a service that requires a key
+(for example a decision service that answers `/health` only with its bearer key), give it an auth file:
+- `NOEVIA_REMOTE_<ROLE>_AUTH_FILE` names a file holding one full header line, for example
+  `Authorization: Bearer <the service's key>` (the same key web sends to that service). Create it as the
+  user that runs the tooling (root for cron and `up.sh` on the server) with `install -m 600 /dev/null
+  <file>`, then write the line with an editor, so the key never passes through a command line or shell
+  history.
+- Rules, all required: an absolute path without `.` or `..` parts; the file is not a symlink and no
+  directory above it is a symlink; no directory above it is group- or world-writable unless it has the
+  sticky bit (as `/tmp` does); the file is a regular file owned by that same user, mode `0600` or stricter,
+  1 byte to 8 KiB, holding only `Name: value` lines (blank lines are fine, one trailing CR per line is
+  dropped, any other CR is refused, and a `Host` header is refused).
+- **A file that is set but breaks a rule makes the service `unhealthy`** with detail
+  `NOEVIA_REMOTE_<ROLE>_AUTH_FILE unusable`, and nothing is sent. It is never read as "needs auth", so a
+  deleted, re-permissioned or swapped key file alerts (after the threshold) instead of looking healthy or
+  "recovered". A warning on stderr names the variable and the broken rule, never the path or the content.
+- The file is opened once; owner, mode and type are checked on that open file and the content is read
+  from it, so it cannot be swapped between the check and the request. curl gets the validated lines on a
+  pipe (`-H @/dev/fd/3`), so the key is never on a command line, in output, in a notification or in the
+  state file. With a key sent, `401`/`403` is unhealthy (`HTTP 401 (key refused)`): a wrong or rotated
+  key alerts instead of being mistaken for a running service. Needs curl 7.55 or newer.
+
+**What runs it.**
+- `deploy/preflight/up.sh` prints `PASS: embedding runs on machine pi5`, or a `WARN` when the machine does
   not answer. These are advisory and never block `up`; a stopped local sidecar is not an error. It also
-  warns when an assigned service is still enabled in the Compose project and would start here too.
+  warns when an assigned role's local service (table above) is still enabled in the Compose project and
+  would start here too.
 - `sidecar-restart-alert.sh` probes the same list every run and sends one `alert` after the threshold and
-  one `normal` notice on recovery (state in `<state file>.remote`).
+  one `normal` notice on recovery (state in `<state file>.remote`, keyed by role; a line written under the
+  earlier name is carried over on the next run).
 - Install `deploy/tools/remote-services.sh` next to `sidecar-restart-alert.sh`
   (`/mnt/docker/appdata/cowork/tools/`); `up.sh` finds it at `tools/remote-services.sh`.
-  Try it: `NOEVIA_REMOTE_SERVICES=embed NOEVIA_REMOTE_EMBED_HEALTH_URL=... bash deploy/tools/remote-services.sh`.
-Offline tests: `python3 -m unittest deploy/tests/test_remote_services_1843.py`.
+  Try it: `NOEVIA_REMOTE_SERVICES=embedding NOEVIA_REMOTE_EMBEDDING_HEALTH_URL=... bash deploy/tools/remote-services.sh`.
+Offline tests: `python3 -m unittest deploy/tests/test_remote_services_1843.py deploy/tests/test_remote_services_1980.py`.
 
 ## Rotating the secrets key
 

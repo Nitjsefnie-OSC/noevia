@@ -74,11 +74,13 @@ if [[ -n "${NOEVIA_REMOTE_SERVICES:-}" || -n "${NOEVIA_REMOTE_ENV_FILE:-}" ]]; t
     remote_load_env
     remote_report || true
     # An assigned service whose sidecar is still enabled in this Compose project will start locally too.
+    # remote_services prints roles; remote_local_service names the Compose service behind each one.
     active_services="$(docker compose ${compose_args[@]+"${compose_args[@]}"} config --services 2>/dev/null || true)"
     while IFS= read -r remote_name; do
       [[ -n "$remote_name" ]] || continue
-      if printf '%s\n' "$active_services" | grep -qx -- "$remote_name"; then
-        echo "WARN: $remote_name is assigned to another machine but is still enabled in this Compose project and will also start here (docs/deployment.md, \"Services on other Inference machines\")" >&2
+      local_name="$(remote_local_service "$remote_name")"
+      if [[ -n "$local_name" ]] && printf '%s\n' "$active_services" | grep -qx -- "$local_name"; then
+        echo "WARN: $remote_name is assigned to another machine but its local sidecar is still enabled in this Compose project and will also start here (docs/deployment.md, \"Services on other Inference machines\")" >&2
       fi
     done < <(remote_services 2>/dev/null)
   fi
