@@ -390,12 +390,11 @@ jobs:
           SHA: ${{ steps.assemble.outputs.sha }}
         run: |
           set -u
-          # NOEVIA_FRONT unset defaults to node. NOEVIA_FRONT=rust needs no switch any more (sign-in
-          # and the project routes are the front's), so it is not a refusal case.
-          for front in node unset; do
+          # NOEVIA_FRONT=rust (the image default) needs no switch any more: sign-in, the project
+          # routes and the store are the front's. Only a Node front is a refusal case.
+          for front in node; do
             code=0
-            fenv=(-e NOEVIA_FRONT=$front); [ "$front" = unset ] && fenv=()
-            out=$(timeout 60 docker run --rm "${fenv[@]}" -e UI_PORT=8021 "cowork-web:$SHA" 2>&1) || code=$?
+            out=$(timeout 60 docker run --rm -e NOEVIA_FRONT=$front -e UI_PORT=8021 "cowork-web:$SHA" 2>&1) || code=$?
             echo "$out"
             [ "$code" -eq 2 ] || { echo "::error::NOEVIA_FRONT=$front exited $code, not 2"; exit 1; }
             grep -q '#1071' <<<"$out" || { echo "::error::the refusal does not name #1071"; exit 1; }
