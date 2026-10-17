@@ -48,11 +48,10 @@ services:
       LLAMACPP_CACHE_RAM_HARD_MAX_MIB: ${LLAMACPP_CACHE_RAM_HARD_MAX_MIB:-2048}
       # Required: this service holds the Docker socket; only web knows this secret.
       MODEL_LOADER_TOKEN: ${MODEL_LOADER_TOKEN:?Set a random MODEL_LOADER_TOKEN (e.g. openssl rand -hex 32)}
-      # #1689/#1717: the model manager's front. python (default) runs uvicorn; rust runs
-      # noevia-model-manager in front of it (needed for /api/v1/embedding-service, #1668).
-      MODEL_MANAGER_IMPL: ${MODEL_MANAGER_IMPL:-python}
-      # #1318: native read-only GET /api/v1/settings. python (default) keeps Python serving it; rust needs
-      # MODEL_MANAGER_IMPL=rust too. PUT always stays Python (single writer). Never pass an empty value.
+      # #1071: the native model manager front is permanent (the image always runs it); there is no
+      # MODEL_MANAGER_IMPL or MODEL_FILES_IMPL to pass any more.
+      # #1318: native read-only GET /api/v1/settings. python (default) keeps Python serving it. PUT always
+      # stays Python (single writer). Never pass an empty value.
       MODEL_MANAGER_SETTINGS_IMPL: ${MODEL_MANAGER_SETTINGS_IMPL:-python}
       # #1318: native read-only GET /api/v1/models/updates, same rules; every update-check writer stays Python.
       MODEL_MANAGER_MODEL_UPDATES_IMPL: ${MODEL_MANAGER_MODEL_UPDATES_IMPL:-python}

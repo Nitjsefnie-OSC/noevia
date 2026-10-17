@@ -78,6 +78,10 @@ class CandidateBootTests(unittest.TestCase):
 
     def test_refuses_a_bad_front_and_a_bad_wait_without_touching_docker(self):
         self.assertEqual(self.run_script(SHA, CANDIDATE_FRONT='python').returncode, 2)
+        # #1071: the node front is gone; the web supervisor would refuse it, so this does too.
+        node = self.run_script(SHA, CANDIDATE_FRONT='node')
+        self.assertEqual(node.returncode, 2)
+        self.assertIn('#1071', node.stderr)
         self.assertEqual(self.run_script(SHA, CANDIDATE_WAIT_SECONDS='soon').returncode, 2)
         self.assertEqual(self.calls(), [])
 
@@ -100,7 +104,11 @@ class CandidateBootTests(unittest.TestCase):
         argv = self.run_argv()
         self.assertEqual(argv[argv.index('--cap-drop') + 1], 'ALL')
         self.assertIn('no-new-privileges', argv)
-        self.assertEqual(self.env_value(argv, 'NOEVIA_FRONT'), 'node')
+        # The only bootable configuration since #1071: the Rust front with projects; sign-in is the
+        # front's with no switch, so the retired NOEVIA_RUST_AUTH is not passed.
+        self.assertEqual(self.env_value(argv, 'NOEVIA_FRONT'), 'rust')
+        self.assertFalse(any(a.startswith('NOEVIA_RUST_AUTH') for a in argv), 'the retired sign-in switch is not passed (#1071)')
+        self.assertFalse(any(a.startswith('NOEVIA_RUST_PROJECTS') for a in argv), 'the retired projects switch is not passed (#1071)')
 
     def test_ready_at_the_sha_exits_zero_and_removes_the_container(self):
         self.answer('{"ready":true,"version":"%s"}' % SHA)

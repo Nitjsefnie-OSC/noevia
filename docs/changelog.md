@@ -8,6 +8,116 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Release 6adf2033 — 2026-10-17 00:56Z (web + model manager; #1949, #1950, #1264, #1071, #1937, #1939, #1942, #1318)
+
+What changed for you: importing conversations no longer deletes the imported chats' transcripts when the project store is on (#1949, a live data-loss bug), and replacing a project document no longer shows a false "Project changed; retry" (#1950). Sign-in, the project routes and the project store are now always the native front's: `NOEVIA_RUST_AUTH`, `NOEVIA_RUST_PROJECTS` and `NOEVIA_RUST_PROJECT_STORE` are retired, and leftover values only warn. The model manager's native parent is permanent. Every #1318 switch stays `python`.
+
+### Services
+- **Web:** `cowork-web:8207bb96` → `cowork-web:6adf2033` (core `25d71eec`, web `bbe59802`, rs `4bb49e87`, services `09f7d016`; `sha256:55a5e98f…c778`). It includes #1949/#1950 (core), #1264 final (rs#150, core#176, #1938), #1071 groups A/B (#1927, #1930, #1951), rs#152 (#1937), rs#153 (#1939) and #1942.
+- **Model manager:** `cowork-model-loader:8207bb96` → `cowork-model-loader:6adf2033` (`sha256:56e6e252…0f67`). The native parent is permanent (rs#142, services#69, #1926). Check-updates, benchmark-overview, backend-control and settings-write are built in (#1924 passthroughs), but all 12 `MODEL_MANAGER_*_IMPL` switches are `python` and every per-route native confirmation is 0.
+- **Diary, OCR, Docling, Laya, Code sandbox, egress:** no change, not rebuilt. Their Cargo.lock closures contain none of the changed crates. Their services changes are rs pin lines only. No Diary overlay.
+- **Deploy/infra:** the override compose gained the model-loader `MODEL_MANAGER_{BACKEND_CONTROL,BENCHMARK_OVERVIEW,CHECK_UPDATES,SETTINGS_WRITE}_IMPL: ${…:-python}`. No key was removed. The preflight was reinstalled from the release, and its `web-env-keys.txt` no longer expects the retired switches. `.env` changed `COWORK_VERSION` and `MODEL_MANAGER_VERSION` only.
+
+**Order.** First services#77 (rs 4bb49e87), then noevia#1954 pins (each sha256 was fetched twice; the egress-proxy rs pin was bumped too). Then #1951. Then #1930, with main merged in and both retirements kept. Assembled on the Mac and built on the box (`release-prep/6adf2033/`). Candidates:
+- The clean rust candidate was ready.
+- A candidate with leftover `NOEVIA_RUST_AUTH/PROJECTS/PROJECT_STORE/STATS` was ready, warned for each, and had 0 confirmations. The store listened on 127.0.0.1:10021.
+- In-image tests passed 106/109. The 3 failing files need the repo-only `tests/server` stub, and pass 47/47 with it mounted read-only; `routes/import.test.cjs` is one of them.
+- The isolated model-loader candidate had the native parent confirmed, all IMPLs python, and `/api/v1/internal/*` returned 404 on both parent and child.
+
+**Gate (each run):** jobs idle, llama idle 0, GTT 19 MiB, MemAvailable 15.0–16.7 GiB, no autotune process (last state `failed`). Attempt 1 aborted at the gate (sidecar CPU 6.85%). Attempt 2 aborted at the Kev decision pre-check (cold load, as in 8207bb96). Neither made a change. **Attempt 3** at 00:54:55Z finished with ALL DONE OK:
+- Backup `/mnt/disk3/noevia-backups/release_6adf2033_20261017T005455Z`: DBs integrity ok, projects.json + free-chats.json 10/10 byte-identical.
+- Model-loader: healthy, 0 restarts. Pid1 is `noevia-model-manager`. ML probe passed (`internal_runtime` 404). `models.ini` unchanged.
+- Web: healthy, 0 restarts. Loopback and public ready at 6adf2033, public `/` 200. Signed-out projects, freechats, session and idle-unload all returned 401. Served dist equals the image dist (145 files).
+- The supervisor warned for the 12 retired `NOEVIA_RUST_*` keys still passed. 0 `*_CONFIRMED` processes. The store is on 127.0.0.1:10021, unpublished, and its token is in no args or inspect env.
+- Embed, Kev decision and route probes passed (unprefixed prompts). Decision config and project counts were unchanged. Only web and model-loader containers changed.
+- 10-minute watch: clean.
+
+**Rollback:** set `COWORK_VERSION` and `MODEL_MANAGER_VERSION` to 8207bb96, restore the override from `docker-compose.override.yml.bak.before-6adf2033`, restore `tools/preflight` from the backup's `preflight.tar.zst`, point `current` at `releases/8207bb96`, then run `up.sh … --no-build --no-deps --wait` for model-loader, then web.
+
+**Owner:** these retired keys are still in `.env` and only warn or do nothing: `NOEVIA_RUST_{AUTH,PROJECTS,PROJECT_STORE,USAGE,SAMPLING_SETTINGS,REASONING_SETTINGS,ROUTING_MODE,ROUTING_DEFAULT,STATS,CHATGPT_STATUS,STORAGE_READS,STORAGE_BROWSE,EXPORT}`, `MODEL_MANAGER_IMPL` and `MODEL_FILES_IMPL`.
+
+## Release 8207bb96 and the project store flip — 2026-10-16 20:25Z / 20:39Z (web + model manager; #1264, #1934, #1922, #1906, #1908, #1902, #1318)
+
+What changed for you: nothing visible. Saves to the project list and the free-chat list now go through the native front's internal project store instead of Node writing the files under a `flock` (#1264). A model settings name ending in a newline can no longer write an unparseable `models.ini` (#1934, a live Python bug). The owner approved the `NOEVIA_RUST_PROJECT_STORE` flip on 2026-10-16. Every other new switch ships off.
+
+### Services
+- **Web:** `cowork-web:7ac94a2f` → `cowork-web:8207bb96` (core `a11598b7`, web `bbe59802`, rs `44e89709`, services `d475f427`; `sha256:a158e508…80ed`). It includes the project store (rs#135, core#173/#175, #1913), core#172 (#1902), rs#136 (#1906) and rs#141 (#1922). `.env` then gained `NOEVIA_RUST_PROJECT_STORE=1`, followed by a web-only recreate.
+- **Model manager:** `cowork-model-loader:7ac94a2f` → `cowork-model-loader:8207bb96` (`sha256:32b955d7…0b03`). It includes #1934 (services#67), #1908 422 key order (rs#137), and the #1922 reader fix. The native download-targets, badges, bench-runs and section-writes code is built in (rs#133/#134/#138/#139/#140, services#63/#64/#66/#67), but all 4 `MODEL_MANAGER_*_IMPL` switches stay `python`, and every native confirmation is 0.
+- **Diary, OCR, Docling, Laya, Code sandbox, egress:** no change, not rebuilt. Their Cargo.lock closures contain none of the changed crates (`noevia-model-manager`, `noevia-server`, `server-projects`). Their services changes are rs pin lines only.
+- **Deploy/infra:** override compose gained web `NOEVIA_RUST_PROJECT_STORE: ${NOEVIA_RUST_PROJECT_STORE:-0}` and model-loader `MODEL_MANAGER_{DOWNLOAD_TARGETS,BADGES,BENCH_RUNS,SECTION_WRITES}_IMPL: ${…:-python}`. `.env` changed `COWORK_VERSION` and `MODEL_MANAGER_VERSION`, then the one flip key.
+
+**Order.** services#72 (rs 1666ab66), then services#67 on main (rs 44e89709). noevia#1933 pins, where each archive's sha256 was fetched twice. Assembled on the Mac. `build.sh` on the box. Candidates: node and rust fronts ready; the image test files passed 146/147, and the 1 file needs the repo-only `tests/server` stub and passes 12/12 with it mounted read-only (core CI "Server tests" is green at a11598b7). The isolated model-loader candidate showed all new IMPLs python and confirmations 0, and `PUT /sections/qa-probe%0A` returned 400 on both parent and child with the synthetic `models.ini` byte-identical. Then the gate, then `release-prep/8207bb96/cutover.sh`.
+
+**Gate (each run):** jobs idle, llama idle 0, GTT 29 MiB, MemAvailable 13.9–15.9 GiB, no autotune process (last state `failed`), sidecars idle.
+
+**Cutover attempt 1** aborted before any change: the Kev decision pre-check got "unreachable" once (likely a cold load). Kev was healthy with 0 restarts, and the next 3 probes passed at about 0.45 s. **Attempt 2** at 20:23Z finished with ALL DONE OK:
+- Backup `/mnt/disk3/noevia-backups/release_8207bb96_20261016T202335Z`: DBs integrity ok, projects.json 5/5 byte-identical.
+- Model-loader: healthy, 0 restarts. ML probe pass. `models.ini` unchanged, idle-unload 1800/default.
+- Web: healthy, 0 restarts. Loopback and public ready at 8207bb96, public `/` 200, signed-out 401s. Served dist equals the image dist (145 files).
+- Switches: 12 `NOEVIA_RUST_*` on before and after. `CHATGPT_STATUS`, `STORAGE_READS`, `STORAGE_BROWSE` and `EXPORT` are each still set and confirmed to Node. `PROJECT_WRITES` and `PROJECT_STORE` have 0 confirmed processes.
+- Embed, Kev decision and route checks passed. Route: simple `count from 1 to 5` went fast via the pre-check (1 ms), simple-model went fast (688 ms), reasoning went smart (554 ms). These probes use unprefixed prompts.
+- Only `cowork-web-1` and `cowork-model-loader-1` changed id (53 containers).
+- 10-minute watch: clean.
+
+**Flip `NOEVIA_RUST_PROJECT_STORE=1`.** Prerequisites: `NOEVIA_RUST_PROJECTS` and free-chats are confirmed, the front lists `project-store`, and UI_PORT+2000 (10021) had no listener in the web namespace. Attempt 1 (20:36Z) rolled back automatically at the token-in-args check. My scan matched its own shell, whose command line contained the key name as the grep pattern. Nothing of the token was found. The rollback was verified (key gone, store unconfirmed, healthy). Attempt 2 (20:38Z, scan fixed to skip its own pid) passed:
+- Node is confirmed (1 process) and the front logs `project store on 127.0.0.1:10021`, with no "is ignored" warning.
+- `ss` inside the container shows only `127.0.0.1:10021`, and the port is not published.
+- The token key is absent from every container's inspect env, and neither the key nor the value is in any process args.
+- Unauthenticated `POST /v1/read` and a wrong-token `/v1/write` both return 401. From model-loader, `web:10021` is not reachable.
+- The 4 earlier switches are still confirmed. Only web changed.
+- 10-minute watch: 0 `flock` processes in 300 samples, `PROJECTS_BUSY` 0, store errors 0, healthy, 0 restarts, no other container changed. No save happened during the watch, so the 6 projects/free-chats mtimes did not move. The owner's authenticated QA click-test covers saves.
+
+**Rollback.**
+- Flip only: remove the key (or set it to 0), then recreate web.
+  `sed -i '/^NOEVIA_RUST_PROJECT_STORE=/d' /mnt/docker/appdata/cowork/config/.env && cd /boot/config/plugins/compose.manager/projects/Cowork && bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web`
+  Backup: `config/.env.bak.before-flip-NOEVIA_RUST_PROJECT_STORE-20261016T203817Z`.
+- Release:
+  1. Set `COWORK_VERSION=7ac94a2f` and `MODEL_MANAGER_VERSION=7ac94a2f`, and remove the flip key.
+  2. Restore `docker-compose.override.yml.bak.before-8207bb96`, or leave the new default-off lines in place.
+  3. Point `current` back to `releases/7ac94a2f`.
+  4. Run the same `up.sh … model-loader`, then `… web`.
+  Both old images are still on the box. A fuller backup is in `/mnt/disk3/noevia-backups/release_8207bb96_20261016T202335Z`.
+
+Scripts and logs: `/mnt/docker/appdata/cowork/release-prep/8207bb96/`.
+
+## Switch flips on 7ac94a2f — 2026-10-16 08:52Z–09:17Z (web: 4 on; model manager: 1 rolled back; #1071, #1368, #1373, #1315, #1318)
+
+What changed for you: nothing visible. The ChatGPT connection status, connected-storage metadata, the connected-storage list and text read, and the conversation export are now answered by the native front. The owner approved these flips on 2026-10-16 (one at a time, each with a smoke test and a ready rollback). The native model-manager settings read failed its smoke test and was rolled back, so the model-manager flips stopped there.
+
+### Services
+- **Web:** same image `cowork-web:7ac94a2f`; `.env` gained `NOEVIA_RUST_CHATGPT_STATUS=1`, `NOEVIA_RUST_STORAGE_READS=1`, `NOEVIA_RUST_STORAGE_BROWSE=1`, `NOEVIA_RUST_EXPORT=1`, each followed by a web-only recreate.
+- **Model manager:** same image `cowork-model-loader:7ac94a2f`; `MODEL_MANAGER_SETTINGS_IMPL=rust` was tried and rolled back to `python` (see below). `MODEL_MANAGER_MODEL_UPDATES_IMPL` and `MODEL_MANAGER_MODEL_DETAIL_IMPL` were not flipped and stay `python`.
+- **Diary, Code sandbox, OCR, Docling:** no change.
+- **Deploy/infra:** `.env` only (one key per flip). Not flipped, as approved: `NOEVIA_RUST_PROJECT_WRITES` (0), the #1318 download-target and badge switches.
+
+**Order.** For each switch: gate (`release-idle-jobs.sh` idle, llama idle 0, GTT ≤ 1 GiB, MemAvailable ≥ 8 GiB, no autotune, no compose/build, sidecars idle) with a 30-minute retry deadline; timestamped `.env` backup; change only that key (diff checked to be one line); `up.sh --env-file … -- -d --no-build --no-deps --wait --wait-timeout 120 <svc>`; health, restarts and the key checked, with automatic restore of the backup on failure; smoke test; five-minute log soak. Scripts and logs: `/mnt/docker/appdata/cowork/release-prep/flips-20261016/`.
+
+| # | Switch | Up | Gate (GTT, MemAvailable) | Result |
+| --- | --- | --- | --- | --- |
+| 1 | `NOEVIA_RUST_CHATGPT_STATUS=1` | 08:52:11Z | 29 MiB, 13.1 GiB | on |
+| 2 | `NOEVIA_RUST_STORAGE_READS=1` | 08:58:07Z | 29 MiB, 13.0 GiB | on |
+| 3 | `NOEVIA_RUST_STORAGE_BROWSE=1` | 09:03:36Z | 29 MiB, 13.0 GiB | on |
+| 4 | `NOEVIA_RUST_EXPORT=1` | 09:09:04Z | 29 MiB, 12.9 GiB | on |
+| 5 | `MODEL_MANAGER_SETTINGS_IMPL=rust` | 09:16:03Z | 29 MiB, 12.9 GiB | rolled back 09:17:00Z |
+
+Every gate: jobs idle, llama idle 0, no autotune process (last job state `failed`, not running).
+
+**Evidence (web).** The live front lists `rust-chatgpt-status`, `rust-storage-reads`, `rust-storage-browse` and `rust-export` in `--features`. After each flip the supervisor confirmed the switch to Node (`NOEVIA_RUST_<NAME>_CONFIRMED=1` in Node's environment; key names only were read). Probes on loopback were unauthenticated (no session was created on the live stack): every moved route answered 401 `application/json` `{"error"}` with `x-noevia-api: 1`, as before the flip, and the ChatGPT status 401 body is byte-identical to Node's. After flip 2, Node's own copy of `GET /api/integrations/storage` refuses with 503 `RUST_STORAGE_READS_OWNED` while the front still answers 401, which shows the front answers that route itself. For browse and export, Node checks the session before its ownership refusal, so the unauthenticated probe cannot show the hand-off; the confirmation is the evidence there. Each soak (08:52–08:57, 08:58–09:03, 09:03–09:08, 09:09–09:14): 0 error lines, healthy, 0 restarts, no OOM, public `/api/ready` 200, no cowork container with restarts. Only `cowork-web-1` changed id on each web flip.
+
+**Export memory (before flip 4).** Measured in throwaway candidates of `cowork-web:7ac94a2f` (no network, read-only root, capabilities dropped, tmpfs data, synthetic owner and synthetic chats only, removed by name). Same data per pair; peak RSS (VmHWM) of the serving process and container cgroup `memory.peak`, before → after one export:
+
+| Export | Node serves (switch 0) | Native serves (switch 1) |
+| --- | --- | --- |
+| 300 chats × 30 messages, ZIP 26,837,251 bytes (identical size) | Node 141 → 180 MiB (+39); cgroup peak 159 → 312 MiB | front 53 → 76 MiB (+23); cgroup peak 154 → 255 MiB |
+| 700 chats × 30 messages, ZIP 62,620,451 bytes (identical size) | Node 135 → 270 MiB (+135); cgroup peak 180 → 462 MiB | front 53 → 114 MiB (+61); cgroup peak 179 → 378 MiB |
+| 1000 chats × 30 messages (over the 64 MB cap) | 413 JSON | 413 JSON, front peak +66 MiB |
+
+Native peak is lower than Node's in every case and far from the 8 GiB MemAvailable floor.
+
+**Model manager failure (flip 5).** Recreate, health, restarts 0 and the child confirmation (`NOEVIA_NATIVE_MODEL_MANAGER_SETTINGS_CONFIRMED=1`) all passed, but the authenticated `GET /api/v1/settings` on the front returned `500 text/plain` (`Internal Server Error`, the native store-failure answer) instead of the earlier 200 `{hasToken, tokenHint}`. The Python child correctly refused with 503. Updates and the detail of 3 models stayed byte-identical. The front logged nothing. Rolled back at once: backup restored (byte-identical), model-loader-only recreate, healthy, 0 restarts, `MODEL_MANAGER_SETTINGS_IMPL=python`, settings 200 with the pre-flip body hash, five-minute soak clean. Likely cause (not yet reproduced, #1922): `/data/model_loader.db` is in WAL mode and has no `-wal`/`-shm` files while Python holds no connection. `settings::read` opens with `SQLITE_OPEN_READ_ONLY`, which cannot open a WAL database whose `-shm` does not exist. `MODEL_MANAGER_MODEL_UPDATES_IMPL` and `_MODEL_DETAIL_IMPL` were not attempted (the sequence stops on a failure). The model-loader runs in UTC (`TZ` unset in its env, `/etc/localtime` → `Etc/UTC`), which the detail switch needs.
+
+**Rollback.** Per key, never a whole old `.env`: set the key to `0` (web) or `python` (model manager) with `sed`, or remove it, then `cd /boot/config/plugins/compose.manager/projects/Cowork && bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web` (or `model-loader`). Backups: `config/.env.bak.before-flip-<KEY>-<UTC stamp>` for each flip.
+
 ## Release 7ac94a2f — 2026-10-16 08:28Z (web + model manager; #1863, #1880, #1901, #1751, #1264 slice 1 dark)
 
 What changed for you: chat models now unload after 30 minutes idle (was 15), and an administrator can change that in Settings → Models → Performance (#1863). A chat role's model can be measured (auto-tuned) on its own Inference machine from Settings (#1880). Automatic routing sends short simple asks (count, list, a joke, a short poem or story) to Fast without a decision call, and Kev's route labels name simple short tasks as Fast (#1901, core#168). A decision call that hits a reset or refused connection is retried once within the deadline (#1751). Native project chat-context routes are shipped behind the new default-off `NOEVIA_RUST_PROJECT_WRITES` switch, which is off (#1264 slice 1).
