@@ -321,6 +321,16 @@ rollback after it means a full nomic re-index). The `[embeddinggemma-2-Q8_0]` se
 engine's `models.ini` must not be used for embeddings. A request to the chat engine with that name
 would evict the chat model, so every target here names `http://embed:8080/v1`.
 
+## Release a8121f10 — 2026-10-17 (web + model manager; #1318 slice 11, #1964, #1966, #1976–#1978) + MS-01 at 10.69.0.131
+
+### Services
+
+- **Web:** `cowork-web:a8121f10` (core `12db36ec`, web `ec48b850`, rs `db849107`, services `edc0685d`; `sha256:cb66f8dc…8627`).
+- **Model manager:** `cowork-model-loader:a8121f10` (`sha256:d562e2d7…828f`). It advertises native-model-delete. `MODEL_MANAGER_MODEL_DELETE_IMPL` and `MODEL_MANAGER_DIAGNOSE_IMPL` are `python`; SECTIONS, HOST and PROMPTS were flipped to `rust` after the release (16 `rust` in total).
+- **Everything else:** no change, not recreated.
+
+Same flow as f1ad65f4 (`release-prep/a8121f10/`). The compose sync adds `MODEL_MANAGER_{MODEL_DELETE,SECTIONS,HOST,PROMPTS,DIAGNOSE}_IMPL` (default python). Since the MS-01 offload, post-checks reach Kev, Laya and embeddings through the app (`ms01.cjs`, the app's machine settings and the Diary's internal embedding status) instead of local containers, and expect the model manager's embedding endpoint to answer 404. `MODEL_MANAGER_DIAGNOSE_IMPL=rust` needs `TZ=UTC` on model-loader first. The MS-01 address move (10.69.0.133 → .131) used `release-prep/ms01-131/` and changed the saved embedding targets through the app's own code, without a re-embed. Rollback and evidence: `docs/changelog.md` (release a8121f10).
+
 ## Release f1ad65f4 — 2026-10-17 (web + model manager; #1318 slices 9–10, #1957, #1953)
 
 ### Services
