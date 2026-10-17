@@ -72,6 +72,7 @@ esac
         return self.log.read_text() if self.log.exists() else ''
 
 
+# Earlier service names on purpose (#1980): an existing .env keeps working; output uses the roles.
 REMOTE = dict(NOEVIA_REMOTE_SERVICES='embed,rerank',
               NOEVIA_REMOTE_EMBED_HEALTH_URL='http://pi5.lan:8080/health',
               NOEVIA_REMOTE_EMBED_MACHINE='pi5',
@@ -94,10 +95,10 @@ class LibraryTests(unittest.TestCase):
         self.sb.answer('pi5.lan', '200')
         self.sb.answer('100.64.0.7', '503')
         out = self.probe(**REMOTE).stdout
-        self.assertIn('PASS: embed runs on machine pi5 (HTTP 200)', out)
-        self.assertIn('WARN: rerank on machine remote is unhealthy (HTTP 503)', out)
+        self.assertIn('PASS: embedding runs on machine pi5 (HTTP 200)', out)
+        self.assertIn('WARN: reranker on machine remote is unhealthy (HTTP 503)', out)
         self.sb.answer('pi5.lan', 'fail')
-        self.assertIn('WARN: embed on machine pi5 is unreachable', self.probe(**REMOTE).stdout)
+        self.assertIn('WARN: embedding on machine pi5 is unreachable', self.probe(**REMOTE).stdout)
 
     def test_probe_is_bounded_and_never_follows_redirects_or_proxies(self):
         self.sb.answer('pi5.lan', '200')
@@ -129,10 +130,13 @@ class LibraryTests(unittest.TestCase):
                 self.assertNotIn('is refused', out)
 
     def test_unknown_and_duplicate_names_and_missing_url(self):
-        result = self.probe(NOEVIA_REMOTE_SERVICES=' Embed, bogus ,embed')
+        # #1980: an earlier name and its role are one service.
+        result = self.probe(NOEVIA_REMOTE_SERVICES=' Embed, bogus ,embed, EMBEDDING')
         self.assertIn("unknown service 'bogus'", result.stderr)
-        self.assertEqual(result.stdout.count('embed'), 1)
-        self.assertIn('INFO: embed is assigned to machine remote', result.stdout)
+        self.assertIn('known: decision, sensitivity, embedding, reranker', result.stderr)
+        self.assertEqual(len(result.stdout.splitlines()), 1)
+        self.assertIn('INFO: embedding is assigned to machine remote', result.stdout)
+        self.assertIn('no NOEVIA_REMOTE_EMBEDDING_HEALTH_URL set', result.stdout)
         self.assertEqual(self.sb.calls(), '')
 
     def test_env_file_reads_only_remote_keys_and_never_executes(self):
@@ -148,7 +152,7 @@ class LibraryTests(unittest.TestCase):
         self.assertNotIn('secret-should-not-load', result.stdout + result.stderr + self.sb.calls())
         # An explicit environment variable wins over the file.
         result = self.sb.run(['bash', str(LIB), '--list'], NOEVIA_REMOTE_ENV_FILE=str(env_file), NOEVIA_REMOTE_SERVICES='rerank')
-        self.assertEqual(result.stdout.strip(), 'rerank')
+        self.assertEqual(result.stdout.strip(), 'reranker')
 
 
 class PreflightTests(unittest.TestCase):
@@ -171,8 +175,8 @@ class PreflightTests(unittest.TestCase):
         self.sb.answer('100.64.0.7', 'fail')
         result = self.up(**REMOTE)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('PASS: embed runs on machine pi5', result.stdout)
-        self.assertIn('WARN: rerank on machine remote is unreachable', result.stdout)
+        self.assertIn('PASS: embedding runs on machine pi5', result.stdout)
+        self.assertIn('WARN: reranker on machine remote is unreachable', result.stdout)
         self.assertIn('up -d', self.sb.calls())  # up still ran
 
     def test_warns_when_assigned_service_would_still_start_locally(self):
@@ -180,8 +184,8 @@ class PreflightTests(unittest.TestCase):
         self.sb.answer('pi5.lan', '200')
         result = self.up(**REMOTE)
         self.assertEqual(result.returncode, 0)
-        self.assertRegex(result.stderr, r'WARN: embed is assigned to another machine but is still enabled')
-        self.assertNotIn('WARN: rerank is assigned', result.stderr)
+        self.assertRegex(result.stderr, r'WARN: embedding is assigned to another machine but its local sidecar is still enabled')
+        self.assertNotIn('WARN: reranker is assigned', result.stderr)
 
     def test_missing_library_warns_but_still_starts(self):
         lone = self.sb.root / 'lone'
@@ -223,7 +227,7 @@ class AlertTests(unittest.TestCase):
         self.alert(**REMOTE)
         notes = self.notifications()
         self.assertEqual(len(notes), 1)
-        self.assertIn('embed down on pi5', notes[0])
+        self.assertIn('embedding down on pi5', notes[0])
         self.assertIn('-i alert', notes[0])
         self.alert(**REMOTE)
         self.assertEqual(len(self.notifications()), 1, 'not re-alerted while still down')
@@ -231,7 +235,7 @@ class AlertTests(unittest.TestCase):
         self.alert(**REMOTE)
         notes = self.notifications()
         self.assertEqual(len(notes), 2)
-        self.assertIn('embed recovered on pi5', notes[1])
+        self.assertIn('embedding recovered on pi5', notes[1])
         self.assertIn('-i normal', notes[1])
         self.alert(**REMOTE)
         self.assertEqual(len(self.notifications()), 2)
@@ -244,7 +248,7 @@ class AlertTests(unittest.TestCase):
         before = remote_state.read_text()
         self.sb.answer('pi5.lan', '500')
         dry = self.alert('--dry-run', NOEVIA_REMOTE_FAIL_THRESHOLD='1', **REMOTE)
-        self.assertIn('embed down on pi5', dry.stdout)
+        self.assertIn('embedding down on pi5', dry.stdout)
         self.assertEqual(remote_state.read_text(), before, '--dry-run never moves the baseline')
         self.assertEqual(self.notifications(), [])
         self.alert('--ack', NOEVIA_REMOTE_FAIL_THRESHOLD='1', **REMOTE)
