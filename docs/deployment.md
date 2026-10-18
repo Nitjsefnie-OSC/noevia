@@ -1948,8 +1948,10 @@ without another compose edit; flip only with `deploy/tools/flags.sh`-verified be
 
 `dav-parse.wasm` is always verified before web listens: its pinned SHA-256, absence of imports and
 required exports must match. Retired Rust-only paths require it regardless of selector values.
-`STORAGE_PATH_IMPL`, `SECRET_ENVELOPE_IMPL` and `LLAMACPP_PRESETS_IMPL` can still appear in a
-verification error when selected, but setting them to `js` does not disable the unconditional check.
+`STORAGE_PATH_IMPL` and `SECRET_ENVELOPE_IMPL` can still appear in a verification error
+when selected, but setting them to `js` does not disable the unconditional check. The completion
+candidate also retires `LLAMACPP_PRESETS_IMPL`: preset policy always uses Rust, and this key
+behaves like the retired role-context and stream-guard keys.
 A missing or mismatched module makes web log one fatal line and exit 1. Restore the pinned module
 by rebuilding the matching image, or restore a complete previous release. Changing retired flags
 cannot make a broken module usable.
