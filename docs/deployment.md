@@ -2078,23 +2078,21 @@ log `codenet.wasm_fault`.
 - **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
 - **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
-### Role-context projections (`ROLE_CONTEXT_IMPL`, core#34)
+### Role-context projections (Rust only, core#198)
 
-`dav-parse.wasm` also carries the Rust port of `role-context.cjs`'s projections, shared dossier and
-leak verdicts (noevia-rs `aa5eca78`, core#34; `dav-parse.lock` pins the tarball and module
-checksums). The switch is independent of the others, default `js`; **it has been `wasm` on the live box since 2026-10-18 (flipped in `.env`)**. The hand-kept live Compose
-Manager override passes it through as `ROLE_CONTEXT_IMPL: ${ROLE_CONTEXT_IMPL:-js}`. With `js` nothing changes. With `wasm`, the JS projection is still computed and is handed
-out only if the port gives the byte-identical one; any disagreement, port fault or "ambiguous" /
-"too large" refusal means the context is refused (`RoleContextLeakError` with an `impl_*` class,
-logged once per reason as `role_context.impl_mismatch` / `role_context.wasm_fault`, without state
-text). The code reviewer then tells the person only that the review context could not be verified
-and was not sent. The port is stricter than the JS on a few inputs (for example an unpaired literal
-`\uD800` escape in a reviewed patch is refused as ambiguous; core#34 test, noevia#1120).
+Role projection, credential redaction, shared dossier construction and leak policy always run in
+`dav-parse.wasm`. The JavaScript implementation remains a test-only oracle, including the frozen
+fixture table and 600 seeded-state comparisons; it is not a runtime fallback. The module is verified
+against `dav-parse.lock` before web listens. A missing or tampered module stops startup.
 
-- **Switch on (owner only):** add `ROLE_CONTEXT_IMPL=wasm` to `.env` and recreate web only; then run
-  a Code task with review and confirm the reviewer still receives its context.
-- **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web.
+`ROLE_CONTEXT_IMPL` is retired. Empty or `wasm` is silent; another leftover value warns and is
+ignored. Remove its Compose passthrough at the native release boundary. The host retains the
+callers' refusal codes and leak errors. Port faults and malformed replies refuse the context;
+the reviewer displays the existing generic verification failure without sending it. The port's
+bounded-input restrictions, including an unpaired literal `\uD800`, still fail closed (#1120).
+
+Rollback requires the previous web image and its matching Compose/environment snapshot; changing
+this retired variable cannot restore JavaScript policy.
 
 ### Completeness report (`COMPLETENESS_REPORT_IMPL`, core#35)
 
