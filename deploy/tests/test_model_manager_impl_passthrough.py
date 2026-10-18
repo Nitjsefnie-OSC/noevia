@@ -88,6 +88,13 @@ def slice_problems(text, key):
     return []
 
 
+def web_slice_problems(text):
+    if '  web:' not in text.split('\n'):
+        return ['no web service in this copy']
+    return [f'{key} is passed to web' for key in SLICE_KEYS for line in service_environment(text, 'web')
+            if key in line]
+
+
 class SlicePassthroughTests(unittest.TestCase):
     def test_each_copy_passes_each_slice_once_with_python_default(self):
         for name in COMPOSE_COPIES:
@@ -100,10 +107,19 @@ class SlicePassthroughTests(unittest.TestCase):
     def test_web_does_not_get_a_slice_key(self):
         for name in COMPOSE_COPIES:
             text = (ROOT / name).read_text(encoding='utf-8')
-            if '  web:' in text.split('\n'):
-                for key in SLICE_KEYS:
-                    with self.subTest(copy=name, key=key):
-                        self.assertEqual([l for l in service_environment(text, 'web') if key in l], [])
+            with self.subTest(copy=name):
+                self.assertIn('  web:', text.split('\n'), 'no web service: the web-leak check would pass vacuously')
+                self.assertEqual(web_slice_problems(text), [])
+
+    def test_a_slice_key_under_web_is_reported(self):
+        for key in SLICE_KEYS:
+            text = ('  model-loader:\n    environment:\n'
+                    f'      {key}: ${{{key}:-python}}\n'
+                    '  web:\n    environment:\n'
+                    f'      {key}: ${{{key}:-python}}\n'
+                    '  diary:\n')
+            with self.subTest(key=key):
+                self.assertEqual(web_slice_problems(text), [f'{key} is passed to web'])
 
     def test_missing_duplicate_or_non_python_default_is_reported(self):
         for key in SLICE_KEYS:
