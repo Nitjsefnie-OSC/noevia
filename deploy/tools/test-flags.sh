@@ -20,7 +20,7 @@ cat <<'JSON'
  "MODEL_LOADER_TOKEN_IMPL_NOT=SECRET-lookalike",
  "X_IMPL_EXTRA=SECRET-suffix-lookalike",
  "lowercase_IMPL=SECRET-lower",
- "GGUF_META_IMPL=wasm",
+ "TOOL_GATE_IMPL=wasm",
  "S3_SIGN_IMPL=js",
  "NOEVIA_FEATURE_DEEP_RESEARCH=false",
  "NOEVIA_FEATURE_=SECRET-empty-suffix-ok-or-not",
@@ -44,13 +44,13 @@ out="$(bash "$script" cowork-web-1 2>&1)"; rc=$?
 check "values mode exits 0" '[ $rc -eq 0 ]'
 check "no secret in values mode" '! printf "%s" "$out" | grep -qi "SECRET"'
 check "no non-allow-listed key name in values mode" '! printf "%s" "$out" | grep -Eq "TOKEN|API_KEY|S3_SECRET|PATH|lowercase|X_IMPL_EXTRA_NOT"'
-check "allow-listed values printed" 'printf "%s" "$out" | grep -qx "GGUF_META_IMPL=wasm" && printf "%s" "$out" | grep -qx "COWORK_VERSION=abc123" && printf "%s" "$out" | grep -qx "NOEVIA_FEATURE_DEEP_RESEARCH=false" && printf "%s" "$out" | grep -qx "COWORK_CODE_NET_ADDR=10.0.0.5:9000"'
+check "allow-listed values printed" 'printf "%s" "$out" | grep -qx "TOOL_GATE_IMPL=wasm" && printf "%s" "$out" | grep -qx "COWORK_VERSION=abc123" && printf "%s" "$out" | grep -qx "NOEVIA_FEATURE_DEEP_RESEARCH=false" && printf "%s" "$out" | grep -qx "COWORK_CODE_NET_ADDR=10.0.0.5:9000"'
 check "exactly the 10 allow-listed entries (incl. generic *_IMPL)" '[ "$(printf "%s\n" "$out" | grep -c .)" -eq 10 ]'
 
 keys="$(bash "$script" --keys cowork-web-1 2>&1)"; rc=$?
 check "--keys exits 0" '[ $rc -eq 0 ]'
 check "--keys prints no value and no =" '! printf "%s" "$keys" | grep -q "=" && ! printf "%s" "$keys" | grep -Eqi "SECRET|wasm|abc123"'
-check "--keys lists names" 'printf "%s" "$keys" | grep -qx GGUF_META_IMPL && printf "%s" "$keys" | grep -qx COWORK_VERSION'
+check "--keys lists names" 'printf "%s" "$keys" | grep -qx TOOL_GATE_IMPL && printf "%s" "$keys" | grep -qx COWORK_VERSION'
 check "--keys omits secret key names" '! printf "%s" "$keys" | grep -Eq "TOKEN|API_KEY|SECRET"'
 
 one="$(bash "$script" cowork-web-1 GGUF_PARSER 2>&1)"

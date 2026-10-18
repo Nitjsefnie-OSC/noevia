@@ -1687,9 +1687,10 @@ tool shape) before it signs a profile off (#1003).
 Six switches are retired; the Rust path is always used and the JS fallback is deleted:
 `CHAT_TEMPLATE_CAPS_IMPL`, `AUTOTUNE_PLAN_IMPL`, `PRESET_RELOAD_IMPL`, `LAYA_LOAD_ADVISOR`,
 `DAV_PARSE_IMPL` and `S3_PARSE_IMPL`. Web always loads and verifies `dav-parse.wasm` at startup
-(it is now always required, whatever the environment says). A leftover value of `js` or `off`
-only logs one warning (`<NAME> is retired; Rust is always used`) and changes nothing; `wasm`, `on`
-or empty is accepted silently. The `${KEY:-}` passthrough lines in the hand-kept Compose Manager
+(it is now always required, whatever the environment says). A leftover value other than the old
+Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js` and `off` included, only logs one
+warning (`<NAME> is retired; Rust is always used`) and changes nothing; the old value or empty is
+accepted silently. The `${KEY:-}` passthrough lines in the hand-kept Compose Manager
 override can stay, and the `.env` lines can be deleted at leisure. There is no per-flag rollback any
 more: roll back by pinning the previous release (previous `cowork-web` tag, live d28ce1c before this
 change).
@@ -1699,8 +1700,9 @@ change).
 Five more switches are retired on the same terms: `MCP_FRAME_IMPL`, `UPLOAD_SNIFF_IMPL`,
 `S3_SIGN_IMPL`, `PROMPT_FRAMING_IMPL` and `SSRF_IMPL`. The Rust path is always used, the JS
 runtime paths are gone (the JS references live only under `tests/server/oracle/`, for fixture
-generation and differential tests), and `dav-parse.wasm` stays always required. A leftover `js` or
-`off` logs one `<NAME> is retired; Rust is always used` warning; `wasm`, `on` or empty is silent.
+generation and differential tests), and `dav-parse.wasm` stays always required. A leftover value other than `wasm` or
+empty (`js`, `off` and `on` included) logs one `<NAME> is retired; Rust is always used` warning;
+`wasm` or empty is silent.
 Roll back by pinning the previous release (previous `cowork-web` tag, live 5c92fb14 before this
 change).
 
@@ -1716,8 +1718,9 @@ Node image with the expected mapping, or by updating noevia-core's pin and Rust 
 Nine more switches are retired on the same terms as batches 1 and 2: `POLICY_LEAVES_IMPL`,
 `CODE_REVIEW_VERDICT_IMPL`, `TOOL_EXCHANGE_IMPL`, `DECISION_IMPL`, `COMPLETENESS_REPORT_IMPL`,
 `TASK_LIFECYCLE_IMPL`, `MCP_SERVERS_IMPL`, `CODE_NET_GUARD_IMPL` and `LLAMACPP_AUTOCONFIG_IMPL`.
-The Rust path is always used and the JS runtime paths are gone. A leftover `js` or `off` logs one
-`<NAME> is retired; Rust is always used` warning; `wasm`, `on` or empty is silent. Web now
+The Rust path is always used and the JS runtime paths are gone. A leftover value other than `wasm` or
+empty (`js`, `off` and `on` included) logs one `<NAME> is retired; Rust is always used` warning;
+`wasm` or empty is silent. Web now
 verifies `dav-parse.wasm` at startup before it reads auth tokens or opens any egress. Roll back by
 pinning the previous release (previous `cowork-web` tag, live 1e4e3b82 before this change).
 
@@ -1726,8 +1729,9 @@ pinning the previous release (previous `cowork-web` tag, live 1e4e3b82 before th
 Three more switches are retired on the same terms: `GGUF_META_IMPL` (noevia-core#184),
 `PROJECT_FILE_NAMES_IMPL` (noevia-core#185) and `PROVIDER_EGRESS_IMPL` (noevia-core#186). All three
 were `wasm` on the live box before the JS was deleted, so setting the key is no longer needed. The
-Rust path is always used and the JS rules are gone. A leftover `js` or `off` logs one
-`<NAME> is retired; Rust is always used` warning; `wasm`, `on` or empty is silent. Remove the key
+Rust path is always used and the JS rules are gone. A leftover value other than `wasm` or
+empty (`js`, `off` and `on` included) logs one `<NAME> is retired; Rust is always used` warning;
+`wasm` or empty is silent. Remove the key
 and the matching `${NAME:-js}` passthrough from `.env` and the Compose override when convenient;
 neither is required. What changes in behaviour:
 
@@ -1745,8 +1749,10 @@ neither is required. What changes in behaviour:
   providers") instead of the JS's specific one. A local provider's `diary_*` or `nc_webdav_*` call
   is no longer refused because its arguments are too large for the port to read.
 
-Roll back by pinning the previous release (the `cowork-web` tag before the noevia-core pin that
-contains these changes).
+The module is required: web verifies `dav-parse.wasm` (pinned sha256, no imports, the expected
+exports) at every startup, and a missing or mismatched module refuses to start (exit 1, one `FATAL: ...`
+line) with no JS fallback. Roll back by pinning the previous release (the `cowork-web` tag before the
+noevia-core pin that contains these changes).
 
 ### Code-actions and project-file-names fronts (`CODE_ACTIONS_IMPL`, `PROJECT_FILE_NAMES_IMPL`, noevia-core#45)
 
@@ -1781,7 +1787,7 @@ when the port's reply is byte-identical:
 
 ### Provider-egress front (`PROVIDER_EGRESS_IMPL`, noevia-core#46)
 
-> **Retired (noevia-core#186, #1071):** `PROVIDER_EGRESS_IMPL` no longer exists as a switch. The Rust path is always used and the JS rules are gone. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above. The text below is history: there is no JS answer to compute first any more, and the availability note below now always applies to external providers.
+> **Retired (noevia-core#186, #1071):** `PROVIDER_EGRESS_IMPL` no longer exists as a switch. The Rust path is always used and the JS rules are gone. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above. The text below is history: there is no JS answer to compute first any more, and the "Availability note (read before flipping)" bullet below now always applies to external providers (no switch to set back).
 
 `dav-parse.wasm` (noevia-rs `68d8fbce`, rs#52) also carries the Rust port of
 `provider-egress.cjs` (what may leave for an external provider: the external/trial-host tests, the
@@ -1955,6 +1961,8 @@ without another compose edit. The module's sha256 changed with this pin (`ef0884
 > **Retired (noevia-core#184, #1071):** `GGUF_META_IMPL` no longer exists as a switch. The Rust path is always used and the JS reader is gone. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above.
 
 > **Retired (noevia-core#44, #1071 batch 3):** `POLICY_LEAVES_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
+
+> **History:** everything below in this section describes the switches before they were retired (`GGUF_META_IMPL` in noevia-core#184, `POLICY_LEAVES_IMPL` in #44). Neither is a switch any more: there is no `=wasm` to set, no `${NAME:-js}` passthrough that does anything, and no rollback to `js`.
 
 `dav-parse.wasm` also carries the Rust GGUF metadata reader and the policy leaf functions
 (noevia-rs `f1eafcaf`, core#30; `dav-parse.lock` pins the tarball and module checksums). Both
