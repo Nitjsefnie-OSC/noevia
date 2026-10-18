@@ -19,7 +19,7 @@ set -uo pipefail
 # Only this script may confirm the project writes to Node and hand out the project store (below);
 # never trust a value from the environment. (The retired confirmations, rust-auth's, the projects'
 # and the front routes', are scrubbed too, so an inherited value can never reach a Node of either age.)
-unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED NOEVIA_RUST_PROJECT_WRITES_CONFIRMED NOEVIA_RUST_PROJECT_STORE_CONFIRMED NOEVIA_PROJECT_STORE_PORT NOEVIA_PROJECT_STORE_TOKEN NOEVIA_FRONT_CLIENT_IP
+unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED NOEVIA_RUST_PROJECT_WRITES_CONFIRMED NOEVIA_RUST_PROJECT_STORE_CONFIRMED NOEVIA_PROJECT_STORE_PORT NOEVIA_PROJECT_STORE_TOKEN NOEVIA_FRONT_CLIENT_IP NOEVIA_LEGACY_CLAIM_BIN
 FRONT_ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode rust-projects rust-project-chats project-store"
 # Their old switches only earn a warning now (noevia-server says the same), and neither process
 # gets them (each would only warn again).
@@ -85,6 +85,15 @@ if [ -n "$missing" ]; then
   echo "web-supervisor: this noevia-server lacks the front route feature(s):$missing; Node no longer answers those routes (sbstndalton/noevia#1071), so update the image" >&2
   exit 2
 fi
+# #2027: Node's legacy workspace prologue delegates only to the actual selected front
+# when that binary advertises the filesystem-only helper. Never inherit an arbitrary path.
+legacy_claim_bin=""
+if grep -qx 'legacy-root-claim' <<<"$rust_features"; then
+  case "$bin" in
+    /*) legacy_claim_bin="$bin" ;;
+    *) echo "web-supervisor: legacy-root-claim requires an absolute NOEVIA_SERVER_BIN" >&2; exit 2 ;;
+  esac
+fi
 # The project writes moved off Node (sbstndalton/noevia#1264): their own switch,
 # NOEVIA_RUST_PROJECT_WRITES=1, off by default (the permanent project routes never move them). Node
 # refuses its copies only once this front is confirmed to answer them: a noevia-server that lists
@@ -141,6 +150,7 @@ trap 'signalled=1; stop' TERM INT
 
 UI_HOST="$node_host" UI_PORT="$legacy" \
   NOEVIA_FRONT_CLIENT_IP="$client_ip_confirmed" \
+  NOEVIA_LEGACY_CLAIM_BIN="$legacy_claim_bin" \
   NOEVIA_RUST_PROJECT_WRITES_CONFIRMED="$rust_project_writes_confirmed" \
   NOEVIA_PROJECT_STORE_PORT="$store_port" NOEVIA_PROJECT_STORE_TOKEN="$store_token" \
   node server/index.cjs &
