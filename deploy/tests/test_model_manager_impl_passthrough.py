@@ -15,6 +15,9 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMPOSE_COPIES = ['compose.llamacpp.yaml', 'deploy/examples/unraid-llamacpp.override.yml']
 RETIRED = ('MODEL_MANAGER_IMPL', 'MODEL_FILES_IMPL')
+# #1318 read slices passed through to model-loader only, each defaulting to python.
+SLICE_KEYS = ('MODEL_MANAGER_MODELS_IMPL', 'MODEL_MANAGER_OVERVIEW_IMPL', 'MODEL_MANAGER_SEARCH_IMPL',
+              'MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL')
 
 
 def service_environment(text, service):
@@ -74,6 +77,43 @@ class RetiredModelLoaderSwitchTests(unittest.TestCase):
         for key in RETIRED:
             with self.subTest(key=key):
                 self.assertNotIn(key, text)
+
+
+def slice_problems(text, key):
+    lines = [l.strip() for l in service_environment(text, 'model-loader') if l.strip().startswith(key + ':')]
+    if len(lines) != 1:
+        return [f'expected exactly one {key} line in model-loader, found {len(lines)}']
+    if lines[0] != f'{key}: ${{{key}:-python}}':
+        return [f'{key} default is not python: {lines[0]}']
+    return []
+
+
+class SlicePassthroughTests(unittest.TestCase):
+    def test_each_copy_passes_each_slice_once_with_python_default(self):
+        for name in COMPOSE_COPIES:
+            text = (ROOT / name).read_text(encoding='utf-8')
+            for key in SLICE_KEYS:
+                with self.subTest(copy=name, key=key):
+                    self.assertEqual(slice_problems(text, key), [])
+                    self.assertEqual(env_keys(text).count(key), 1)
+
+    def test_web_does_not_get_a_slice_key(self):
+        for name in COMPOSE_COPIES:
+            text = (ROOT / name).read_text(encoding='utf-8')
+            if '  web:' in text.split('\n'):
+                for key in SLICE_KEYS:
+                    with self.subTest(copy=name, key=key):
+                        self.assertEqual([l for l in service_environment(text, 'web') if key in l], [])
+
+    def test_missing_duplicate_or_non_python_default_is_reported(self):
+        for key in SLICE_KEYS:
+            head = '  model-loader:\n    environment:\n'
+            good = f'      {key}: ${{{key}:-python}}\n'
+            with self.subTest(key=key):
+                self.assertEqual(len(slice_problems(head + '  web:\n', key)), 1)
+                self.assertEqual(len(slice_problems(head + good + good, key)), 1)
+                self.assertIn('not python', slice_problems(head + good.replace('python', 'rust'), key)[0])
+                self.assertIn('not python', slice_problems(head + good.replace('python', ''), key)[0])
 
 
 if __name__ == '__main__':

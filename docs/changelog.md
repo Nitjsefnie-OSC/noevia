@@ -8,6 +8,12 @@ that touched that service and the image tag deployed for it (for example `cowork
 release leaves the other services on their previous tags. The prose, deploy evidence and rollback
 notes follow as before. Entries before release 7b6942c keep their original free-form layout.
 
+## Unreleased (pins and model-manager passthroughs)
+
+`MODEL_MANAGER_IMPL` and `MODEL_FILES_IMPL` are retired (#1071, #1957); entries below that mention `MODEL_MANAGER_IMPL` describe what was true at that release. The current switches are the per-slice `MODEL_MANAGER_<X>_IMPL` keys.
+- **Deploy/infra:** both Compose copies now pass `MODEL_MANAGER_MODELS_IMPL`, `MODEL_MANAGER_OVERVIEW_IMPL`, `MODEL_MANAGER_SEARCH_IMPL` and `MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL` to `model-loader`, each defaulting to `python`; set one to `rust` per slice after qualification. Merged, not yet deployed.
+- **Pins:** noevia-rs `204e6a2e` → `44cabf25` and noevia-services `0863a9d6` → `03ace583` (lock, checksums and the egress-proxy Dockerfile). Merged, not yet deployed.
+
 ## Release 58cf299c — 2026-10-17 17:37Z (web + model manager; #1940, #1979, #1980, #1997, #1998, #2001)
 
 What changed for you: nothing you will see day to day. These are bug fixes:
@@ -1594,7 +1600,7 @@ What changed for you: the chat batch (core#100) retries a turn that came back wi
   3. `bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env --profile laya -- -d --no-build --no-deps --wait --wait-timeout 180 laya`
 
   The entrypoint keeps the Python server unless `NOEVIA_LAYA_IMPL=rust`. To roll back, restore the compose backup and rerun step 3.
-- #1668: decide whether to turn on the Rust model-manager front (`MODEL_MANAGER_IMPL=rust`), then run the "Pending (release)" migration in `docs/deployment.md`.
+- #1668: run the "Pending (release)" migration in `docs/deployment.md`. (The Rust model-manager front is always on since #1071; the umbrella `MODEL_MANAGER_IMPL` this item once asked to flip is retired.)
 - #1322: an independent review of the native Docling overlay.
 
 ## Release d119c502 — 2026-10-14 (Models page overhaul, upload fixes; web only)
