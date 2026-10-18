@@ -70,8 +70,10 @@ RUN NODE_OPTIONS=--dns-result-order=ipv4first npm ci --no-fund --no-audit
 # Lay web/ and core/ out as the monorepo's apps/web was, so the same test gate and build command run.
 COPY web/ ./
 COPY core/server ./server
-COPY core/tests/server ./tests/server
-COPY core/tests/fixtures ./tests/fixtures
+# #2069: preserved JS oracles are test inputs too. Older core pins have no
+# reference directory; create the empty destination so the runtime COPY works for both.
+RUN mkdir -p tests/reference
+COPY core/tests ./tests
 COPY --from=dav-parse /out/dav-parse.wasm ./server/wasm/dav-parse.wasm
 # #1279: finish both Rust compiler stages before the suite and isolated timing phase.
 COPY --from=front /out/ /tmp/qualified-front/
@@ -97,6 +99,8 @@ COPY core/contracts ./contracts
 # fixtures from ../tests/server; the runtime stage otherwise ships no tests/ directory. Only the
 # project-store stand-ins are copied, not the rest of core/tests/server.
 COPY core/tests/server/project-store-stub.cjs core/tests/server/project-store-server.cjs ./tests/server/
+# Required by differential/selector tests mounted into the shipped runtime at qualification.
+COPY --from=build /app/tests/reference ./tests/reference
 # noevia-server on UI_PORT and Node on loopback UI_PORT+1000 (build/web-supervisor.sh). Since
 # sbstndalton/noevia#1071 that is the only front, and it owns sign-in, the project routes and the
 # store with no switch; the supervisor refuses to start without it. The rs-less build leaves

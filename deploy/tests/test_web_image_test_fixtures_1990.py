@@ -66,7 +66,7 @@ class WebImageTestFixturesTests(unittest.TestCase):
     def test_the_fixtures_are_copied_from_the_assembled_trees_core(self):
         # assemble-release.sh lays core/tests/server into the tree; the build stage copies it from there.
         text = DOCKERFILE.read_text(encoding='utf-8')
-        self.assertIn('COPY core/tests/server ./tests/server', text)
+        self.assertIn('COPY core/tests ./tests', text)
 
     def test_only_the_two_fixtures_are_shipped_not_the_whole_tests_directory(self):
         text = DOCKERFILE.read_text(encoding='utf-8')
