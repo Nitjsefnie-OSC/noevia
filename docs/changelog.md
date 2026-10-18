@@ -10,7 +10,7 @@ notes follow as before. Entries before release 7b6942c keep their original free-
 
 ## Unreleased (pins and model-manager passthroughs)
 
-- **Core (#1071):** `GGUF_META_IMPL`, `PROJECT_FILE_NAMES_IMPL`, `PROVIDER_EGRESS_IMPL`, `BROWSER_POLICY_IMPL` and `CODE_ACTIONS_IMPL` are retired in noevia-core #184, #185, #186, #188 and #189 (the last one open when this was written): the Rust path is always used and the JS rules and their fixture generators are deleted. All five were `wasm` on the live box, so nothing changes there; a leftover key warns once unless it is `wasm` or empty. Docs: noevia#2030. Merged, not yet deployed.
+- **Core (#1071):** `GGUF_META_IMPL`, `PROJECT_FILE_NAMES_IMPL`, `PROVIDER_EGRESS_IMPL`, `BROWSER_POLICY_IMPL` and `CODE_ACTIONS_IMPL` are retired in noevia-core #184, #185, #186, #188 and #189: the Rust path is always used and the JS rules and their fixture generators are deleted. All five were `wasm` on the live box, so nothing changes there; a leftover key warns once unless it is `wasm` or empty. Docs: noevia#2030. Not yet deployed.
 
 `MODEL_MANAGER_IMPL` and `MODEL_FILES_IMPL` are retired (#1071, #1957); entries below that mention `MODEL_MANAGER_IMPL` describe what was true at that release. The current switches are the per-slice `MODEL_MANAGER_<X>_IMPL` keys.
 - **Deploy/infra:** both Compose copies now pass `MODEL_MANAGER_MODELS_IMPL`, `MODEL_MANAGER_OVERVIEW_IMPL`, `MODEL_MANAGER_SEARCH_IMPL` and `MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL` to `model-loader`, each defaulting to `python`; set one to `rust` per slice after qualification. Merged, not yet deployed.

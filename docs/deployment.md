@@ -1505,7 +1505,7 @@ Dockerfile's `NOEVIA_RS_REF`, which equals release/versions.lock's. It is dark:
 
 ### Storage listing parser (`DAV_PARSE_IMPL`, #967)
 
-> **Retired (noevia-core#39, #1071 batch 1):** `DAV_PARSE_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below.
+> **Retired (noevia-core#39, #1071 batch 1):** `DAV_PARSE_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 Web images built from #967 on carry `server/wasm/dav-parse.wasm`, the bounded Rust port of the
 step that turns a WebDAV/Nextcloud PROPFIND listing (untrusted, from the configured storage
@@ -1515,19 +1515,18 @@ fetches noevia-rs at the ref in noevia-core's `server/dav-parse.lock`, checks th
 module sha256s, and runs the differential test against it. It is dark: `DAV_PARSE_IMPL`
 defaults to `js`, and the JS parser keeps producing every listing.
 
-- **Switch on (owner only):** add `DAV_PARSE_IMPL=wasm` to the web service's environment (in the
+- **Switch on (history; no longer possible or needed):** add `DAV_PARSE_IMPL=wasm` to the web service's environment (in the
   hand-kept live Compose Manager override too) and recreate web only.
 - **Behaviour with `wasm`:** it **fails closed**. A missing or tampered module, a listing over
   the Rust caps (16 MiB, 100k entries), a trap or an unexpected reply means that listing errors:
   browse answers 502 and a project folder refresh keeps the previous sources and reports the
   folder as skipped. Results are otherwise identical to JS (576 shared differential fixtures plus
   3,000 seeded random listings in CI).
-- **Rollback:** remove `DAV_PARSE_IMPL` (or set it to `js`) and recreate web. An unknown value
-  also means `js`, with one warning in the log.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### S3 listing parser and storage path rules (`S3_PARSE_IMPL`, `STORAGE_PATH_IMPL`, #976, #978)
 
-> **Retired (noevia-core#39, #1071 batch 1):** `S3_PARSE_IMPL` no longer exists as a switch (`STORAGE_PATH_IMPL`, documented below, is still one). The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below.
+> **Retired (noevia-core#39, #1071 batch 1):** `S3_PARSE_IMPL` no longer exists as a switch (`STORAGE_PATH_IMPL`, documented below, is still one). The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 The same `dav-parse.wasm` (one module, one sha256 in noevia-core's `server/dav-parse.lock`)
 also carries two more Rust ports, each behind its own dark switch, independent of
@@ -1537,20 +1536,20 @@ also carries two more Rust ports, each behind its own dark switch, independent o
   hostile endpoint). Node keeps fetching, signing and paging.
 - `STORAGE_PATH_IMPL`: `safeRelativePath`, `cleanRoot`, `joinRoot` and the upload filename rule.
 
-- **Switch on (owner only):** add `S3_PARSE_IMPL=wasm` and/or `STORAGE_PATH_IMPL=wasm` to the web
+- **Switch on (history; no longer possible or needed):** add `S3_PARSE_IMPL=wasm` and/or `STORAGE_PATH_IMPL=wasm` to the web
   service's environment (in the hand-kept live Compose Manager override too) and recreate web only.
 - **Behaviour with `wasm`:** both **fail closed** with fixed messages (details only in the server
   log). An S3 listing that cannot be parsed answers 502 "storage listing could not be read"; a
   path that cannot be checked answers 500 "storage path could not be checked" (400 for an
   oversized or unusable path). Results are otherwise identical to JS (546 S3 and 718 path shared differential
   fixtures plus 2,000 seeded random pages and paths in CI).
-- **Rollback:** remove the variable (or set it to `js`) and recreate web. An unknown value also
-  means `js`, with one warning in the log.
+- **Rollback:** for `STORAGE_PATH_IMPL` (still a switch): remove the variable (or set it to `js`) and recreate web; an unknown value also
+  means `js`, with one warning in the log. `S3_PARSE_IMPL` is retired: there is no per-flag rollback, pin the previous release.
 - With either setting, a storage path containing NUL is now refused (#978).
 
 ### Upload checks (`UPLOAD_SNIFF_IMPL`, #977)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `UPLOAD_SNIFF_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `UPLOAD_SNIFF_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 
 The same `dav-parse.wasm` also carries the Rust port of the upload checks: `validate` (plain
@@ -1560,7 +1559,7 @@ UTF-8" reason). Dark switch, independent of the others, default `js`. The module
 with this pin; `build/web.Dockerfile` needs no change (it reads the lock and the file name is the
 same).
 
-- **Switch on (owner only):** add `UPLOAD_SNIFF_IMPL=wasm` to the web service's environment (in the
+- **Switch on (history; no longer possible or needed):** add `UPLOAD_SNIFF_IMPL=wasm` to the web service's environment (in the
   hand-kept live Compose Manager override too) and recreate web only.
 - **Behaviour with `wasm`:** refusals keep their JS messages and statuses (400 filename, empty or
   archive; 413 over 25 MB). Anything else **fails closed** with the fixed message "upload could
@@ -1570,8 +1569,7 @@ same).
 - **Memory:** validate passes only the name, length and first 262 bytes; decodeText passes the
   whole upload (at most 25 MB) and can briefly need ~100 MB of module memory for a 25 MB file.
   After any call over 1 MB the module instance is dropped so that memory is released.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web. An unknown value also
-  means `js`, with one warning in the log.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Stored-credential encryption (`SECRET_ENVELOPE_IMPL`, #979)
 
@@ -1597,7 +1595,7 @@ Node. The module's sha256 changed with this pin; `build/web.Dockerfile` needs no
 
 ### MCP response framing (`MCP_FRAME_IMPL`, #980)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `MCP_FRAME_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `MCP_FRAME_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 
 The same `dav-parse.wasm` also carries a Rust port of how web reads replies from MCP servers,
@@ -1611,7 +1609,7 @@ with this pin; `build/web.Dockerfile` needs no change.
 - **No migration:** nothing is stored. Both settings give the same values and the same errors on
   the shared differential fixtures (2937 bodies, 873 schemas) plus random cases in CI, also on
   the shipped runtime image.
-- **Switch on (owner only):** add `MCP_FRAME_IMPL=wasm` to the web service's environment (in the
+- **Switch on (history; no longer possible or needed):** add `MCP_FRAME_IMPL=wasm` to the web service's environment (in the
   hand-kept live Compose Manager override too) and recreate web only.
 - **Behaviour with `wasm`:** it **fails closed**. If the module is unusable, an MCP call fails
   with "MCP response could not be checked", and a tool whose schema cannot be checked is dropped
@@ -1619,20 +1617,19 @@ with this pin; `build/web.Dockerfile` needs no change.
 - **Limits under `wasm`:** a reply body over 8 MiB gets the existing "response body exceeded the
   8 MB limit" error (now also for test doubles without a stream). A single tool schema over about
   2 million characters is dropped. Real schemas are kilobytes.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web. An unknown value also
-  means `js`, with one warning in the log.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 Also from this pin (#989): under `UPLOAD_SNIFF_IMPL=wasm`, a file name over 64 KiB is classified
 like the JS (by its extension) instead of failing with 400 "upload could not be checked".
 
 ### S3 request signing (`S3_SIGN_IMPL`, core#27)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `S3_SIGN_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `S3_SIGN_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 
 `dav-parse.wasm` also carries the Rust port of the S3 SigV4 request signer (`signS3RequestJs`) and
 the region normalisation, from noevia-rs `crates/s3-sign`. `S3_SIGN_IMPL=js|wasm` is a dark switch,
-independent of `S3_PARSE_IMPL` and the others, default `js`; **it is not set on the live box**. The
+independent of `S3_PARSE_IMPL` and the others, default `js`; **it was not set on the live box when this landed (it has read `wasm` there since the flip)**. The
 web service passes `S3_SIGN_IMPL: ${S3_SIGN_IMPL:-}` through from `.env` in the hand-kept live
 Compose Manager override, so it can be flipped later without another compose edit. The module's
 sha256 changed with this pin (`c0f2287b…`, noevia-rs `ffb4b466`); `build/web.Dockerfile` needs no
@@ -1641,30 +1638,29 @@ change, and its `tests/server/*.test.cjs` glob already runs `s3-sign-differentia
 
 - **No migration:** nothing is stored. Both settings produce the same headers (same keys, same
   order) on the shared differential fixtures.
-- **Switch on (owner only):** add `S3_SIGN_IMPL=wasm` to the web service's environment (`.env`
+- **Switch on (history; no longer possible or needed):** add `S3_SIGN_IMPL=wasm` to the web service's environment (`.env`
   and, for a new install, the Compose Manager override) and recreate web only.
 - **Startup check:** `wasm` makes web verify `dav-parse.wasm` (pinned sha256, no imports, expected
   exports, incl. `s3_sign` and `s3_region`) before listening; an unusable module means exit 1.
 - **Behaviour with `wasm`:** it **fails closed**. A module that is missing, fails its pin or
   answers oddly makes the request fail with "storage request could not be signed"; nothing falls
   back to JS. Text echoed in the headers (access key, region, token, date) must be well-formed.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web. An unknown value also
-  means `js`, with one warning in the log.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Prompt framing, provenance and task packets (`PROMPT_FRAMING_IMPL`, #769, #740)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `PROMPT_FRAMING_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `PROMPT_FRAMING_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 
 `dav-parse.wasm` also carries the Rust port of how web wraps untrusted text before it reaches a
 model (`frame_untrusted`, closing-tag escaping), the provenance policy and the task-packet
 validator. One switch, `PROMPT_FRAMING_IMPL=js|wasm`, covers `prompt-framing.cjs`,
 `provenance-policy.cjs` and `task-packet.cjs` together. It is dark: the default is `js`, the JS
-stays the reference, and **it is not set on the live box** (the web service passes
+stays the reference, and **it was not set on the live box when this landed (it has read `wasm` there since the flip)** (the web service passes
 `PROMPT_FRAMING_IMPL: ${PROMPT_FRAMING_IMPL:-}` through from `.env` in the hand-kept live
 Compose Manager override, so it can be flipped later without another compose edit).
 
-- **Switch on (owner only):** add `PROMPT_FRAMING_IMPL=wasm` to the web service's environment
+- **Switch on (history; no longer possible or needed):** add `PROMPT_FRAMING_IMPL=wasm` to the web service's environment
   (`.env` and, for a new install, the Compose Manager override) and recreate web only.
 - **Startup check:** like the switches above, `wasm` makes web verify `dav-parse.wasm` (pinned
   sha256, no imports, expected exports, incl. `frame_untrusted` and the provenance and task-packet exports) before
@@ -1676,12 +1672,11 @@ Compose Manager override, so it can be flipped later without another compose edi
   text over 8 Mi units or a kind/label over 1 Mi units, non-ASCII-name `escapeClosing` tags,
   non-JSON-tree `validatePacket` input (`$: unreadable`), a custom `hash` (a JS test hook).
 - **No migration:** nothing is stored.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web. An unknown value also
-  means `js`, with one warning in the log.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Chat template capabilities (`CHAT_TEMPLATE_CAPS_IMPL`, #1002, #1003)
 
-> **Retired (noevia-core#39, #1071 batch 1):** `CHAT_TEMPLATE_CAPS_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below.
+> **Retired (noevia-core#39, #1071 batch 1):** `CHAT_TEMPLATE_CAPS_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 **This switch is ON by default** (`wasm`); it fixes #1002. Before a chat on the native engine sends
 `tools`, web reads the model's chat template from llama.cpp `/props` (`chat_template`; it never
@@ -1778,9 +1773,9 @@ neither is required. What changes in behaviour:
   "could not be double-checked"), and a module fault on a navigation blocks it instead of asking. Secret values are
   still typed by the host, only for the placeholders the port named.
 - **`CODE_ACTIONS_IMPL`:** the Rust port classifies every coding-agent action and decides every approval; nothing the JS
-  held back is let out. A command it cannot check (over 2 MiB, past its reading bound, a form it cannot read exactly) is
-  put to a person as before, now with the command and the note "could not be checked (...)" on the card, and "allow for
-  this task" never covers it. The coding agent's model is also told why when a person declines, nobody answers, or an
+  held back is let out. A command it cannot check (over 2 MiB, past its reading bound, a form it cannot read exactly) always
+  goes to a person as an approval card, as before, now with the command and the note "could not be checked (...)" on
+  the card; it is never denied for that reason and never auto-allowed, and "allow for this task" never covers it. The coding agent's model is also told why when a person declines, nobody answers, or an
   action is refused on workspace or capability grounds.
 
 The module is required: web verifies `dav-parse.wasm` (pinned sha256, no imports, the expected
@@ -1797,7 +1792,7 @@ noevia-core pin that contains these changes).
 `dav-parse.wasm` (noevia-rs `dc91c73e`) also carries the Rust ports of `code-actions.cjs`
 (`classify`, `decide`, `pickOption`) and `project-file-names.cjs`. Both switches are dark:
 `CODE_ACTIONS_IMPL` and `PROJECT_FILE_NAMES_IMPL` default to `js`, an unknown value is `js` with
-one warning, and **neither is set on the live box** (the live override passes them through as
+one warning, and **neither was set on the live box when this landed (both have read `wasm` there since the 2026-10-09 flip)** (the live override passes them through as
 `${CODE_ACTIONS_IMPL:-js}` and `${PROJECT_FILE_NAMES_IMPL:-js}`, so they can be flipped later from
 `.env` without another compose edit). Under `wasm` the JS answer is computed first and kept only
 when the port's reply is byte-identical:
@@ -1818,7 +1813,7 @@ when the port's reply is byte-identical:
   `find ... -exec find ...` classification was exponential in nesting depth and is now linear (more
   than 64 `-exec`s in one find: every class, never standing); noevia#1203 project-file names are
   decided by their longest NFC-inert tail and the safe table is wider.
-- **Rollback:** remove the key or set it to `js` and recreate web; or pin the previous release
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release
   (`cowork-web` tag `1c5172fb` before this change).
 
 ### Provider-egress front (`PROVIDER_EGRESS_IMPL`, noevia-core#46)
@@ -1829,7 +1824,7 @@ when the port's reply is byte-identical:
 `provider-egress.cjs` (what may leave for an external provider: the external/trial-host tests, the
 egress refusal, private-toolbox stripping and the `diary_*` / `nc_webdav_*` tool refusals). The
 switch is dark: `PROVIDER_EGRESS_IMPL` defaults to `js`, an unknown value is `js` with one warning,
-and **it is not set on the live box** (the live override passes it through as
+and **it was not set on the live box when this landed (it has read `wasm` there since the flip)** (the live override passes it through as
 `${PROVIDER_EGRESS_IMPL:-js}`, added 2026-10-09 after a backup
 `docker-compose.override.yml.bak.before-provider-egress`, so it can be flipped from `.env` without
 another compose edit; flip it only with `deploy/tools/flags.sh`-verified before/after reads).
@@ -1856,7 +1851,7 @@ result). Only projections reach the port (no API keys or storage credentials).
   refused before a regex runs, `hostOf` trims trailing dots with a loop instead of `/\.+$/`, and a
   provider `baseUrl` over 2048 characters is rejected on create, probe and update.
 - **Read the live value only with** `bash deploy/tools/flags.sh cowork-web-1`.
-- **Rollback:** remove the key or set it to `js` and recreate web; or pin the previous release
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release
   (`cowork-web` tag `240eea5f` before this change).
 
 ### Browser policy (`BROWSER_POLICY_IMPL`, noevia-core#48)
@@ -1866,7 +1861,7 @@ result). Only projections reach the port (no API keys or storage credentials).
 `dav-parse.wasm` (noevia-rs `9941efb7`, rs#54) also carries the Rust port of `browser-policy.cjs`
 (which page actions are allowed, need approval or are blocked, which addresses the browser may
 reach, and secret substitution). The switch is dark: `BROWSER_POLICY_IMPL` defaults to `js`, an
-unknown value is `js` with one warning, and **it is not set on the live box** (the live override
+unknown value is `js` with one warning, and **it was not set on the live box when this landed (it has read `wasm` there since the flip)** (the live override
 passes it through as `${BROWSER_POLICY_IMPL:-js}`, added 2026-10-09 after a backup
 `docker-compose.override.yml.bak.before-browser-policy`, so it can be flipped from `.env` without
 another compose edit; flip it only with `deploy/tools/flags.sh`-verified before/after reads).
@@ -1890,7 +1885,7 @@ for secrets it sees the text, names, domains and origin, never a value.
   the local-name test also runs on the host with its trailing dots removed, so `http://corp.internal./`
   is blocked when `corp.internal` is an allowed local domain.
 - **Read the live value only with** `bash deploy/tools/flags.sh cowork-web-1`.
-- **Rollback:** remove the key or set it to `js` and recreate web; or pin the previous release
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release
   (`cowork-web` tag `22e5c113` before this change).
 
 ### Tool gate and permitted toolboxes (`TOOL_GATE_IMPL`, `TOOLBOXES_PERMITTED_IMPL`, noevia-core#49)
@@ -1940,12 +1935,12 @@ Also from this pin (#995): with either setting, a stored credential whose GCM ta
 
 ### Outbound URL and address policy (`SSRF_IMPL`, #795, #930)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `SSRF_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `SSRF_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 
 `dav-parse.wasm` also carries the Rust port of the SSRF decisions (noevia-rs `crates/ssrf-policy`,
 core#28): "is this URL acceptable" and "is this resolved address public". `SSRF_IMPL=js|wasm` is a
-dark switch, independent of the others, default `js`; **it is not set on the live box**. The DNS
+dark switch, independent of the others, default `js`; **it was not set on the live box when this landed (it has read `wasm` there since the flip)**. The DNS
 lookup and the socket stay in Node. It covers `isPrivateIp` for every caller (public-fetch,
 code-egress, browser-policy, tool-gate), `isPublicUrl`, and `publicFetch`'s URL check, so MCP
 servers and other outbound fetches go through it. The web service passes `SSRF_IMPL:
@@ -1954,7 +1949,7 @@ flipped later without another compose edit. The module's sha256 changed with thi
 (`59a7d441…`, noevia-rs `4a06cbbf`).
 
 - **No migration:** nothing is stored.
-- **Switch on (owner only):** add `SSRF_IMPL=wasm` to the web service's environment (`.env` and,
+- **Switch on (history; no longer possible or needed):** add `SSRF_IMPL=wasm` to the web service's environment (`.env` and,
   for a new install, the Compose Manager override) and recreate web only.
 - **Startup check:** `wasm` makes web verify `dav-parse.wasm` (pinned sha256, no imports,
   expected exports, incl. `ssrf_policy`) before listening; an unusable module means exit 1.
@@ -1966,8 +1961,7 @@ flipped later without another compose edit. The module's sha256 changed with thi
   `metadata.google.internal` by name in `publicFetch`. An MCP server, provider or storage URL on
   an IDN or trailing-dot host stops working under `wasm`; use the ASCII (punycode-free) name
   without the trailing dot.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web. An unknown value also
-  means `js`, with one warning in the log.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Executor guard validator (`STREAM_GUARD_IMPL`, #516, #704)
 
@@ -1996,9 +1990,9 @@ without another compose edit. The module's sha256 changed with this pin (`ef0884
 
 ### GGUF metadata reader and policy leaves (`GGUF_META_IMPL`, `POLICY_LEAVES_IMPL`, core#30)
 
-> **Retired (noevia-core#184, #1071):** `GGUF_META_IMPL` no longer exists as a switch. The Rust path is always used and the JS reader is gone. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071: GGUF metadata, project file names, provider egress, browser policy)" above.
+> **Retired (noevia-core#184, #1071):** `GGUF_META_IMPL` no longer exists as a switch. The Rust path is always used and the JS reader is gone. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071: GGUF metadata, project file names, provider egress, browser policy)" above. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
-> **Retired (noevia-core#44, #1071 batch 3):** `POLICY_LEAVES_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `POLICY_LEAVES_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 > **History:** everything below in this section describes the switches before they were retired (`GGUF_META_IMPL` in noevia-core#184, `POLICY_LEAVES_IMPL` in #44). Neither is a switch any more: there is no `=wasm` to set, no `${NAME:-js}` passthrough that does anything, and no rollback to `js`.
 
@@ -2008,13 +2002,13 @@ switches are dark, independent of the others, default `js`. The hand-kept live C
 override passes them through as `GGUF_META_IMPL: ${GGUF_META_IMPL:-js}` and
 `POLICY_LEAVES_IMPL: ${POLICY_LEAVES_IMPL:-js}`; they are not set in `.env`.
 
-- **Switch on (owner only):** add `<NAME>=wasm` to `.env` and recreate web only.
+- **Switch on (history; no longer possible or needed):** add `<NAME>=wasm` to `.env` and recreate web only.
 - **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Code-review verdict and tool exchange (`CODE_REVIEW_VERDICT_IMPL`, `TOOL_EXCHANGE_IMPL`, core#31)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `CODE_REVIEW_VERDICT_IMPL` and `TOOL_EXCHANGE_IMPL` no longer exist as switches. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `CODE_REVIEW_VERDICT_IMPL` and `TOOL_EXCHANGE_IMPL` no longer exist as switches. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 `dav-parse.wasm` also carries the Rust review-verdict and tool-exchange ports (noevia-rs `1f775737`,
 core#31; `dav-parse.lock` pins the tarball and module checksums). Both switches are dark,
@@ -2022,13 +2016,13 @@ independent of the others, default `js`. The hand-kept live Compose Manager over
 through as `CODE_REVIEW_VERDICT_IMPL: ${CODE_REVIEW_VERDICT_IMPL:-js}` and
 `TOOL_EXCHANGE_IMPL: ${TOOL_EXCHANGE_IMPL:-js}`; they are not set in `.env`.
 
-- **Switch on (owner only):** add `<NAME>=wasm` to `.env` and recreate web only.
+- **Switch on (history; no longer possible or needed):** add `<NAME>=wasm` to `.env` and recreate web only.
 - **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### MCP server list and decision checks (`MCP_SERVERS_IMPL`, `DECISION_IMPL`, core#32)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `MCP_SERVERS_IMPL` and `DECISION_IMPL` no longer exist as switches. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `MCP_SERVERS_IMPL` and `DECISION_IMPL` no longer exist as switches. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 `dav-parse.wasm` also carries the Rust ports of `mcp-servers.cjs` (the `MCP_SERVERS` list parser and
 toolbox filter) and of `decision/index.cjs`'s request, result and cause checks (noevia-rs
@@ -2039,13 +2033,13 @@ they are not set in `.env`. Where the two URL parsers could disagree (an IDN, pu
 the port refuses the whole list as ambiguous and the host configures no MCP server, so check a
 list for such URLs before switching `MCP_SERVERS_IMPL` on.
 
-- **Switch on (owner only):** add `<NAME>=wasm` to `.env` and recreate web only.
+- **Switch on (history; no longer possible or needed):** add `<NAME>=wasm` to `.env` and recreate web only.
 - **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Code-network guard decisions (`CODE_NET_GUARD_IMPL`, core#33)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `CODE_NET_GUARD_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `CODE_NET_GUARD_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 `dav-parse.wasm` also carries the Rust port of `code-net-guard.cjs`'s decisions (noevia-rs
 `b74eeae7`, core#33; `dav-parse.lock` pins the tarball and module checksums). The switch is dark,
@@ -2056,10 +2050,10 @@ nothing changes: the same addresses are guarded and `codenet.guarding` is logged
 it or reads it differently, web refuses to start (set `js` to recover). Runtime faults in the port
 log `codenet.wasm_fault`.
 
-- **Switch on (owner only):** add `CODE_NET_GUARD_IMPL=wasm` to `.env` and recreate web only; then
+- **Switch on (history; no longer possible or needed):** add `CODE_NET_GUARD_IMPL=wasm` to `.env` and recreate web only; then
   check `docker logs cowork-web-1 | grep code-net` still shows `codenet.guarding` with the same addresses.
 - **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Role-context projections (`ROLE_CONTEXT_IMPL`, core#34)
 
@@ -2082,7 +2076,7 @@ and was not sent. The port is stricter than the JS on a few inputs (for example 
 
 ### Completeness report (`COMPLETENESS_REPORT_IMPL`, core#35)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `COMPLETENESS_REPORT_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `COMPLETENESS_REPORT_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 `dav-parse.wasm` also carries the Rust port of `completeness-report.cjs`'s report and `reportHash`
 (noevia-rs `bba1a0eb`, core#35; `dav-parse.lock` pins the tarball and module checksums). The switch
@@ -2097,14 +2091,14 @@ out of `reviewing` but never let one in. The port is stricter than the JS on a f
 `uncertain` that is not an array, an `expectedArtifacts` string, an object or array as a step `id`
 or `status`, a job over 8 MiB as JSON); those come back unverified.
 
-- **Switch on (owner only):** add `COMPLETENESS_REPORT_IMPL=wasm` to `.env` and recreate web only;
+- **Switch on (history; no longer possible or needed):** add `COMPLETENESS_REPORT_IMPL=wasm` to `.env` and recreate web only;
   then move a Code task into review and confirm it is not refused as unverified.
 - **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Task lifecycle (`TASK_LIFECYCLE_IMPL`, core#36)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `TASK_LIFECYCLE_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `TASK_LIFECYCLE_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 `dav-parse.wasm` also carries the Rust port of `task-lifecycle.cjs`'s stage moves and event fold
 (noevia-rs `5f497542`, core#36; `dav-parse.lock` pins the tarball and module checksums). The switch
@@ -2119,14 +2113,14 @@ port is sent only the fields the fold reads, so large tool payloads are never se
 than the JS on fold input over 8 MiB as JSON, and entering reviewing needs a string `reportHash`
 in both implementations. The completeness half of the move to reviewing is not part of this port.
 
-- **Switch on (owner only):** add `TASK_LIFECYCLE_IMPL=wasm` to `.env` and recreate web only; then
+- **Switch on (history; no longer possible or needed):** add `TASK_LIFECYCLE_IMPL=wasm` to `.env` and recreate web only; then
   move a Code task through its stages and confirm none is refused as unverified.
 - **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Llama.cpp autoconfig (`LLAMACPP_AUTOCONFIG_IMPL`, core#37)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `LLAMACPP_AUTOCONFIG_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `LLAMACPP_AUTOCONFIG_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071 batch 3)" below. Everything below in this section describes the switch as it was before it was retired (history); nothing here can be set any more.
 
 `dav-parse.wasm` also carries the Rust port of `llamacpp-autoconfig.cjs`'s sizing (`suggest`,
 `estimateInputs` and `estimateFootprint`; noevia-rs `743be45c`, core#37; `dav-parse.lock` pins the
@@ -2151,10 +2145,10 @@ Since core#38 (noevia#1158) `PUT /api/model-manager/sections/:name` answers a re
 and `code: invalid_size` (it was 409, which the client showed as "settings file changed"); the
 budget refusal stays 409.
 
-- **Switch on (owner only):** add `LLAMACPP_AUTOCONFIG_IMPL=wasm` to `.env` and recreate web only;
+- **Switch on (history; no longer possible or needed):** add `LLAMACPP_AUTOCONFIG_IMPL=wasm` to `.env` and recreate web only;
   then open the Will-it-fit panel and save a preset, and confirm neither is refused.
 - **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
 ### Code sandbox bridge (`SANDBOX_BRIDGE_IMPL`, #999)
 
