@@ -28,11 +28,10 @@ probe uses a throwaway temp directory).
 ## Settings-driven embedding service (#1668): live since release 785643f4 (2026-10-14)
 
 **As run at 785643f4 (#1717).** Two things differ from the steps below; follow these notes:
-- The flip needs a Compose passthrough. `MODEL_MANAGER_IMPL` has to reach the container: add
-  `MODEL_MANAGER_IMPL: ${MODEL_MANAGER_IMPL:-python}` to `model-loader.environment` (both repo copies have
-  it from 785643f4). Also, the Rust front mounts `/api/v1/embedding-service` only when `EMBED_CONTAINER`
-  is set, so a flip on its own still answers 404. Do the flip together with steps 1-2, in one
-  model-loader recreate.
+- The Rust front mounts `/api/v1/embedding-service` only when `EMBED_CONTAINER` is set, so it answers 404
+  until steps 1-2 are done. Do them together, in one model-loader recreate. (This note originally also
+  asked for a `MODEL_MANAGER_IMPL` Compose passthrough; that umbrella switch is retired (#1071), the
+  native front always runs, and no passthrough is needed.)
 - After an `embed` recreate (step 5, a crash or a host reboot) the router comes up with the saved
   model listed but `loaded: []`. With noevia-rs at 785643f4's pin (`278c84c0`) nothing re-warms it:
   the model manager warms only in the ~3 minutes after its own boot, or after an apply. From the
@@ -97,13 +96,11 @@ Live edits (Compose Manager project `Cowork`; the embed and model-loader blocks 
 4. Override, `web.environment` (next to `EMBEDDING_BASE_URL`, line ~279): add
    `EMBEDDING_SERVICE_URL: http://embed:8080/v1`. Leave `EMBEDDING_BASE_URL` and the Diary's
    `LLM_EMBED_BASE_URL` as they are (same server).
-   **Prerequisite (found at release 20b07d3f):** the embedding-service route exists only in the Rust
-   front. With `MODEL_MANAGER_IMPL` unset (the live default, `python`) the entrypoint runs uvicorn and
-   `GET /api/v1/embedding-service` answers 404, so step 5 cannot pass. Turning on
-   `MODEL_MANAGER_IMPL=rust` is an owner decision. It must ship **in the same model-loader recreate as
-   steps 1-2** (the `EMBED_CONTAINER` env): the Rust front mounts the route only when
-   `EMBED_CONTAINER` is set, so the flip alone still answers 404, and steps 1-2 alone do nothing on
-   the python front (#1717).
+   **Prerequisite (found at release 20b07d3f, since superseded):** the embedding-service route exists
+   only in the Rust front, which was then switched by the umbrella `MODEL_MANAGER_IMPL`. That switch is
+   retired (#1071): the native front always runs, so there is nothing to turn on. The route is still
+   mounted only when `EMBED_CONTAINER` is set, so steps 1-2 must ship **in the same model-loader
+   recreate** or `GET /api/v1/embedding-service` answers 404 (#1717).
 5. Order: recreate `model-loader` (new image) first and check, with the token from `.env` (never
    print it), `GET http://model-loader:8090/api/v1/embedding-service` from `cowork-web-1`:
    `managed: true`, `models: [{model: nomic-embed-text-v1, file: nomic-embed-text-v1/…}]` (**stop
@@ -1345,11 +1342,30 @@ is the only implementation: `MODEL_FILES_IMPL` is retired and the Python code is
   the container never reports healthy.
 - **No rollback switch.** Rolling back means the previous model-loader image.
 
+### Per-slice model manager selectors (#1318)
+
+The model manager's native routes are chosen one slice at a time with `MODEL_MANAGER_<X>_IMPL`
+(`python` or `rust`), each passed through `model-loader.environment` in both Compose copies with the
+default `python`. Never pass an empty value. A slice goes to `rust` only after it is qualified, one
+slice per model-loader recreate, by setting that key in `.env`; unset keeps Python. The four
+read slices added to the passthrough list most recently, all default `python`:
+
+| Key | Native route |
+|---|---|
+| `MODEL_MANAGER_MODELS_IMPL` | `GET /api/v1/models` (rust also needs `TZ` unset or `UTC`) |
+| `MODEL_MANAGER_OVERVIEW_IMPL` | `GET /api/v1/overview` |
+| `MODEL_MANAGER_SEARCH_IMPL` | `GET /api/v1/search` and `GET /api/v1/search/repo` |
+| `MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL` | `GET /api/v1/sections/{name}/autoconfig` |
+
+The live Compose Manager override is hand-kept, so the four lines are added there at the release
+that ships them. Per-slice prerequisites are in the comments of `compose.llamacpp.yaml`.
+
 ### Retired model-loader switches (#1071)
 
 `MODEL_MANAGER_IMPL` and `MODEL_FILES_IMPL` are retired: the native model manager front
 (`noevia-model-manager`, owning health and backend logs) and `model-files` always run. Neither
-Compose copy passes them any more. A leftover `.env` line does nothing and can be deleted; a
+Compose copy passes them any more; the per-slice `MODEL_MANAGER_<X>_IMPL` selectors above replace
+the umbrella. A leftover `.env` line does nothing and can be deleted; a
 leftover `MODEL_MANAGER_IMPL` other than `rust` makes the front log one "retired and ignored"
 warning.
 
