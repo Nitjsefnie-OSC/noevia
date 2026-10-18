@@ -1721,7 +1721,36 @@ The Rust path is always used and the JS runtime paths are gone. A leftover `js` 
 verifies `dav-parse.wasm` at startup before it reads auth tokens or opens any egress. Roll back by
 pinning the previous release (previous `cowork-web` tag, live 1e4e3b82 before this change).
 
+### Retired switches (#1071: GGUF metadata, project file names, provider egress)
+
+Three more switches are retired on the same terms: `GGUF_META_IMPL` (noevia-core#184),
+`PROJECT_FILE_NAMES_IMPL` (noevia-core#185) and `PROVIDER_EGRESS_IMPL` (noevia-core#186). All three
+were `wasm` on the live box before the JS was deleted, so setting the key is no longer needed. The
+Rust path is always used and the JS rules are gone. A leftover `js` or `off` logs one
+`<NAME> is retired; Rust is always used` warning; `wasm`, `on` or empty is silent. Remove the key
+and the matching `${NAME:-js}` passthrough from `.env` and the Compose override when convenient;
+neither is required. What changes in behaviour:
+
+- **`GGUF_META_IMPL`:** the header is read only through the module (no JS fallback). A missing or
+  faulting module makes the model-manager's suggestion and memory panel answer 422 `Could not read
+  model metadata: ...`, and the load check has no estimate (the runtime watchdog still covers it).
+  The Rust limits that were already live stay (more than 24 MiB of header bytes read, arrays nested
+  deeper than 64).
+- **`PROJECT_FILE_NAMES_IMPL`:** the Rust port decides every lookup. Where it cannot decide (a name
+  outside its NFC-inert set after the one composition table) the result is `code: 'unverified'`
+  and nothing is read or changed; before, a JS "missing" or "ambiguous" answer stood in that case.
+- **`PROVIDER_EGRESS_IMPL`:** the Rust port decides alone; the JS refusals no longer stand beside
+  it. Nothing the JS kept back is let out. Where both used to refuse, the reason text can now be
+  the port's ("the Diary folder could not be identified, so storage is closed to external
+  providers") instead of the JS's specific one. A local provider's `diary_*` or `nc_webdav_*` call
+  is no longer refused because its arguments are too large for the port to read.
+
+Roll back by pinning the previous release (the `cowork-web` tag before the noevia-core pin that
+contains these changes).
+
 ### Code-actions and project-file-names fronts (`CODE_ACTIONS_IMPL`, `PROJECT_FILE_NAMES_IMPL`, noevia-core#45)
+
+> **Retired (noevia-core#185, #1071):** `PROJECT_FILE_NAMES_IMPL` no longer exists as a switch. The Rust path is always used and the JS resolver is gone. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above. Everything below about `PROJECT_FILE_NAMES_IMPL` is history; `CODE_ACTIONS_IMPL` is still a switch.
 
 `dav-parse.wasm` (noevia-rs `dc91c73e`) also carries the Rust ports of `code-actions.cjs`
 (`classify`, `decide`, `pickOption`) and `project-file-names.cjs`. Both switches are dark:
@@ -1751,6 +1780,8 @@ when the port's reply is byte-identical:
   (`cowork-web` tag `1c5172fb` before this change).
 
 ### Provider-egress front (`PROVIDER_EGRESS_IMPL`, noevia-core#46)
+
+> **Retired (noevia-core#186, #1071):** `PROVIDER_EGRESS_IMPL` no longer exists as a switch. The Rust path is always used and the JS rules are gone. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above. The text below is history: there is no JS answer to compute first any more, and the availability note below now always applies to external providers.
 
 `dav-parse.wasm` (noevia-rs `68d8fbce`, rs#52) also carries the Rust port of
 `provider-egress.cjs` (what may leave for an external provider: the external/trial-host tests, the
@@ -1853,7 +1884,7 @@ without another compose edit; flip only with `deploy/tools/flags.sh`-verified be
 ### Startup check for the `*_IMPL=wasm` switches (#996)
 
 `dav-parse.wasm` is always verified (the retired switches above are always on). In addition, if any of `STORAGE_PATH_IMPL`,
-`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `CODE_ACTIONS_IMPL`, `PROJECT_FILE_NAMES_IMPL`, `PROVIDER_EGRESS_IMPL`, `BROWSER_POLICY_IMPL`, `TOOL_GATE_IMPL`, `TOOLBOXES_PERMITTED_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
+`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `CODE_ACTIONS_IMPL`, `BROWSER_POLICY_IMPL`, `TOOL_GATE_IMPL`, `TOOLBOXES_PERMITTED_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
 pinned sha256, no imports, and the expected exports. If the module is missing or does not match,
 web **refuses to start**. It logs one line and exits 1, for example `FATAL: SECRET_ENVELOPE_IMPL
 set to wasm, but dav-parse.wasm failed verification (missing): …`. The fix is to restore the
@@ -1920,6 +1951,8 @@ without another compose edit. The module's sha256 changed with this pin (`ef0884
   means `js`, with one warning in the log.
 
 ### GGUF metadata reader and policy leaves (`GGUF_META_IMPL`, `POLICY_LEAVES_IMPL`, core#30)
+
+> **Retired (noevia-core#184, #1071):** `GGUF_META_IMPL` no longer exists as a switch. The Rust path is always used and the JS reader is gone. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above.
 
 > **Retired (noevia-core#44, #1071 batch 3):** `POLICY_LEAVES_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
 
