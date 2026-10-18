@@ -76,7 +76,8 @@ for mode in -x +x; do
     if [ -n "$kf" ]; then kn="with key"; else kn="no key"; fi
     label="failing curl under set -e ($kn, bash $mode)"
     check "$label: reported unreachable, not aborted" 'grep -q "^unreachable|" "$work/out" && grep -qx "rc=0" "$work/out"'
-    check "$label: key absent" '! grep -qF "$key" "$work/err" "$work/out"'
+    # Traced cases must really be traced, or "key absent" would pass vacuously.
+    check "$label: key absent" '! grep -qF "$key" "$work/err" "$work/out" && { [ "$mode" = +x ] || grep -q remote_probe "$work/err"; }'
   done
 done
 check "failing curl under bash -x: xtrace restored" 'PATH="$work/failbin:$PATH" probe "$work/keys/good.hdr" -x; grep -qx XTRACE_ON "$work/out"'
