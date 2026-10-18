@@ -1772,11 +1772,7 @@ neither is required. What changes in behaviour:
   blocked, asked about or refused is let out. Where it does not know a label's code points it asks (the reason reads
   "could not be double-checked"), and a module fault on a navigation blocks it instead of asking. Secret values are
   still typed by the host, only for the placeholders the port named.
-- **`CODE_ACTIONS_IMPL`:** the Rust port classifies every coding-agent action and decides every approval; nothing the JS
-  held back is let out. A command it cannot check (over 2 MiB, past its reading bound, a form it cannot read exactly) always
-  goes to a person as an approval card, as before, now with the command and the note "could not be checked (...)" on
-  the card; it is never denied for being unreadable and never auto-allowed, and "allow for this task" never covers it. It is treated as the riskiest kind of action, so a task that was not granted that class is denied on capability grounds, as for any class it was not granted, and the card says plainly that the workspace limits could not be checked. The coding agent's model is also told why when a person declines, nobody answers, or an
-  action is refused on workspace or capability grounds.
+- **`CODE_ACTIONS_IMPL`:** the Rust port classifies every coding-agent action and decides every approval; nothing the JS held back is let out. A command that can't be checked is treated as the most consequential kind of action. If the task was not granted that kind, it is denied on capability grounds. Otherwise it always goes to a person as an approval card that cannot stand. It is never denied just for being unreadable, and never auto-allowed. The coding agent's model is also told why when a person declines, nobody answers, or an action is refused on workspace or capability grounds.
 
 The module is required: web verifies `dav-parse.wasm` (pinned sha256, no imports, the expected
 exports) at every startup, and a missing or mismatched module refuses to start (exit 1, one `FATAL: ...`
@@ -1787,7 +1783,7 @@ noevia-core pin that contains these changes).
 
 > **Retired (noevia-core#189, #1071):** `CODE_ACTIONS_IMPL` no longer exists as a switch. The Rust path is always used and the JS classifier is gone. A leftover value that is neither the old Rust value (`wasm`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. Everything below about `CODE_ACTIONS_IMPL` is history.
 
-> **Retired (noevia-core#185, #1071):** `PROJECT_FILE_NAMES_IMPL` no longer exists as a switch. The Rust path is always used and the JS resolver is gone. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071: GGUF metadata, project file names, provider egress, browser policy)" above. Everything below about `PROJECT_FILE_NAMES_IMPL` is history; `CODE_ACTIONS_IMPL` is still a switch.
+> **Retired (noevia-core#185, #1071):** `PROJECT_FILE_NAMES_IMPL` no longer exists as a switch. The Rust path is always used and the JS resolver is gone. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071: GGUF metadata, project file names, provider egress, browser policy)" above. Everything below about `PROJECT_FILE_NAMES_IMPL` is history.
 
 `dav-parse.wasm` (noevia-rs `dc91c73e`) also carries the Rust ports of `code-actions.cjs`
 (`classify`, `decide`, `pickOption`) and `project-file-names.cjs`. Both switches are dark:
@@ -1923,7 +1919,7 @@ without another compose edit; flip only with `deploy/tools/flags.sh`-verified be
 ### Startup check for the `*_IMPL=wasm` switches (#996)
 
 `dav-parse.wasm` is always verified (the retired switches above are always on). In addition, if any of `STORAGE_PATH_IMPL`,
-`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `TOOL_GATE_IMPL`, `TOOLBOXES_PERMITTED_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
+`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `TOOL_GATE_IMPL`, `TOOLBOXES_PERMITTED_IMPL`, `ROLE_CONTEXT_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
 pinned sha256, no imports, and the expected exports. If the module is missing or does not match,
 web **refuses to start**. It logs one line and exits 1, for example `FATAL: SECRET_ENVELOPE_IMPL
 set to wasm, but dav-parse.wasm failed verification (missing): …`. The fix is to restore the
@@ -1968,8 +1964,7 @@ flipped later without another compose edit. The module's sha256 changed with thi
 `dav-parse.wasm` also carries the Rust port of the Executor guard's tool-call validator and its
 correction text (noevia-rs `crates/stream-guard`, core#29): the incremental JSON-schema check that
 `stream-guard.cjs` runs on streamed tool-call arguments, used by `code-tool-schemas.cjs`.
-`STREAM_GUARD_IMPL=js|wasm` is a dark switch, independent of the others, default `js`; **it is not
-set on the live box**. The validator state is a byte string held in the JS object between calls
+`STREAM_GUARD_IMPL=js|wasm` is independent of the others, default `js`; **it has been `wasm` on the live box since 2026-10-18 (flipped in `.env`)**. Roll back by setting it to `js`. The validator state is a byte string held in the JS object between calls
 (nothing stays in the module). The web service passes `STREAM_GUARD_IMPL: ${STREAM_GUARD_IMPL:-}`
 through from `.env` in the hand-kept live Compose Manager override, so it can be flipped later
 without another compose edit. The module's sha256 changed with this pin (`ef088449...`, noevia-rs
@@ -2059,9 +2054,8 @@ log `codenet.wasm_fault`.
 
 `dav-parse.wasm` also carries the Rust port of `role-context.cjs`'s projections, shared dossier and
 leak verdicts (noevia-rs `aa5eca78`, core#34; `dav-parse.lock` pins the tarball and module
-checksums). The switch is dark, independent of the others, default `js`. The hand-kept live Compose
-Manager override passes it through as `ROLE_CONTEXT_IMPL: ${ROLE_CONTEXT_IMPL:-js}`; it is not set
-in `.env`. With `js` nothing changes. With `wasm`, the JS projection is still computed and is handed
+checksums). The switch is independent of the others, default `js`; **it has been `wasm` on the live box since 2026-10-18 (flipped in `.env`)**. The hand-kept live Compose
+Manager override passes it through as `ROLE_CONTEXT_IMPL: ${ROLE_CONTEXT_IMPL:-js}`. With `js` nothing changes. With `wasm`, the JS projection is still computed and is handed
 out only if the port gives the byte-identical one; any disagreement, port fault or "ambiguous" /
 "too large" refusal means the context is refused (`RoleContextLeakError` with an `impl_*` class,
 logged once per reason as `role_context.impl_mismatch` / `role_context.wasm_fault`, without state
