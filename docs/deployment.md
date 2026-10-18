@@ -1946,13 +1946,13 @@ without another compose edit; flip only with `deploy/tools/flags.sh`-verified be
 
 ### Startup check for the `*_IMPL=wasm` switches (#996)
 
-`dav-parse.wasm` is always verified (the retired switches above are always on). In addition, if any of `STORAGE_PATH_IMPL`,
-`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `ROLE_CONTEXT_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
-pinned sha256, no imports, and the expected exports. If the module is missing or does not match,
-web **refuses to start**. It logs one line and exits 1, for example `FATAL: SECRET_ENVELOPE_IMPL
-set to wasm, but dav-parse.wasm failed verification (missing): …`. The fix is to restore the
-pinned module (rebuild the image) or set the switch back to `js`. With every switch on `js`,
-nothing is loaded and nothing changes.
+`dav-parse.wasm` is always verified before web listens: its pinned SHA-256, absence of imports and
+required exports must match. Retired Rust-only paths require it regardless of selector values.
+`STORAGE_PATH_IMPL`, `SECRET_ENVELOPE_IMPL` and `LLAMACPP_PRESETS_IMPL` can still appear in a
+verification error when selected, but setting them to `js` does not disable the unconditional check.
+A missing or mismatched module makes web log one fatal line and exit 1. Restore the pinned module
+by rebuilding the matching image, or restore a complete previous release. Changing retired flags
+cannot make a broken module usable.
 
 Also from this pin (#995): with either setting, a stored credential whose GCM tag is shorter than
 16 bytes is refused. noevia never writes one, so no stored value is affected.
