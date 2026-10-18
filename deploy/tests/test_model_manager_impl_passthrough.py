@@ -17,7 +17,13 @@ COMPOSE_COPIES = ['compose.llamacpp.yaml', 'deploy/examples/unraid-llamacpp.over
 RETIRED = ('MODEL_MANAGER_IMPL', 'MODEL_FILES_IMPL')
 # #1318 read slices passed through to model-loader only, each defaulting to python.
 SLICE_KEYS = ('MODEL_MANAGER_MODELS_IMPL', 'MODEL_MANAGER_OVERVIEW_IMPL', 'MODEL_MANAGER_SEARCH_IMPL',
-              'MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL')
+              'MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL',
+              'MODEL_MANAGER_TELEMETRY_IMPL',
+              'MODEL_MANAGER_BENCHMARK_OBSERVE_IMPL',
+              'MODEL_MANAGER_DB_INIT_IMPL',
+              'MODEL_MANAGER_TOKEN_TEST_IMPL',
+              'MODEL_MANAGER_SAFE_DEFAULTS_IMPL',
+              'MODEL_MANAGER_DOWNLOAD_PLAN_IMPL')
 
 
 def service_environment(text, service):

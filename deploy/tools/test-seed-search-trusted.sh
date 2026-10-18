@@ -15,6 +15,11 @@ case "${SEED_TEST_MODE:-ok}" in
   fail) exit 1 ;;
   garbage) echo 'not json {' ;;
   empty) printf '{"quantisers": [], "labs": ["synthetic-l"]}\n' ;;
+  empty_labs) printf '{"quantisers": ["q"], "labs": []}\n' ;;
+  nonstring_q) printf '{"quantisers": [1], "labs": ["l"]}\n' ;;
+  nonstring_l) printf '{"quantisers": ["q"], "labs": [false]}\n' ;;
+  empty_string_q) printf '{"quantisers": [""], "labs": ["l"]}\n' ;;
+  empty_string_l) printf '{"quantisers": ["q"], "labs": [""]}\n' ;;
   extra) printf '{"quantisers": ["q"], "labs": ["l"], "x": []}\n' ;;
   two) printf '{"quantisers": ["q"], "labs": ["l"]}\n{"quantisers": ["q"], "labs": ["l"]}\n' ;;
   *) printf '{\n "quantisers": ["synthetic-q"],\n "labs": ["synthetic-l"]\n}\n' ;;
@@ -42,7 +47,7 @@ st=$(run ok)
 check "an existing file is kept" "$(is "[ $st -eq 0 ] && grep -q kept '$out'")"
 st=$(run ok --force)
 check "--force replaces it" "$(is "[ $st -eq 0 ] && grep -q synthetic-q '$out'")"
-for mode in fail garbage empty extra two; do
+for mode in fail garbage empty empty_labs nonstring_q nonstring_l empty_string_q empty_string_l extra two; do
   rm -f "$out"
   st=$(run "$mode")
   check "$mode output: exit 1, nothing written" "$(is "[ $st -eq 1 ] && empty_dir")"
@@ -57,10 +62,14 @@ chmod +x "$work/bin/mv"
 rm -f "$out"
 st=$(SEED_TEST_MV_FAIL=1 run ok)
 check "a failed move exits 1 and leaves nothing" "$(is "[ $st -eq 1 ] && empty_dir")"
-chmod a-w "$work/config"
-st=$(run ok)
-check "an unwritable directory exits 1" "$(is "[ $st -eq 1 ] && empty_dir")"
-chmod u+w "$work/config"
+if [ "$(id -u)" -eq 0 ]; then
+  echo "skip unwritable directory: root can bypass mode bits"
+else
+  chmod a-w "$work/config"
+  st=$(run ok)
+  check "an unwritable directory exits 1" "$(is "[ $st -eq 1 ] && empty_dir")"
+  chmod u+w "$work/config"
+fi
 st=$(SEED_TEST_MODE=ok bash "$script" 'bad image;rm' "$work/config" > /dev/null 2>&1; echo $?)
 check "a bad image reference is refused (exit 2)" "$(is "[ $st -eq 2 ]")"
 st=$(run ok --other)
