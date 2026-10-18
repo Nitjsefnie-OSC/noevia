@@ -8,6 +8,29 @@
 > release also updates web's build block in the live Compose Manager file (same section).
 > Release records below that mention `apps/web` or `services/` describe the monorepo layout.
 
+## Native search trusted publisher sets (#1318 step 1c)
+
+From the model-manager build that contains the native search runtime (noevia-rs step 1c), the
+native search reads the trusted publisher sets from `SEARCH_TRUSTED_PATH`
+(`/config/search-trusted.json`, which is `$LLAMACPP_CONFIG_DIR/search-trusted.json` on the host).
+Without the file, the search runtime stays with the Python child and model-loader logs that at
+startup; it is not an error, but the runtime only goes native once the file exists. Empty sets
+apply only when the file explicitly says `{"quantisers":[],"labs":[]}`, which would change the
+ranking, so seed it from the image. Do these steps in this order, before or with the recreate:
+
+1. Seed the file from the image you are about to run (needs `docker` and `jq`, both on daserver):
+   `deploy/tools/seed-search-trusted.sh "cowork-model-loader:$MODEL_MANAGER_VERSION" "$LLAMACPP_CONFIG_DIR"`.
+   It reads the lists from the services app inside the image (no network, read-only, no pull),
+   validates them, and writes the file 0644 atomically. It leaves an existing file unchanged
+   unless given `--force`.
+2. In the hand-kept live override (Compose Manager project `Cowork`,
+   `docker-compose.override.yml`, `model-loader.environment`; back it up first), add
+   `SEARCH_TRUSTED_PATH: /config/search-trusted.json`, as in
+   `deploy/examples/unraid-llamacpp.override.yml`.
+3. Recreate `model-loader`. The file is read only at startup (change it, then restart); a missing
+   file or one of the wrong shape is logged and the search runtime then stays with the Python
+   child.
+
 ## Release idle gate: Coding jobs (#1391)
 
 Every cutover's gate block checks Coding jobs with `deploy/tools/release-idle-jobs.sh` (copy it
