@@ -1473,6 +1473,12 @@ keeps extracting every document.
 
 ### Tenant assertion check (`TENANT_ASSERTION_IMPL`)
 
+> **Retired (noevia-services#99, #1071):** `TENANT_ASSERTION_IMPL` no longer exists as a switch. The Rust `tenant-assertion` leaf is the only check of the signature, the clock window and the bounds, and the Python copy of those rules is gone. A leftover value that is neither `rust` nor empty (`python` and anything else included) only logs a warning at Diary start and is ignored; `rust` and empty are silent. The image must carry the binary (every Diary image built from the Dockerfile does; the overlay adds it when the release pins noevia-rs): with `DIARY_TENANT_KEY` set and no usable binary, Diary logs an error at start and refuses every tenant request. What stays in Python (the leaf is stateless and cannot know it): the header shape, the restart guard (an assertion signed before this process started is refused) and the nonce replay cache. The text below is history: there is no Python answer to compose with, and nothing can be switched. Merged and not yet deployed: the live Diary still runs the AND-composition until the next Diary image.
+
+- **What the new Diary does differently.** (1) A process-wide limit of 4 leaf children at once: a tenant request that finds every slot taken is refused at once with the refusal a bad signature gets (401), never queued, and logged at the 1st, 10th, 100th ... refusal. This replaces the cheap Python rejection of a bad signature, which no longer exists. (2) A request is accepted exactly when the AND-composition accepted it. The leaf's extra refusals stay (non-ASCII or over-long tenant ids, whitespace or newlines in the storage headers, over-long fields); web signs UUID tenants. (3) A `secretRef` that does not match is a mismatch (400); a non-ASCII one used to raise an error and is now a mismatch. (4) The log reason for a signature, window or bounds refusal is now `rust refused`.
+- **Residual risk (services#99):** callers on the service network that are not the web server can make valid tenants wait for a slot, that is, be refused with a 401 while a flood of requests naming a tenant lasts (the tenant check runs before the per-endpoint bearer check). A burst of more than four simultaneous tenant requests also loses the surplus. The 0.5 s child bound and the roughly 4.5 ms cost of a refusal keep each slot short; raise the cap in code if bursts are seen.
+- **Compose follow-up at deploy time.** `compose.yaml` and the Unraid example still pass `TENANT_ASSERTION_IMPL: ${TENANT_ASSERTION_IMPL:-python}`. With the new Diary image that default logs the retired warning once per start. Remove the passthrough (and the `.env` line) when the new Diary image is deployed; not before, because an older Diary image still reads it.
+
 Diary images built from this change on carry `/usr/local/bin/tenant-assertion`, the bounded Rust
 port of `diary/agent/tenant_assertion.py`'s stateless check (`X-Cowork-Tenant-Assertion` v2
 signature, clock window, and the storage secretRef match). It is built from the Diary
@@ -1487,7 +1493,7 @@ Dockerfile's `NOEVIA_RS_REF`, which equals release/versions.lock's. It is dark:
   `/usr/local/bin/tenant-assertion`, then copies `agent/`. It runs `tenant-assertion self-test` in
   the candidate (no network) before anything is switched, and rolls back as before. A release
   without the pin keeps the agent-only overlay.
-- **Switch on (owner only), after the overlay:** add `TENANT_ASSERTION_IMPL=rust` to the diary
+- **Switch on (history; the switch was live on `rust` from 2026-10-14, see the changelog):** add `TENANT_ASSERTION_IMPL=rust` to the diary
   service's environment (in the hand-kept live Compose Manager override too) and recreate diary
   only.
 - **Behaviour with `rust`:** AND-composed and **fails closed**. A tenant request (and a storage
@@ -1500,8 +1506,8 @@ Dockerfile's `NOEVIA_RS_REF`, which equals release/versions.lock's. It is dark:
   - Stricter than Python (refused even when correctly signed): non-ASCII user id or method,
     empty key, a body hash that is not sha256 hex or `stream`, a non-finite clock, any field over
     256 KiB, and non-ASCII digits in the timestamp. Web never sends any of these.
-- **Rollback:** remove `TENANT_ASSERTION_IMPL` (or set it to `python`) and recreate diary. An
-  unknown value also means `python`, with one warning in the log.
+- **Rollback (history; the switch is retired, there is no per-flag rollback):** pin the previous
+  Diary image (the one built before noevia-services#99, which still reads the key).
 
 ### Storage listing parser (`DAV_PARSE_IMPL`, #967)
 
@@ -1779,6 +1785,28 @@ exports) at every startup, and a missing or mismatched module refuses to start (
 line) with no JS fallback. Roll back by pinning the previous release (the `cowork-web` tag before the
 noevia-core pin that contains these changes).
 
+### Retired switches (#1071: tool gate, permitted tools)
+
+Two more switches are retired on the same terms: `TOOL_GATE_IMPL` (noevia-core#190) and
+`TOOLBOXES_PERMITTED_IMPL` (noevia-core#191), both `wasm` on the live box. The Rust path is always used
+and the JS rules are gone. A leftover value that is neither `wasm` nor empty (`js`, `off` and `on`
+included) logs one `<NAME> is retired; Rust is always used` warning; `wasm` and empty are silent. The
+tenant-assertion switch (`TENANT_ASSERTION_IMPL`, noevia-services#99) is retired the same way in the
+Diary image; see "Tenant assertion check" above. What changes in behaviour:
+
+- **`TOOL_GATE_IMPL`:** the Rust port decides which tool, if any, a message forces, and the options sent to the
+  decision service. What was forced is unchanged against the live composition (the stricter of the JS and the
+  port): the same in 4000 frozen cases and in 40,000 more. A fault, a refusal or a reply of the wrong shape forces
+  no tool (log reason `impl-fault`) and the decision service is not asked; a decision naming a tool this request
+  does not offer, or a write tool, is treated as a fault. `impl-stricter` and `impl-mismatch` are no longer
+  logged. Whether a short message may be searched with is also asked of the port (`wantsWeb`), and is "no" when it
+  cannot answer.
+- **`TOOLBOXES_PERMITTED_IMPL`:** the Rust port decides which box ids a request carries and each box's and tool's
+  availability and permission; nothing is carried, offered or permitted that the live composition refused (2500
+  frozen inputs). A fault or a reply of another shape carries no box id and shows every box and tool unavailable
+  (`unchecked`), as before; the account's own limits (Block, Ask, writes, a missing connection, sign-in or Diary
+  add-on) also hold under the port. A box id that is not a string is no longer carried (it matched nothing).
+
 ### Code-actions and project-file-names fronts (`CODE_ACTIONS_IMPL`, `PROJECT_FILE_NAMES_IMPL`, noevia-core#45)
 
 > **Retired (noevia-core#189, #1071):** `CODE_ACTIONS_IMPL` no longer exists as a switch. The Rust path is always used and the JS classifier is gone. A leftover value that is neither the old Rust value (`wasm`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. Everything below about `CODE_ACTIONS_IMPL` is history.
@@ -1886,6 +1914,8 @@ for secrets it sees the text, names, domains and origin, never a value.
 
 ### Tool gate and permitted toolboxes (`TOOL_GATE_IMPL`, `TOOLBOXES_PERMITTED_IMPL`, noevia-core#49)
 
+> **Retired (noevia-core#190 and #191, #1071):** `TOOL_GATE_IMPL` and `TOOLBOXES_PERMITTED_IMPL` no longer exist as switches. The Rust path is always used and the JS rules are gone. A leftover value that is neither the old Rust value (`wasm`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; `wasm` and empty are silent. See "Retired switches (#1071: tool gate, permitted tools)" above. Both were `wasm` on the live box before the JS was deleted. The text below is history: there is no JS answer to compute first, nothing can be flipped, and the `${TOOL_GATE_IMPL:-js}` / `${TOOLBOXES_PERMITTED_IMPL:-js}` passthroughs in the live override are no longer needed (remove them when convenient).
+
 `dav-parse.wasm` (noevia-rs `35d0fd63`, rs#55) also carries the Rust ports of `tool-gate.cjs` (which
 tool, if any, a message forces: the rules and the decision service's option list and answer) and
 `toolboxes-permitted.cjs` (which toolboxes and tools a project may offer and what each shows as
@@ -1912,14 +1942,13 @@ without another compose edit; flip only with `deploy/tools/flags.sh`-verified be
   strip was quadratic on a long run of punctuation (now linear); noevia#1224 a host with an empty
   label (`10.0.0.1..`) was treated as public, so a link such as `http://10.0.0.1../x` could be
   prefetched (now never public).
-- **Read the live values only with** `bash deploy/tools/flags.sh cowork-web-1`.
-- **Rollback:** remove the keys or set them to `js` and recreate web; or pin the previous release
+- **Rollback (history; the switches are retired, there is no per-flag rollback):** pin the previous release
   (`cowork-web` tag `3d06ea7d` before this change).
 
 ### Startup check for the `*_IMPL=wasm` switches (#996)
 
 `dav-parse.wasm` is always verified (the retired switches above are always on). In addition, if any of `STORAGE_PATH_IMPL`,
-`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `TOOL_GATE_IMPL`, `TOOLBOXES_PERMITTED_IMPL`, `ROLE_CONTEXT_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
+`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `ROLE_CONTEXT_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
 pinned sha256, no imports, and the expected exports. If the module is missing or does not match,
 web **refuses to start**. It logs one line and exits 1, for example `FATAL: SECRET_ENVELOPE_IMPL
 set to wasm, but dav-parse.wasm failed verification (missing): …`. The fix is to restore the

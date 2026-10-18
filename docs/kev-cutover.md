@@ -262,7 +262,7 @@ Kev stays only if, over all 7 days, **every** line holds:
 - `cowork-kev`: `RestartCount` 0, `OOMKilled` false, `docker stats` memory under 4.75 GiB, healthy;
 - per purpose and day, failures (`cause` `http-*`, `network`, `aborted`, `invalid-result`, `parse`) under 2% of
   requests, `deadline` under 5%; days with fewer than 20 requests for a purpose are summed with the next day;
-- tool gate: 0 `impl-mismatch` and 0 `impl-fault` entries (`TOOL_GATE_IMPL=wasm` with the Kev budget);
+- tool gate: 0 `impl-fault` entries (the tool gate always runs on the Rust port since `TOOL_GATE_IMPL` was retired in noevia-core#190, with the Kev budget; `impl-mismatch` is no longer emitted, so counting it would pass vacuously);
 - sensitivity: 100% of entries decided by Laya, none by Kev; turns stay local when it is unavailable;
 - step supervision escalations: the escalation rate `E/S` over the soak is at least 0.5 times the Laya baseline
   rate and at most 2 times it, and at least 1 escalation per 100 supervise entries if the baseline had any;
