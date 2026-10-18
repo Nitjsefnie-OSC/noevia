@@ -144,7 +144,8 @@ remote_auth_path_problem() { # path -> prints why the path is unsafe, nothing wh
 # `bash -x` would print it. remote_auth_read and remote_probe are therefore thin wrappers: they save whether
 # xtrace was on, turn it off, run the real body (_remote_auth_read_body / _remote_probe_body), and turn it back
 # on only if it was on. Because the wrapper owns the restore, every return path of the body is covered, and the
-# `&& rc=0 || rc=$?` form keeps `set -e` from leaving the shell before xtrace is restored.
+# `&& rc=0 || rc=$?` form keeps `set -e` from leaving the shell before xtrace is restored. The same form means
+# `set -e` is ignored inside the bodies: a failing command there no longer aborts a `set -e` caller.
 remote_auth_read() { # path -> 0 and $remote_auth_header, or 1 and $remote_auth_why
   local _xt=0 _rc
   case $- in *x*) _xt=1 ;; esac
@@ -194,6 +195,8 @@ EOS
   remote_auth_header="$out"
 }
 
+# Note: on success $remote_auth_header stays set to the key text after this returns. Any new caller that expands
+# $remote_auth_header must do so with xtrace off (see remote_probe), or `bash -x` will print the key.
 remote_auth_load() {
   local f name why
   remote_auth_header=""

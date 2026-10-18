@@ -10,11 +10,20 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/remote-xtrace-test.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/keys"
 chmod 700 "$work" "$work/keys"
+# Resolve symlinks in the work dir: on macOS TMPDIR sits under /var -> /private/var, and
+# remote_auth_path_problem rightly refuses a key file below a symlinked directory.
+work="$(cd -P -- "$work" && pwd -P)"
 cat > "$work/bin/curl" <<'SHIM'
 #!/usr/bin/env bash
 printf '200'
 SHIM
 chmod +x "$work/bin/curl"
+mkdir -p "$work/failbin"
+cat > "$work/failbin/curl" <<'SHIM'
+#!/usr/bin/env bash
+exit 7
+SHIM
+chmod +x "$work/failbin/curl"
 export PATH="$work/bin:$PATH"
 
 key="synth$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
@@ -42,18 +51,36 @@ check "probe under bash -x: tracing was really on (not a vacuous pass)" 'grep -q
 check "probe under bash -x: key absent from stderr" '! grep -qF "$key" "$work/err"'
 check "probe under bash -x: key absent from stdout" '! grep -qF "$key" "$work/out"'
 check "probe under bash -x: xtrace restored afterwards" 'grep -qx XTRACE_ON "$work/out"'
-check "probe under bash -x: set -e/-u intact (reached the end)" 'grep -qx "rc=0" "$work/out"'
+check "probe under bash -x: caller's own set -e/-u still active, shell reached the end" 'grep -qx "rc=0" "$work/out"'
 
 probe "$work/keys/host.hdr" -x
 check "refused header under bash -x: reported unhealthy" 'grep -q "^unhealthy|.*AUTH_FILE unusable" "$work/out"'
 check "refused header under bash -x: key absent from stderr" '! grep -qF "$key" "$work/err" && grep -q "remote_probe" "$work/err"'
 check "refused header under bash -x: xtrace restored" 'grep -qx XTRACE_ON "$work/out"'
 
+# Guard only, not a regression test of #2005: the file is refused on its mode before it is ever read, so
+# this would pass without the xtrace fix too. It only pins that the refusal path does not start leaking.
 probe "$work/keys/open.hdr" -x
 check "open-mode key file under bash -x: key absent from stderr" '! grep -qF "$key" "$work/err" && grep -q "remote_probe" "$work/err"'
 
 probe "$work/keys/good.hdr"
 check "probe without -x: healthy, key absent, xtrace stays off" 'grep -q "^healthy|HTTP 200" "$work/out" && grep -qx XTRACE_OFF "$work/out" && ! grep -qF "$key" "$work/err" "$work/out"'
+
+# errexit inside the wrapped bodies: the wrapper calls `body && _rc=0 || _rc=$?`, and bash ignores `set -e`
+# inside a command on the left of && / ||. So a failing curl under a `set -e` caller falls through to
+# "unreachable|..." instead of aborting the caller. That is deliberate (the probe's job is to report), and this
+# pins it, with and without a key, traced and untraced.
+for mode in -x +x; do
+  for kf in "$work/keys/good.hdr" ""; do
+    PATH="$work/failbin:$PATH" probe "$kf" "$mode"
+    if [ -n "$kf" ]; then kn="with key"; else kn="no key"; fi
+    label="failing curl under set -e ($kn, bash $mode)"
+    check "$label: reported unreachable, not aborted" 'grep -q "^unreachable|" "$work/out" && grep -qx "rc=0" "$work/out"'
+    # Traced cases must really be traced, or "key absent" would pass vacuously.
+    check "$label: key absent" '! grep -qF "$key" "$work/err" "$work/out" && { [ "$mode" = +x ] || grep -q remote_probe "$work/err"; }'
+  done
+done
+check "failing curl under bash -x: xtrace restored" 'PATH="$work/failbin:$PATH" probe "$work/keys/good.hdr" -x; grep -qx XTRACE_ON "$work/out"'
 
 # remote_auth_read on its own, with errexit: a failing return must not end the shell, and xtrace comes back.
 NOEVIA_REMOTE_SERVICES=embedding LIB="$lib" F="$work/keys/host.hdr" G="$work/keys/good.hdr" \
