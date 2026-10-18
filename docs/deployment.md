@@ -1749,9 +1749,9 @@ pinning the previous release (previous `cowork-web` tag, live 1e4e3b82 before th
 
 ### Retired switches (#1071: GGUF metadata, project file names, provider egress, browser policy)
 
-Four more switches are retired on the same terms: `GGUF_META_IMPL` (noevia-core#184),
+Five more switches are retired on the same terms: `GGUF_META_IMPL` (noevia-core#184),
 `PROJECT_FILE_NAMES_IMPL` (noevia-core#185), `PROVIDER_EGRESS_IMPL` (noevia-core#186) and
-`BROWSER_POLICY_IMPL` (noevia-core#188). All four
+`BROWSER_POLICY_IMPL` (noevia-core#188) and `CODE_ACTIONS_IMPL` (noevia-core#189). All five
 were `wasm` on the live box before the JS was deleted, so setting the key is no longer needed. The
 Rust path is always used and the JS rules are gone. A leftover value that is neither `wasm` nor
 empty (`js`, `off` and `on` included) logs one `<NAME> is retired; Rust is always used` warning;
@@ -1777,6 +1777,11 @@ neither is required. What changes in behaviour:
   blocked, asked about or refused is let out. Where it does not know a label's code points it asks (the reason reads
   "could not be double-checked"), and a module fault on a navigation blocks it instead of asking. Secret values are
   still typed by the host, only for the placeholders the port named.
+- **`CODE_ACTIONS_IMPL`:** the Rust port classifies every coding-agent action and decides every approval; nothing the JS
+  held back is let out. A command it cannot check (over 2 MiB, past its reading bound, a form it cannot read exactly) is
+  put to a person as before, now with the command and the note "could not be checked (...)" on the card, and "allow for
+  this task" never covers it. The coding agent's model is also told why when a person declines, nobody answers, or an
+  action is refused on workspace or capability grounds.
 
 The module is required: web verifies `dav-parse.wasm` (pinned sha256, no imports, the expected
 exports) at every startup, and a missing or mismatched module refuses to start (exit 1, one `FATAL: ...`
@@ -1784,6 +1789,8 @@ line) with no JS fallback. Roll back by pinning the previous release (the `cowor
 noevia-core pin that contains these changes).
 
 ### Code-actions and project-file-names fronts (`CODE_ACTIONS_IMPL`, `PROJECT_FILE_NAMES_IMPL`, noevia-core#45)
+
+> **Retired (noevia-core#189, #1071):** `CODE_ACTIONS_IMPL` no longer exists as a switch. The Rust path is always used and the JS classifier is gone. A leftover value that is neither the old Rust value (`wasm`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. Everything below about `CODE_ACTIONS_IMPL` is history.
 
 > **Retired (noevia-core#185, #1071):** `PROJECT_FILE_NAMES_IMPL` no longer exists as a switch. The Rust path is always used and the JS resolver is gone. A leftover value that is neither the old Rust value (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) nor empty (`js`, `off` and `on` included) only logs a warning and is ignored; the old value and empty are silent. See "Retired switches (#1071: GGUF metadata, project file names, provider egress, browser policy)" above. Everything below about `PROJECT_FILE_NAMES_IMPL` is history; `CODE_ACTIONS_IMPL` is still a switch.
 
@@ -1795,16 +1802,16 @@ one warning, and **neither is set on the live box** (the live override passes th
 `.env` without another compose edit). Under `wasm` the JS answer is computed first and kept only
 when the port's reply is byte-identical:
 
-- **`CODE_ACTIONS_IMPL=wasm`:** a refusal, fault, bad reply or disagreement makes `classify`
+- **`CODE_ACTIONS_IMPL=wasm` (history):** a refusal, fault, bad reply or disagreement makes `classify`
   stricter (`approval: 'always'`, never standing, `unverified: true`), `decide` at least `ask`
   (`deny` if either side denies) and `pickOption` a cancel. Only the automatic allow and standing
   paths are withheld; the three write-approval actions are unchanged.
 - **`PROJECT_FILE_NAMES_IMPL=wasm`:** a name resolves only when the port resolves it to the same
   file; any doubt returns `code: 'unverified'` with a model-readable error. The lookup stays over
   the caller's own `project.files`.
-- **Startup check:** either switch set to `wasm` makes web verify `dav-parse.wasm` (pinned sha256,
-  no imports, expected exports incl. `code_actions` and `project_file_names`) before listening; an
-  unusable module means exit 1.
+- **Startup check:** web always verifies `dav-parse.wasm` (pinned sha256, no imports, expected exports incl.
+  `code_actions` and `project_file_names`) before listening, whatever the environment says (no switch is needed
+  since #1071); an unusable module means exit 1.
 - **Read the live values only with** `bash deploy/tools/flags.sh cowork-web-1` (both keys appear
   once the web service has the passthrough lines).
 - **Also in this pin, JS behaviour that applies with either value:** noevia#1201 (HIGH) the JS
@@ -1921,7 +1928,7 @@ without another compose edit; flip only with `deploy/tools/flags.sh`-verified be
 ### Startup check for the `*_IMPL=wasm` switches (#996)
 
 `dav-parse.wasm` is always verified (the retired switches above are always on). In addition, if any of `STORAGE_PATH_IMPL`,
-`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `CODE_ACTIONS_IMPL`, `TOOL_GATE_IMPL`, `TOOLBOXES_PERMITTED_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
+`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `TOOL_GATE_IMPL`, `TOOLBOXES_PERMITTED_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
 pinned sha256, no imports, and the expected exports. If the module is missing or does not match,
 web **refuses to start**. It logs one line and exits 1, for example `FATAL: SECRET_ENVELOPE_IMPL
 set to wasm, but dav-parse.wasm failed verification (missing): …`. The fix is to restore the
