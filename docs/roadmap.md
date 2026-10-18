@@ -348,9 +348,9 @@ closed; contracts in [spec-service-boundaries.md](spec-service-boundaries.md)).
 4. **Later:** the [whole-Diary graph](https://github.com/sbstndalton/noevia/issues/275) (design done, narrow recommendation); the
    [browser executor](https://github.com/sbstndalton/noevia/issues/274) is wired behind `browserExecutor` (off) — what remains is a node to run it
    on; the native [Mac client](https://github.com/sbstndalton/noevia/issues/273) ([sbstndalton/noevia-macos](https://github.com/sbstndalton/noevia-macos), milestone 05).
-5. **Agent council ([#2021](https://github.com/sbstndalton/noevia/issues/2021)).** Owner idea from the 2026-10-18 issue-close run: a
+5. **Agent council ([#2021](https://github.com/sbstndalton/noevia/issues/2021)).** Owner idea (2026-10-18), modelled on the issue-close run: a
    coordinated multi-agent mode for the agentic service. It has a planner, engineers in their own worktrees, an independent reviewer that
-   reads the saved diff, and a second-opinion agent on another provider. They share a mailbox and an ownership record (one writer per resource, explicit
+   reads the saved diff, and a second-opinion agent on a different model or provider. They share a mailbox and an ownership record (one writer per resource, explicit
    handoff, a scheduled check). Every finding is either fixed or filed. All roles route through the configured service assignments. Next: a design note.
 
 ### GitHub milestone map
