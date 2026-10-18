@@ -1482,7 +1482,7 @@ Dockerfile's `NOEVIA_RS_REF`, which equals release/versions.lock's. It is dark:
 
 ### Storage listing parser (`DAV_PARSE_IMPL`, #967)
 
-> **Retired (noevia-core#39, #1071 batch 1):** `DAV_PARSE_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches" below.
+> **Retired (noevia-core#39, #1071 batch 1):** `DAV_PARSE_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches" below.
 
 Web images built from #967 on carry `server/wasm/dav-parse.wasm`, the bounded Rust port of the
 step that turns a WebDAV/Nextcloud PROPFIND listing (untrusted, from the configured storage
@@ -1504,7 +1504,7 @@ defaults to `js`, and the JS parser keeps producing every listing.
 
 ### S3 listing parser and storage path rules (`S3_PARSE_IMPL`, `STORAGE_PATH_IMPL`, #976, #978)
 
-> **Retired (noevia-core#39, #1071 batch 1):** `S3_PARSE_IMPL` (`STORAGE_PATH_IMPL` is still a switch` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches" below.
+> **Retired (noevia-core#39, #1071 batch 1):** `S3_PARSE_IMPL` (`STORAGE_PATH_IMPL` is still a switch` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches" below.
 
 The same `dav-parse.wasm` (one module, one sha256 in noevia-core's `server/dav-parse.lock`)
 also carries two more Rust ports, each behind its own dark switch, independent of
@@ -1527,7 +1527,7 @@ also carries two more Rust ports, each behind its own dark switch, independent o
 
 ### Upload checks (`UPLOAD_SNIFF_IMPL`, #977)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `UPLOAD_SNIFF_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `UPLOAD_SNIFF_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches" below.
 
 
 The same `dav-parse.wasm` also carries the Rust port of the upload checks: `validate` (plain
@@ -1574,7 +1574,7 @@ Node. The module's sha256 changed with this pin; `build/web.Dockerfile` needs no
 
 ### MCP response framing (`MCP_FRAME_IMPL`, #980)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `MCP_FRAME_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `MCP_FRAME_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches" below.
 
 
 The same `dav-parse.wasm` also carries a Rust port of how web reads replies from MCP servers,
@@ -1604,7 +1604,7 @@ like the JS (by its extension) instead of failing with 400 "upload could not be 
 
 ### S3 request signing (`S3_SIGN_IMPL`, core#27)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `S3_SIGN_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `S3_SIGN_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches" below.
 
 
 `dav-parse.wasm` also carries the Rust port of the S3 SigV4 request signer (`signS3RequestJs`) and
@@ -1630,7 +1630,7 @@ change, and its `tests/server/*.test.cjs` glob already runs `s3-sign-differentia
 
 ### Prompt framing, provenance and task packets (`PROMPT_FRAMING_IMPL`, #769, #740)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `PROMPT_FRAMING_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `PROMPT_FRAMING_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches" below.
 
 
 `dav-parse.wasm` also carries the Rust port of how web wraps untrusted text before it reaches a
@@ -1658,7 +1658,7 @@ Compose Manager override, so it can be flipped later without another compose edi
 
 ### Chat template capabilities (`CHAT_TEMPLATE_CAPS_IMPL`, #1002, #1003)
 
-> **Retired (noevia-core#39, #1071 batch 1):** `CHAT_TEMPLATE_CAPS_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches" below.
+> **Retired (noevia-core#39, #1071 batch 1):** `CHAT_TEMPLATE_CAPS_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches" below.
 
 **This switch is ON by default** (`wasm`); it fixes #1002. Before a chat on the native engine sends
 `tools`, web reads the model's chat template from llama.cpp `/props` (`chat_template`; it never
@@ -1735,8 +1735,9 @@ empty (`js`, `off` and `on` included) logs one `<NAME> is retired; Rust is alway
 and the matching `${NAME:-js}` passthrough from `.env` and the Compose override when convenient;
 neither is required. What changes in behaviour:
 
-- **`GGUF_META_IMPL`:** the header is read only through the module (no JS fallback). A missing or
-  faulting module makes the model-manager's suggestion and memory panel answer 422 `Could not read
+- **`GGUF_META_IMPL`:** the header is read only through the module (no JS fallback). A runtime
+  fault of the module (a missing or mismatched module never gets that far: it stops startup) makes the
+  model-manager's suggestion and memory panel answer 422 `Could not read
   model metadata: ...`, and the load check has no estimate (the runtime watchdog still covers it).
   The Rust limits that were already live stay (more than 24 MiB of header bytes read, arrays nested
   deeper than 64).
@@ -1756,7 +1757,7 @@ noevia-core pin that contains these changes).
 
 ### Code-actions and project-file-names fronts (`CODE_ACTIONS_IMPL`, `PROJECT_FILE_NAMES_IMPL`, noevia-core#45)
 
-> **Retired (noevia-core#185, #1071):** `PROJECT_FILE_NAMES_IMPL` no longer exists as a switch. The Rust path is always used and the JS resolver is gone. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above. Everything below about `PROJECT_FILE_NAMES_IMPL` is history; `CODE_ACTIONS_IMPL` is still a switch.
+> **Retired (noevia-core#185, #1071):** `PROJECT_FILE_NAMES_IMPL` no longer exists as a switch. The Rust path is always used and the JS resolver is gone. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above. Everything below about `PROJECT_FILE_NAMES_IMPL` is history; `CODE_ACTIONS_IMPL` is still a switch.
 
 `dav-parse.wasm` (noevia-rs `dc91c73e`) also carries the Rust ports of `code-actions.cjs`
 (`classify`, `decide`, `pickOption`) and `project-file-names.cjs`. Both switches are dark:
@@ -1787,7 +1788,7 @@ when the port's reply is byte-identical:
 
 ### Provider-egress front (`PROVIDER_EGRESS_IMPL`, noevia-core#46)
 
-> **Retired (noevia-core#186, #1071):** `PROVIDER_EGRESS_IMPL` no longer exists as a switch. The Rust path is always used and the JS rules are gone. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above. The text below is history: there is no JS answer to compute first any more, and the "Availability note (read before flipping)" bullet below now always applies to external providers (no switch to set back).
+> **Retired (noevia-core#186, #1071):** `PROVIDER_EGRESS_IMPL` no longer exists as a switch. The Rust path is always used and the JS rules are gone. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above. The text below is history: there is no JS answer to compute first any more, and the "Availability note (always on since #1071)" bullet below applies to external providers (no switch to set back).
 
 `dav-parse.wasm` (noevia-rs `68d8fbce`, rs#52) also carries the Rust port of
 `provider-egress.cjs` (what may leave for an external provider: the external/trial-host tests, the
@@ -1803,14 +1804,14 @@ A port refusal, an unknown, a fault or a bad reply gives the strict answer (exte
 request refused, every private toolbox removed, or an `ERROR: ... could not be checked` tool
 result). Only projections reach the port (no API keys or storage credentials).
 
-- **Availability note (read before flipping):** under `wasm` the port is stricter than the JS. A
+- **Availability note (always on since #1071):** the port is stricter than the old JS. A
   Diary folder or storage path with code points outside the NFC-inert table (Greek, Hebrew,
   Arabic, combining marks, raw or percent-decoded), or a non-ASCII storage connection URL, closes
   the Nextcloud file tools (`diary_*`, `nc_webdav_*`) **for external providers**. Local providers
   are unaffected unless the module faults. A provider URL with non-ASCII text, `%` or an `xn--`
   label also counts as external (its Diary tools are stripped and `GET /api/providers` shows
-  `external: true`). Check the Diary folder and storage names before flipping; non-Latin names
-  lose these tools for external providers until the switch is set back to `js`.
+  `external: true`). Non-Latin Diary folder and storage names therefore lose these tools for
+  external providers; there is no switch to set back to `js`.
 - **Startup check:** `PROVIDER_EGRESS_IMPL=wasm` makes web verify `dav-parse.wasm` (pinned sha256,
   no imports, expected exports incl. `provider_egress`) before listening; an unusable module
   means exit 1.
@@ -1902,7 +1903,7 @@ Also from this pin (#995): with either setting, a stored credential whose GCM ta
 
 ### Outbound URL and address policy (`SSRF_IMPL`, #795, #930)
 
-> **Retired (noevia-core#41, #1071 batch 2):** `SSRF_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches" below.
+> **Retired (noevia-core#41, #1071 batch 2):** `SSRF_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches" below.
 
 
 `dav-parse.wasm` also carries the Rust port of the SSRF decisions (noevia-rs `crates/ssrf-policy`,
@@ -1958,9 +1959,9 @@ without another compose edit. The module's sha256 changed with this pin (`ef0884
 
 ### GGUF metadata reader and policy leaves (`GGUF_META_IMPL`, `POLICY_LEAVES_IMPL`, core#30)
 
-> **Retired (noevia-core#184, #1071):** `GGUF_META_IMPL` no longer exists as a switch. The Rust path is always used and the JS reader is gone. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above.
+> **Retired (noevia-core#184, #1071):** `GGUF_META_IMPL` no longer exists as a switch. The Rust path is always used and the JS reader is gone. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071: GGUF metadata, project file names, provider egress)" above.
 
-> **Retired (noevia-core#44, #1071 batch 3):** `POLICY_LEAVES_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `POLICY_LEAVES_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
 
 > **History:** everything below in this section describes the switches before they were retired (`GGUF_META_IMPL` in noevia-core#184, `POLICY_LEAVES_IMPL` in #44). Neither is a switch any more: there is no `=wasm` to set, no `${NAME:-js}` passthrough that does anything, and no rollback to `js`.
 
@@ -1976,7 +1977,7 @@ override passes them through as `GGUF_META_IMPL: ${GGUF_META_IMPL:-js}` and
 
 ### Code-review verdict and tool exchange (`CODE_REVIEW_VERDICT_IMPL`, `TOOL_EXCHANGE_IMPL`, core#31)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `CODE_REVIEW_VERDICT_IMPL` and `TOOL_EXCHANGE_IMPL` no longer exist as switches. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `CODE_REVIEW_VERDICT_IMPL` and `TOOL_EXCHANGE_IMPL` no longer exist as switches. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
 
 `dav-parse.wasm` also carries the Rust review-verdict and tool-exchange ports (noevia-rs `1f775737`,
 core#31; `dav-parse.lock` pins the tarball and module checksums). Both switches are dark,
@@ -1990,7 +1991,7 @@ through as `CODE_REVIEW_VERDICT_IMPL: ${CODE_REVIEW_VERDICT_IMPL:-js}` and
 
 ### MCP server list and decision checks (`MCP_SERVERS_IMPL`, `DECISION_IMPL`, core#32)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `MCP_SERVERS_IMPL` and `DECISION_IMPL` no longer exist as switches. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `MCP_SERVERS_IMPL` and `DECISION_IMPL` no longer exist as switches. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
 
 `dav-parse.wasm` also carries the Rust ports of `mcp-servers.cjs` (the `MCP_SERVERS` list parser and
 toolbox filter) and of `decision/index.cjs`'s request, result and cause checks (noevia-rs
@@ -2007,7 +2008,7 @@ list for such URLs before switching `MCP_SERVERS_IMPL` on.
 
 ### Code-network guard decisions (`CODE_NET_GUARD_IMPL`, core#33)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `CODE_NET_GUARD_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `CODE_NET_GUARD_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
 
 `dav-parse.wasm` also carries the Rust port of `code-net-guard.cjs`'s decisions (noevia-rs
 `b74eeae7`, core#33; `dav-parse.lock` pins the tarball and module checksums). The switch is dark,
@@ -2044,7 +2045,7 @@ and was not sent. The port is stricter than the JS on a few inputs (for example 
 
 ### Completeness report (`COMPLETENESS_REPORT_IMPL`, core#35)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `COMPLETENESS_REPORT_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `COMPLETENESS_REPORT_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
 
 `dav-parse.wasm` also carries the Rust port of `completeness-report.cjs`'s report and `reportHash`
 (noevia-rs `bba1a0eb`, core#35; `dav-parse.lock` pins the tarball and module checksums). The switch
@@ -2066,7 +2067,7 @@ or `status`, a job over 8 MiB as JSON); those come back unverified.
 
 ### Task lifecycle (`TASK_LIFECYCLE_IMPL`, core#36)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `TASK_LIFECYCLE_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `TASK_LIFECYCLE_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
 
 `dav-parse.wasm` also carries the Rust port of `task-lifecycle.cjs`'s stage moves and event fold
 (noevia-rs `5f497542`, core#36; `dav-parse.lock` pins the tarball and module checksums). The switch
@@ -2088,7 +2089,7 @@ in both implementations. The completeness half of the move to reviewing is not p
 
 ### Llama.cpp autoconfig (`LLAMACPP_AUTOCONFIG_IMPL`, core#37)
 
-> **Retired (noevia-core#44, #1071 batch 3):** `LLAMACPP_AUTOCONFIG_IMPL` no longer exists as a switch. The Rust path is always used. A leftover `js` or `off` value only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
+> **Retired (noevia-core#44, #1071 batch 3):** `LLAMACPP_AUTOCONFIG_IMPL` no longer exists as a switch. The Rust path is always used. A leftover value other than the old Rust-selecting one (`wasm`; `on` for `LAYA_LOAD_ADVISOR`) or empty, `js`, `off` and `on` included, only logs a warning and is ignored. See "Retired switches (#1071 batch 3)" below.
 
 `dav-parse.wasm` also carries the Rust port of `llamacpp-autoconfig.cjs`'s sizing (`suggest`,
 `estimateInputs` and `estimateFootprint`; noevia-rs `743be45c`, core#37; `dav-parse.lock` pins the
