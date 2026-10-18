@@ -116,6 +116,7 @@ jobs:
       - run: bash deploy/tools/test-assemble-release.sh
         if: env.RUN_JOB == 'true'
       - run: bash deploy/tools/test-web-supervisor.sh
+      - run: bash deploy/tools/test-seed-search-trusted.sh
         if: env.RUN_JOB == 'true'
       - run: bash deploy/tools/test-sidecar-restart-alert.sh
         if: env.RUN_JOB == 'true'

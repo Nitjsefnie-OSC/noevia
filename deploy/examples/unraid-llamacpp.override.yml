@@ -103,6 +103,9 @@ services:
       MODEL_MANAGER_OVERVIEW_IMPL: ${MODEL_MANAGER_OVERVIEW_IMPL:-python}
       # #1318: native GET /api/v1/search and /search/repo (one selector for both); same rules.
       MODEL_MANAGER_SEARCH_IMPL: ${MODEL_MANAGER_SEARCH_IMPL:-python}
+      # #1318 step 1c: the trusted publisher sets the native search ranks by. Seed the file once with
+      # deploy/tools/seed-search-trusted.sh (missing = empty sets, which changes the ranking).
+      SEARCH_TRUSTED_PATH: /config/search-trusted.json
       # #1318: native GET /api/v1/sections/{name}/autoconfig (read only); same rules.
       MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL: ${MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL:-python}
       # #1747: idle chat models unload themselves (llama.cpp sleep-idle-seconds in models.ini [*]).
