@@ -1,6 +1,6 @@
 """model-loader sets TZ=UTC in each repo compose copy (#1989).
 
-The native model manager refuses to start with MODEL_MANAGER_DIAGNOSE_IMPL=rust unless TZ is exactly UTC
+The mandatory native model manager refuses to start unless TZ is exactly UTC
 (noevia-rs bins/noevia-model-manager). An unset TZ is not accepted even when /etc/localtime is UTC, so the
 service environment must carry it. Only key names and the literal value are read here; no .env value is read.
 """
