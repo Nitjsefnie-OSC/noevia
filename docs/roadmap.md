@@ -348,6 +348,10 @@ closed; contracts in [spec-service-boundaries.md](spec-service-boundaries.md)).
 4. **Later:** the [whole-Diary graph](https://github.com/sbstndalton/noevia/issues/275) (design done, narrow recommendation); the
    [browser executor](https://github.com/sbstndalton/noevia/issues/274) is wired behind `browserExecutor` (off) — what remains is a node to run it
    on; the native [Mac client](https://github.com/sbstndalton/noevia/issues/273) ([sbstndalton/noevia-macos](https://github.com/sbstndalton/noevia-macos), milestone 05).
+5. **Agent council ([#2021](https://github.com/sbstndalton/noevia/issues/2021)).** Owner idea from the 2026-10-18 issue-close run: a
+   coordinated multi-agent mode for the agentic service. It has a planner, engineers in their own worktrees, an independent reviewer that
+   reads the saved diff, and a second-opinion agent on another provider. They share a mailbox and an ownership record (one writer per resource, explicit
+   handoff, a scheduled check). Every finding is either fixed or filed. All roles route through the configured service assignments. Next: a design note.
 
 ### GitHub milestone map
 
@@ -364,7 +368,7 @@ not a shipped release.
 | [04 · Modular platform contracts](https://github.com/sbstndalton/noevia/milestone/4) | Boundary map, versioned APIs, policy, data and rollback contracts | #267 |
 | [05 · Independent services and native client](https://github.com/sbstndalton/noevia/milestone/5) | Qualified extraction, MCP management, Diary comparison, portable Skills, then macOS | #268–#273 |
 | [Current validation and experiments](https://github.com/sbstndalton/noevia/milestone/6) | Live System-One/Docling checks, DAV clients, Deep Research and Skill selection evidence | #261–#265 |
-| [Later product capabilities](https://github.com/sbstndalton/noevia/milestone/7) | Browser jobs and whole-Diary graph design | #274–#275 |
+| [Later product capabilities](https://github.com/sbstndalton/noevia/milestone/7) | Browser jobs, whole-Diary graph design, agent council | #274–#275, #2021 |
 
 **Needs the user** below remains a decision and access checklist. In particular, harness installation,
 live DAV sharing, Deep Research enablement, credentials and device checks are not authorized by an
