@@ -8,28 +8,58 @@
 > release also updates web's build block in the live Compose Manager file (same section).
 > Release records below that mention `apps/web` or `services/` describe the monorepo layout.
 
-## Native search trusted publisher sets (#1318 step 1c)
+## Native completion cutover prerequisites (#1318, #2027)
 
-From the model-manager build that contains the native search runtime (noevia-rs step 1c), the
-native search reads the trusted publisher sets from `SEARCH_TRUSTED_PATH`
-(`/config/search-trusted.json`, which is `$LLAMACPP_CONFIG_DIR/search-trusted.json` on the host).
-Without the file, the search runtime stays with the Python child and model-loader logs that at
-startup; it is not an error, but the runtime only goes native once the file exists. Empty sets
-apply only when the file explicitly says `{"quantisers":[],"labs":[]}`, which would change the
-ranking, so seed it from the image. Do these steps in this order, before or with the recreate:
+The completion candidate has no Python process or private helper fallback. Its compiled native
+owners, exact `TZ=UTC`, qualified roots and nonempty trusted publisher sets must validate before
+startup effects. Keep the current image running until the candidate and rollback inputs qualify.
 
-1. Seed the file from the image you are about to run (needs `docker` and `jq`, both on daserver):
-   `deploy/tools/seed-search-trusted.sh "cowork-model-loader:$MODEL_MANAGER_VERSION" "$LLAMACPP_CONFIG_DIR"`.
-   It reads the lists from the services app inside the image (no network, read-only, no pull),
-   validates them, and writes the file 0644 atomically. It leaves an existing file unchanged
-   unless given `--force`.
-2. In the hand-kept live override (Compose Manager project `Cowork`,
-   `docker-compose.override.yml`, `model-loader.environment`; back it up first), add
-   `SEARCH_TRUSTED_PATH: /config/search-trusted.json`, as in
-   `deploy/examples/unraid-llamacpp.override.yml`.
-3. Recreate `model-loader`. The file is read only at startup (change it, then restart); a missing
-   file or one of the wrong shape is logged and the search runtime then stays with the Python
-   child.
+1. Before replacing the current model-manager image, seed its existing publisher lists from the
+   **verified previous image**, which still contains the source data. Capture the exact running
+   image ID with `PREVIOUS_MODEL_MANAGER_IMAGE="$(docker inspect --format '{{.Image}}' cowork-model-loader-1)"`,
+   then run `deploy/tools/seed-search-trusted.sh "$PREVIOUS_MODEL_MANAGER_IMAGE" "$LLAMACPP_CONFIG_DIR"`.
+   This uses Docker and jq, no network, no pull and a read-only source container. The helper writes
+   `/config/search-trusted.json` atomically on the host and leaves an existing file unchanged;
+   do not force-overwrite an administrator's file. The new production image contains neither
+   Python nor the old app, so it cannot be used as this seed source (#2073).
+2. Back up the hand-kept Compose Manager override and `.env`. Set
+   `SEARCH_TRUSTED_PATH: /config/search-trusted.json` and exact `TZ: UTC` in the model-loader
+   environment, matching `compose.llamacpp.yaml` and `deploy/examples/unraid-llamacpp.override.yml`.
+   Validate the retained file too: the seed helper leaves an existing target untouched without
+   validating it. Run its `jq -se` expression against `$LLAMACPP_CONFIG_DIR/search-trusted.json`
+   before cutover: exactly one object, keys `labs` and `quantisers`, each a nonempty array of
+   nonempty strings. Missing, malformed or empty sets refuse the candidate; they cannot select
+   a companion runtime.
+3. Keep the saved old image, Compose environment, selector keys and `.env` together for rollback.
+   Remove retired model-manager selectors only at the matching native-image boundary. Recreate
+   only the scoped services through the preflight wrapper after fresh idle and backup-window gates.
+   Preserve remote inference wiring and retained stopped model containers.
+
+The database store also checks existing directories and files before opening them: roots and
+ancestors must be owned by root or the effective user and not group/world writable; database
+files must be regular, singly linked and not group/world writable. A private 0700 directory is
+required immediately below a root-owned sticky temporary parent such as `/tmp`; this does not
+mean every existing `/data` directory must be recursively chmodded. Inspect the actual candidate
+mounts and ownership rather than weakening the store guard.
+
+Before changing `current` or the live environment, qualify the web image's actual legacy claim
+helper with disposable data and no live mounts. This requires the helper and retains the provider
+and ownership assertions; it must not silently skip because the binary is missing:
+
+```sh
+docker run --rm --pull never --read-only --network none --cap-drop ALL \
+  --security-opt no-new-privileges --memory 512m --cpus 1 --pids-limit 128 \
+  --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+  -e NOEVIA_LEGACY_CLAIM_BIN=/usr/local/bin/noevia-server \
+  -e NOEVIA_LEGACY_CLAIM_REQUIRED=1 -w /app/server "$WEB_CANDIDATE_IMAGE" \
+  node --test --test-concurrency=1 legacy-claim-fifo.test.cjs legacy-claim.test.cjs provider-migration.test.cjs
+```
+
+Also run the services image's required native production-process qualification before rollout:
+actual port 8090 ownership, no port 8091 child, startup seed/INI preservation, writer leases, graceful worker
+drain and forced-deadline exit 124. Its fixtures use local fake services and never load real models.
+Retain the exact source refs, image/binary digests, test reports, operational state and rollback
+inputs with the release record. Older release entries describing a Python fallback are historical.
 
 ## Release idle gate: Coding jobs (#1391)
 
