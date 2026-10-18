@@ -1775,7 +1775,7 @@ neither is required. What changes in behaviour:
 - **`CODE_ACTIONS_IMPL`:** the Rust port classifies every coding-agent action and decides every approval; nothing the JS
   held back is let out. A command it cannot check (over 2 MiB, past its reading bound, a form it cannot read exactly) always
   goes to a person as an approval card, as before, now with the command and the note "could not be checked (...)" on
-  the card; it is never denied for that reason and never auto-allowed, and "allow for this task" never covers it. The coding agent's model is also told why when a person declines, nobody answers, or an
+  the card; it is never denied for being unreadable and never auto-allowed, and "allow for this task" never covers it. It is treated as the riskiest kind of action, so a task that was not granted that class is denied on capability grounds, as for any class it was not granted, and the card says plainly that the workspace limits could not be checked. The coding agent's model is also told why when a person declines, nobody answers, or an
   action is refused on workspace or capability grounds.
 
 The module is required: web verifies `dav-parse.wasm` (pinned sha256, no imports, the expected
