@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Seed the model manager's trusted publisher sets for the native search (sbstndalton/noevia#1318
 # step 1c). The native model manager reads them from SEARCH_TRUSTED_PATH (default
-# /config/search-trusted.json, i.e. $LLAMACPP_CONFIG_DIR/search-trusted.json on the host). Without
-# the file the search runtime stays with the Python child (logged at startup). This writes the
-# file with the lists the services app in the given image defines today, so moving the runtime
-# native changes no ranking.
+# /config/search-trusted.json, i.e. $LLAMACPP_CONFIG_DIR/search-trusted.json on the host).
+# #2073: seed from the verified previous image that still contains the Python services source,
+# before replacing it with the mandatory native image. The new image has no Python/app and
+# refuses missing or empty trust sets; it cannot seed these lists or select a child fallback.
+# Copying the previous image's lists preserves ranking inputs across the cutover.
 # The lists are read from the image at deploy time; they are not kept in any repository.
 #
-#   deploy/tools/seed-search-trusted.sh <model-manager-image> <llamacpp-config-dir> [--force]
+#   deploy/tools/seed-search-trusted.sh <previous-model-manager-image> <llamacpp-config-dir> [--force]
 #
 # An existing file is left alone unless --force is given. The image (already present: no pull)
 # runs read-only, without network, capabilities or privilege gain, in 256 MiB, and is removed

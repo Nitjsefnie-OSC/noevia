@@ -7,7 +7,8 @@ import pathlib
 import re
 import unittest
 
-from test_tenant_assertion_impl_passthrough import COMPOSE_COPIES, ROOT, service_environment
+from test_tenant_assertion_impl_passthrough import COMPOSE_COPIES, ROOT
+from test_model_manager_impl_passthrough import service_environment
 
 KEY = 'WORKSPACE_RESTORE_VERIFY_IMPL'
 EXPECTED = 'WORKSPACE_RESTORE_VERIFY_IMPL: ${WORKSPACE_RESTORE_VERIFY_IMPL:-}'

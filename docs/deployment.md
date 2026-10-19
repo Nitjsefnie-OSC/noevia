@@ -8,28 +8,59 @@
 > release also updates web's build block in the live Compose Manager file (same section).
 > Release records below that mention `apps/web` or `services/` describe the monorepo layout.
 
-## Native search trusted publisher sets (#1318 step 1c)
+## Native completion cutover prerequisites (#1318, #2027)
 
-From the model-manager build that contains the native search runtime (noevia-rs step 1c), the
-native search reads the trusted publisher sets from `SEARCH_TRUSTED_PATH`
-(`/config/search-trusted.json`, which is `$LLAMACPP_CONFIG_DIR/search-trusted.json` on the host).
-Without the file, the search runtime stays with the Python child and model-loader logs that at
-startup; it is not an error, but the runtime only goes native once the file exists. Empty sets
-apply only when the file explicitly says `{"quantisers":[],"labs":[]}`, which would change the
-ranking, so seed it from the image. Do these steps in this order, before or with the recreate:
+The completion candidate has no Python process or private helper fallback. Its compiled native
+owners, exact `TZ=UTC`, qualified roots and nonempty trusted publisher sets must validate before
+startup effects. Keep the current image running until the candidate and rollback inputs qualify.
 
-1. Seed the file from the image you are about to run (needs `docker` and `jq`, both on daserver):
-   `deploy/tools/seed-search-trusted.sh "cowork-model-loader:$MODEL_MANAGER_VERSION" "$LLAMACPP_CONFIG_DIR"`.
-   It reads the lists from the services app inside the image (no network, read-only, no pull),
-   validates them, and writes the file 0644 atomically. It leaves an existing file unchanged
-   unless given `--force`.
-2. In the hand-kept live override (Compose Manager project `Cowork`,
-   `docker-compose.override.yml`, `model-loader.environment`; back it up first), add
-   `SEARCH_TRUSTED_PATH: /config/search-trusted.json`, as in
-   `deploy/examples/unraid-llamacpp.override.yml`.
-3. Recreate `model-loader`. The file is read only at startup (change it, then restart); a missing
-   file or one of the wrong shape is logged and the search runtime then stays with the Python
-   child.
+1. Before replacing the current model-manager image, seed its existing publisher lists from the
+   **verified previous image**, which still contains the source data. Capture the exact running
+   image ID with `PREVIOUS_MODEL_MANAGER_IMAGE="$(docker inspect --format '{{.Image}}' cowork-model-loader-1)"`,
+   then run `deploy/tools/seed-search-trusted.sh "$PREVIOUS_MODEL_MANAGER_IMAGE" "$LLAMACPP_CONFIG_DIR"`.
+   This uses Docker and jq, no network, no pull and a read-only source container. The helper writes
+   `/config/search-trusted.json` atomically on the host and leaves an existing file unchanged;
+   do not force-overwrite an administrator's file. The new production image contains neither
+   Python nor the old app, so it cannot be used as this seed source (#2073).
+2. Back up the hand-kept Compose Manager override and `.env`. Set
+   `SEARCH_TRUSTED_PATH: /config/search-trusted.json` and exact `TZ: UTC` in the model-loader
+   environment, matching `compose.llamacpp.yaml` and `deploy/examples/unraid-llamacpp.override.yml`.
+   Validate the retained file too: the seed helper leaves an existing target untouched without
+   validating it. Run its `jq -se` expression against `$LLAMACPP_CONFIG_DIR/search-trusted.json`
+   before cutover: exactly one object, keys `labs` and `quantisers`, each a nonempty array of
+   nonempty strings. Missing, malformed or empty sets refuse the candidate; they cannot select
+   a companion runtime.
+3. Keep the saved old image, Compose environment, selector keys and `.env` together for rollback.
+   Remove retired model-manager selectors only at the matching native-image boundary. Recreate
+   only the scoped services through the preflight wrapper after fresh idle and backup-window gates.
+   Preserve remote inference wiring and retained stopped model containers.
+
+The database store also checks existing directories and files before opening them: roots and
+ancestors must be owned by root or the effective user and not group/world writable; database
+files must be regular, singly linked and not group/world writable. A private 0700 directory is
+required immediately below a root-owned sticky temporary parent such as `/tmp`; this does not
+mean every existing `/data` directory must be recursively chmodded. Inspect the actual candidate
+mounts and ownership rather than weakening the store guard.
+
+Before changing `current` or the live environment, qualify the web image's actual legacy claim
+helper with disposable data and no live mounts. This requires the helper and retains the provider
+and ownership assertions; it must not silently skip because the binary is missing. This test-only
+tmpfs permits execution of its synthetic helper shims; production mounts are unchanged (#2078):
+
+```sh
+docker run --rm --pull never --read-only --network none --cap-drop ALL \
+  --security-opt no-new-privileges --memory 512m --cpus 1 --pids-limit 128 \
+  --tmpfs /tmp:rw,nosuid,nodev,exec,size=128m \
+  -e NOEVIA_LEGACY_CLAIM_BIN=/usr/local/bin/noevia-server \
+  -e NOEVIA_LEGACY_CLAIM_REQUIRED=1 -w /app/server "$WEB_CANDIDATE_IMAGE" \
+  node --test --test-concurrency=1 legacy-claim-fifo.test.cjs legacy-claim.test.cjs provider-migration.test.cjs
+```
+
+Also run the services image's required native production-process qualification before rollout:
+actual port 8090 ownership, no port 8091 child, startup seed/INI preservation, writer leases, graceful worker
+drain and forced-deadline exit 124. Its fixtures use local fake services and never load real models.
+Retain the exact source refs, image/binary digests, test reports, operational state and rollback
+inputs with the release record. Older release entries describing a Python fallback are historical.
 
 ## Release idle gate: Coding jobs (#1391)
 
@@ -1473,11 +1504,11 @@ keeps extracting every document.
 
 ### Tenant assertion check (`TENANT_ASSERTION_IMPL`)
 
-> **Retired (noevia-services#99, #1071):** `TENANT_ASSERTION_IMPL` no longer exists as a switch. The Rust `tenant-assertion` leaf is the only check of the signature, the clock window and the bounds, and the Python copy of those rules is gone. A leftover value that is neither `rust` nor empty (`python` and anything else included) only logs a warning at Diary start and is ignored; `rust` and empty are silent. The image must carry the binary (every Diary image built from the Dockerfile does; the overlay adds it when the release pins noevia-rs): with `DIARY_TENANT_KEY` set and no usable binary, Diary logs an error at start and refuses every tenant request. What stays in Python (the leaf is stateless and cannot know it): the header shape, the restart guard (an assertion signed before this process started is refused) and the nonce replay cache. The text below is history: there is no Python answer to compose with, and nothing can be switched. Proposed in noevia-services#99 and not yet deployed: the live Diary still runs the AND-composition until an image containing that change is deployed.
+> **Retired (noevia-services#99, #1071):** `TENANT_ASSERTION_IMPL` no longer exists as a switch. The Rust `tenant-assertion` leaf is the only check of the signature, the clock window and the bounds, and the Python copy of those rules is gone. A leftover value that is neither `rust` nor empty (`python` and anything else included) only logs a warning at Diary start and is ignored; `rust` and empty are silent. The image must carry the binary (every Diary image built from the Dockerfile does; the overlay adds it when the release pins noevia-rs): with `DIARY_TENANT_KEY` set and no usable binary, Diary logs an error at start and refuses every tenant request. What stays in Python (the leaf is stateless and cannot know it): the header shape, the restart guard (an assertion signed before this process started is refused) and the nonce replay cache. The text below is history: there is no Python answer to compose with, and nothing can be switched. Merged in noevia-services#99 and not yet deployed: the live Diary still runs the AND-composition until an image containing that change is deployed.
 
 - **What the new Diary does differently.** (1) A process-wide limit of 4 leaf children at once: a tenant request that finds every slot taken is refused at once with the refusal a bad signature gets (401), never queued, and logged at the 1st, 10th, 100th ... refusal. This replaces the cheap Python rejection of a bad signature, which no longer exists. (2) A request is accepted exactly when the AND-composition accepted it. The leaf's extra refusals stay (non-ASCII or over-long tenant ids, whitespace or newlines in the storage headers, over-long fields); web signs UUID tenants. (3) A `secretRef` that does not match is a mismatch (400); a non-ASCII one used to raise an error and is now a mismatch. (4) The log reason for a signature, window or bounds refusal is now `rust refused`.
 - **Residual risk (services#99):** callers on the service network that are not the web server can make valid tenants wait for a slot, that is, be refused with a 401 while a flood of requests naming a tenant lasts (the tenant check runs before the per-endpoint bearer check). A burst of more than four simultaneous tenant requests also loses the surplus. The 0.5 s child bound and the roughly 4.5 ms cost of a refusal keep each slot short; raise the cap in code if bursts are seen.
-- **Compose follow-up at deploy time.** `compose.yaml` and the Unraid example still pass `TENANT_ASSERTION_IMPL: ${TENANT_ASSERTION_IMPL:-python}`. With the new Diary image that default logs the retired warning once per start. Remove the passthrough (and the `.env` line) when the new Diary image is deployed; not before, because an older Diary image still reads it.
+- **Compose cutover boundary (#2048).** The repository Compose copies omit the retired selector. Keep the hand-kept live override and its `TENANT_ASSERTION_IMPL=rust` setting while the old Diary image is running. Back up both resolved configuration and `.env`, then remove the live passthrough only as part of deploying a verified image containing services#99. The key can be removed from `.env` at that same boundary. Removing either component early would leave an older image using its Python default.
 
 Diary images built from this change on carry `/usr/local/bin/tenant-assertion`, the bounded Rust
 port of `diary/agent/tenant_assertion.py`'s stateless check (`X-Cowork-Tenant-Assertion` v2
@@ -1506,8 +1537,7 @@ Dockerfile's `NOEVIA_RS_REF`, which equals release/versions.lock's. It is dark:
   - Stricter than Python (refused even when correctly signed): non-ASCII user id or method,
     empty key, a body hash that is not sha256 hex or `stream`, a non-finite clock, any field over
     256 KiB, and non-ASCII digits in the timestamp. Web never sends any of these.
-- **Rollback (history; the switch is retired, there is no per-flag rollback):** pin the previous
-  Diary image (the one built before noevia-services#99, which still reads the key).
+- **Rollback to an older Diary image (#2048):** restore the exact pre-cutover Diary image and the backed-up Diary Compose environment, including the `TENANT_ASSERTION_IMPL` passthrough and its `rust` value in `.env` (or the equivalent explicit Diary environment value). Verify the resolved Diary configuration says `TENANT_ASSERTION_IMPL: rust` before recreating Diary. Restoring only the image would silently select its Python default; the new native-only image has no per-flag rollback. Keep unrelated service versions and inference wiring unchanged.
 
 ### Storage listing parser (`DAV_PARSE_IMPL`, #967)
 
@@ -1947,13 +1977,15 @@ without another compose edit; flip only with `deploy/tools/flags.sh`-verified be
 
 ### Startup check for the `*_IMPL=wasm` switches (#996)
 
-`dav-parse.wasm` is always verified (the retired switches above are always on). In addition, if any of `STORAGE_PATH_IMPL`,
-`SECRET_ENVELOPE_IMPL`, `STREAM_GUARD_IMPL`, `ROLE_CONTEXT_IMPL` is `wasm`, web loads and verifies `dav-parse.wasm` before listening: the
-pinned sha256, no imports, and the expected exports. If the module is missing or does not match,
-web **refuses to start**. It logs one line and exits 1, for example `FATAL: SECRET_ENVELOPE_IMPL
-set to wasm, but dav-parse.wasm failed verification (missing): …`. The fix is to restore the
-pinned module (rebuild the image) or set the switch back to `js`. With every switch on `js`,
-nothing is loaded and nothing changes.
+`dav-parse.wasm` is always verified before web listens: its pinned SHA-256, absence of imports and
+required exports must match. Retired Rust-only paths require it regardless of selector values.
+`STORAGE_PATH_IMPL` and `SECRET_ENVELOPE_IMPL` can still appear in a verification error
+when selected, but setting them to `js` does not disable the unconditional check. The completion
+candidate also retires `LLAMACPP_PRESETS_IMPL`: preset policy always uses Rust, and this key
+behaves like the retired role-context and stream-guard keys.
+A missing or mismatched module makes web log one fatal line and exit 1. Restore the pinned module
+by rebuilding the matching image, or restore a complete previous release. Changing retired flags
+cannot make a broken module usable.
 
 Also from this pin (#995): with either setting, a stored credential whose GCM tag is shorter than
 16 bytes is refused. noevia never writes one, so no stored value is affected.
@@ -1988,29 +2020,21 @@ flipped later without another compose edit. The module's sha256 changed with thi
   without the trailing dot.
 - **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
-### Executor guard validator (`STREAM_GUARD_IMPL`, #516, #704)
+### Executor guard validator (Rust only, core#200, #516, #704)
 
-`dav-parse.wasm` also carries the Rust port of the Executor guard's tool-call validator and its
-correction text (noevia-rs `crates/stream-guard`, core#29): the incremental JSON-schema check that
-`stream-guard.cjs` runs on streamed tool-call arguments, used by `code-tool-schemas.cjs`.
-`STREAM_GUARD_IMPL=js|wasm` is independent of the others, default `js`; **it has been `wasm` on the live box since 2026-10-18 (flipped in `.env`)**. Roll back by setting it to `js`. The validator state is a byte string held in the JS object between calls
-(nothing stays in the module). The web service passes `STREAM_GUARD_IMPL: ${STREAM_GUARD_IMPL:-}`
-through from `.env` in the hand-kept live Compose Manager override, so it can be flipped later
-without another compose edit. The module's sha256 changed with this pin (`ef088449...`, noevia-rs
-`664c395d`).
+Incremental JSON/schema validation and correction projection always use the pinned Rust/WASM
+module. Public validator interfaces retain their methods and first-violation behavior. A bad module
+stops startup; a request-time fault refuses the tool arguments as unchecked. If correction projection
+itself fails, the host returns the fixed unchecked refusal without deriving a correction from
+untrusted input. Executor strike and retry limits are unchanged.
 
-- **No migration:** nothing is stored.
-- **Switch on (owner only):** add `STREAM_GUARD_IMPL=wasm` to the web service's environment
-  (`.env` and, for a new install, the Compose Manager override) and recreate web only.
-- **Startup check:** `wasm` makes web verify `dav-parse.wasm` (pinned sha256, no imports, expected
-  exports, incl. `stream_guard`) before listening; an unusable module means exit 1.
-- **Behaviour with `wasm`:** it **fails closed**. A trap, a refusal or a reply of the wrong shape
-  refuses the call as "Arguments could not be checked." (counted like any violation); nothing
-  falls back to the JS. The port refuses schemas that are not plain JSON data, `maxBytes` over
-  2 MiB, `maxDepth` over 1024 and non-integer options. It only matters while the Code mode
-  Executor guard checks tool calls; other features are unaffected.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web. An unknown value also
-  means `js`, with one warning in the log.
+`STREAM_GUARD_IMPL` is retired. Empty or `wasm` is silent; another leftover value warns and is
+ignored. Remove the live passthrough at release cutover. The JavaScript parser and original caller
+are checksum-bound test-only oracles for shared fixtures, seeded streaming comparisons and journal
+outputs. They cannot be selected in production.
+
+Rollback requires the previous web image and matching Compose/environment snapshot. Setting a
+retired variable to `js` cannot restore the old implementation.
 
 ### GGUF metadata reader and policy leaves (`GGUF_META_IMPL`, `POLICY_LEAVES_IMPL`, core#30)
 
@@ -2079,23 +2103,21 @@ log `codenet.wasm_fault`.
 - **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
 - **Rollback (history; the switch is retired, there is no per-flag rollback):** Pin the previous release (the previous `cowork-web` tag).
 
-### Role-context projections (`ROLE_CONTEXT_IMPL`, core#34)
+### Role-context projections (Rust only, core#198)
 
-`dav-parse.wasm` also carries the Rust port of `role-context.cjs`'s projections, shared dossier and
-leak verdicts (noevia-rs `aa5eca78`, core#34; `dav-parse.lock` pins the tarball and module
-checksums). The switch is independent of the others, default `js`; **it has been `wasm` on the live box since 2026-10-18 (flipped in `.env`)**. The hand-kept live Compose
-Manager override passes it through as `ROLE_CONTEXT_IMPL: ${ROLE_CONTEXT_IMPL:-js}`. With `js` nothing changes. With `wasm`, the JS projection is still computed and is handed
-out only if the port gives the byte-identical one; any disagreement, port fault or "ambiguous" /
-"too large" refusal means the context is refused (`RoleContextLeakError` with an `impl_*` class,
-logged once per reason as `role_context.impl_mismatch` / `role_context.wasm_fault`, without state
-text). The code reviewer then tells the person only that the review context could not be verified
-and was not sent. The port is stricter than the JS on a few inputs (for example an unpaired literal
-`\uD800` escape in a reviewed patch is refused as ambiguous; core#34 test, noevia#1120).
+Role projection, credential redaction, shared dossier construction and leak policy always run in
+`dav-parse.wasm`. The JavaScript implementation remains a test-only oracle, including the frozen
+fixture table and 600 seeded-state comparisons; it is not a runtime fallback. The module is verified
+against `dav-parse.lock` before web listens. A missing or tampered module stops startup.
 
-- **Switch on (owner only):** add `ROLE_CONTEXT_IMPL=wasm` to `.env` and recreate web only; then run
-  a Code task with review and confirm the reviewer still receives its context.
-- **Startup check:** as for the other `*_IMPL=wasm` switches, an unusable module means exit 1.
-- **Rollback:** remove the variable (or set it to `js`) and recreate web.
+`ROLE_CONTEXT_IMPL` is retired. Empty or `wasm` is silent; another leftover value warns and is
+ignored. Remove its Compose passthrough at the native release boundary. The host retains the
+callers' refusal codes and leak errors. Port faults and malformed replies refuse the context;
+the reviewer displays the existing generic verification failure without sending it. The port's
+bounded-input restrictions, including an unpaired literal `\uD800`, still fail closed (#1120).
+
+Rollback requires the previous web image and its matching Compose/environment snapshot; changing
+this retired variable cannot restore JavaScript policy.
 
 ### Completeness report (`COMPLETENESS_REPORT_IMPL`, core#35)
 

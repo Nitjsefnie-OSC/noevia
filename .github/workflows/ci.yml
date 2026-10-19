@@ -375,6 +375,20 @@ jobs:
           TREE: ${{ steps.assemble.outputs.tree }}
           SHA: ${{ steps.assemble.outputs.sha }}
         run: bash deploy/tools/build-web-release.sh "$SHA" "$TREE"
+      # #2077, #2078: the shipping runtime must include and execute the complete
+      # native-claim qualification, including account seeding and synthetic shims.
+      - name: Required native legacy claim and provider migration in the web image
+        if: env.RUN_JOB == 'true'
+        env:
+          SHA: ${{ steps.assemble.outputs.sha }}
+        run: |
+          set -euo pipefail
+          docker run --rm --pull never --read-only --network none --cap-drop ALL \
+            --security-opt no-new-privileges --memory 512m --cpus 1 --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,nodev,exec,size=128m \
+            -e NOEVIA_LEGACY_CLAIM_BIN=/usr/local/bin/noevia-server \
+            -e NOEVIA_LEGACY_CLAIM_REQUIRED=1 -w /app/server "cowork-web:$SHA" \
+            node --test --test-concurrency=1 legacy-claim-fifo.test.cjs legacy-claim.test.cjs provider-migration.test.cjs
       - name: version.json records the pinned web and core
         if: env.RUN_JOB == 'true'
         env:

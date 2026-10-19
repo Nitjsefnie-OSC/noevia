@@ -1,12 +1,8 @@
-"""MODEL_MANAGER_IMPL and MODEL_FILES_IMPL are retired (#1071) and reach no container.
+"""Retired model-manager selectors cannot reach any container (#1318/#1071).
 
-The native model manager front and the model-files leaf are permanent: the model-loader image always
-runs them, so a Compose passthrough could only bring back the old Python-only front on an image that
-predates noevia-services#69 (its default was python). Only key names are read here; no .env value
-is ever read.
-
-The module keeps its old name because the #1318 selector passthrough tests import ROOT,
-COMPOSE_COPIES and service_environment from it.
+The production image is mandatory native and contains no Python fallback. Keep the
+literal inventory so a stale key added to either Compose copy fails qualification.
+Only configuration key names are read; no owner .env contents are accessed.
 """
 import pathlib
 import re
@@ -14,10 +10,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMPOSE_COPIES = ['compose.llamacpp.yaml', 'deploy/examples/unraid-llamacpp.override.yml']
-RETIRED = ('MODEL_MANAGER_IMPL', 'MODEL_FILES_IMPL')
-# #1318 read slices passed through to model-loader only, each defaulting to python.
-SLICE_KEYS = ('MODEL_MANAGER_MODELS_IMPL', 'MODEL_MANAGER_OVERVIEW_IMPL', 'MODEL_MANAGER_SEARCH_IMPL',
-              'MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL')
+RETIRED = ('MODEL_MANAGER_IMPL', 'MODEL_FILES_IMPL', 'MODEL_MANAGER_BACKENDS_IMPL', 'MODEL_MANAGER_BACKEND_CONTROL_IMPL', 'MODEL_MANAGER_BADGES_IMPL', 'MODEL_MANAGER_BENCHMARK_OBSERVE_IMPL', 'MODEL_MANAGER_BENCHMARK_OVERVIEW_IMPL', 'MODEL_MANAGER_BENCHMARK_RUNNER_IMPL', 'MODEL_MANAGER_BENCH_RUNS_IMPL', 'MODEL_MANAGER_CHECK_UPDATES_IMPL', 'MODEL_MANAGER_DB_INIT_IMPL', 'MODEL_MANAGER_DIAGNOSE_IMPL', 'MODEL_MANAGER_DOWNLOADS_IMPL', 'MODEL_MANAGER_DOWNLOAD_PLAN_IMPL', 'MODEL_MANAGER_DOWNLOAD_TARGETS_IMPL', 'MODEL_MANAGER_DRAFT_HEADS_IMPL', 'MODEL_MANAGER_HOST_IMPL', 'MODEL_MANAGER_MODELS_IMPL', 'MODEL_MANAGER_MODEL_DELETE_IMPL', 'MODEL_MANAGER_MODEL_DETAIL_IMPL', 'MODEL_MANAGER_MODEL_UPDATES_IMPL', 'MODEL_MANAGER_OVERVIEW_IMPL', 'MODEL_MANAGER_PROMPTS_IMPL', 'MODEL_MANAGER_ROUTING_IMPL', 'MODEL_MANAGER_SAFE_DEFAULTS_IMPL', 'MODEL_MANAGER_SEARCH_IMPL', 'MODEL_MANAGER_SECTIONS_IMPL', 'MODEL_MANAGER_SECTION_AUTOCONFIG_IMPL', 'MODEL_MANAGER_SECTION_WRITES_IMPL', 'MODEL_MANAGER_SETTINGS_IMPL', 'MODEL_MANAGER_SETTINGS_WRITE_IMPL', 'MODEL_MANAGER_TELEMETRY_IMPL', 'MODEL_MANAGER_TOKEN_TEST_IMPL')
 
 
 def service_environment(text, service):
@@ -56,80 +49,28 @@ class RetiredModelLoaderSwitchTests(unittest.TestCase):
     def test_no_compose_copy_passes_a_retired_switch(self):
         for name in COMPOSE_COPIES:
             with self.subTest(copy=name):
-                self.assertEqual(problems_for((ROOT / name).read_text(encoding='utf-8')), [])
+                text = (ROOT / name).read_text(encoding='utf-8')
+                self.assertEqual(problems_for(text), [])
+                self.assertIn('SEARCH_TRUSTED_PATH: /config/search-trusted.json',
+                              [line.strip() for line in service_environment(text, 'model-loader')])
 
-    def test_a_leftover_passthrough_is_reported_in_either_form(self):
-        for line in ('      MODEL_MANAGER_IMPL: ${MODEL_MANAGER_IMPL:-python}',
-                     '      MODEL_FILES_IMPL: ${MODEL_FILES_IMPL:-rust}',
-                     '      - MODEL_MANAGER_IMPL=rust'):
-            text = f'  model-loader:\n    environment:\n{line}\n  web:\n'
-            with self.subTest(line=line):
-                self.assertEqual(len(problems_for(text)), 1)
+    def test_every_retired_key_is_refused_in_map_and_list_form(self):
+        for key in RETIRED:
+            for service in ('model-loader', 'web'):
+                for line in (f'      {key}: ${{{key}:-python}}', f'      - {key}=rust'):
+                    text = f'  {service}:\n    environment:\n{line}\n'
+                    with self.subTest(key=key, service=service, line=line):
+                        self.assertEqual(problems_for(text), [f'{key} is retired (#1071) but still passed'])
 
-    def test_the_kept_selectors_are_not_mistaken_for_retired_ones(self):
-        text = ('  model-loader:\n    environment:\n'
-                '      MODEL_MANAGER_SETTINGS_IMPL: ${MODEL_MANAGER_SETTINGS_IMPL:-python}\n'
-                '      MODEL_MANAGER_SECTIONS_IMPL: ${MODEL_MANAGER_SECTIONS_IMPL:-python}\n')
+    def test_other_runtime_configuration_is_preserved(self):
+        text = '  model-loader:\n    environment:\n      MODEL_LOADER_TOKEN: required\n      TZ: UTC\n      SEARCH_TRUSTED_PATH: /config/search-trusted.json\n'
         self.assertEqual(problems_for(text), [])
 
-    def test_the_example_env_does_not_ask_for_them(self):
+    def test_example_env_has_no_retired_configuration(self):
         text = (ROOT / '.env.example').read_text(encoding='utf-8')
         for key in RETIRED:
             with self.subTest(key=key):
                 self.assertNotIn(key, text)
-
-
-def slice_problems(text, key):
-    lines = [l.strip() for l in service_environment(text, 'model-loader') if l.strip().startswith(key + ':')]
-    if len(lines) != 1:
-        return [f'expected exactly one {key} line in model-loader, found {len(lines)}']
-    if lines[0] != f'{key}: ${{{key}:-python}}':
-        return [f'{key} default is not python: {lines[0]}']
-    return []
-
-
-def web_slice_problems(text):
-    if '  web:' not in text.split('\n'):
-        return ['no web service in this copy']
-    return [f'{key} is passed to web' for key in SLICE_KEYS for line in service_environment(text, 'web')
-            if key in line]
-
-
-class SlicePassthroughTests(unittest.TestCase):
-    def test_each_copy_passes_each_slice_once_with_python_default(self):
-        for name in COMPOSE_COPIES:
-            text = (ROOT / name).read_text(encoding='utf-8')
-            for key in SLICE_KEYS:
-                with self.subTest(copy=name, key=key):
-                    self.assertEqual(slice_problems(text, key), [])
-                    self.assertEqual(env_keys(text).count(key), 1)
-
-    def test_web_does_not_get_a_slice_key(self):
-        for name in COMPOSE_COPIES:
-            text = (ROOT / name).read_text(encoding='utf-8')
-            with self.subTest(copy=name):
-                self.assertIn('  web:', text.split('\n'), 'no web service: the web-leak check would pass vacuously')
-                self.assertEqual(web_slice_problems(text), [])
-
-    def test_a_slice_key_under_web_is_reported(self):
-        for key in SLICE_KEYS:
-            text = ('  model-loader:\n    environment:\n'
-                    f'      {key}: ${{{key}:-python}}\n'
-                    '  web:\n    environment:\n'
-                    f'      {key}: ${{{key}:-python}}\n'
-                    '  diary:\n')
-            with self.subTest(key=key):
-                self.assertEqual(web_slice_problems(text), [f'{key} is passed to web'])
-
-    def test_missing_duplicate_or_non_python_default_is_reported(self):
-        for key in SLICE_KEYS:
-            head = '  model-loader:\n    environment:\n'
-            good = f'      {key}: ${{{key}:-python}}\n'
-            with self.subTest(key=key):
-                self.assertEqual(len(slice_problems(head + '  web:\n', key)), 1)
-                self.assertEqual(len(slice_problems(head + good + good, key)), 1)
-                self.assertIn('not python', slice_problems(head + good.replace('python', 'rust'), key)[0])
-                self.assertIn('not python', slice_problems(head + good.replace('python', ''), key)[0])
 
 
 if __name__ == '__main__':

@@ -95,10 +95,10 @@ COPY core/server ./server
 COPY --from=dav-parse /out/dav-parse.wasm ./server/wasm/dav-parse.wasm
 # core owns contracts/; server/ requires it as ../contracts.
 COPY core/contracts ./contracts
-# #1990: the in-image server tests (release-candidate check, run from /app/server) require these two
-# fixtures from ../tests/server; the runtime stage otherwise ships no tests/ directory. Only the
-# project-store stand-ins are copied, not the rest of core/tests/server.
-COPY core/tests/server/project-store-stub.cjs core/tests/server/project-store-server.cjs ./tests/server/
+# #1990, #2077: in-image server qualification needs the project-store stand-ins and
+# synthetic account seeder from ../tests/server. Copy only these fixtures, rather
+# than the rest of core/tests/server; the legacy-claim test must run without skips.
+COPY core/tests/server/project-store-stub.cjs core/tests/server/project-store-server.cjs core/tests/server/seed-account.cjs ./tests/server/
 # Required by differential/selector tests mounted into the shipped runtime at qualification.
 COPY --from=build /app/tests/reference ./tests/reference
 # noevia-server on UI_PORT and Node on loopback UI_PORT+1000 (build/web-supervisor.sh). Since

@@ -40,6 +40,7 @@ echo "\$name PROJECTS=\${NOEVIA_RUST_PROJECTS-unset}" >> "$work/log"
 echo "\$name WCONF=\${NOEVIA_RUST_PROJECT_WRITES_CONFIRMED:-}" >> "$work/log"
 echo "\$name SSTORE=\${NOEVIA_RUST_PROJECT_STORE_CONFIRMED:-} SPORT=\${NOEVIA_PROJECT_STORE_PORT:-} STOKLEN=\${#NOEVIA_PROJECT_STORE_TOKEN}" >> "$work/log"
 echo "\$name AUTH=\${NOEVIA_RUST_AUTH-unset}" >> "$work/log"
+echo "\$name LCLAIM=\${NOEVIA_LEGACY_CLAIM_BIN:-}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
 # The supervisor TERMs the survivor as soon as one child exits. A front told to die at once would
@@ -170,6 +171,14 @@ check "a front with client-address-header confirms the client address to Node on
 reset; touch "$work/die-front"
 run NOEVIA_FRONT_CLIENT_IP=1 >/dev/null 2>"$work/err"
 check "a front without it leaves Node unconfirmed (an inherited value is dropped) and still starts" 'grep -q "^node KCONF=$" "$work/log" && grep -q "no client-address-header" "$work/err"'
+
+# #2027: only the verified front can be supplied as the filesystem claim helper.
+reset; touch "$work/die-front"
+run NOEVIA_LEGACY_CLAIM_BIN=/untrusted/inherited STUB_FEATURES="$BASE_FEATURES legacy-root-claim" >/dev/null 2>&1
+check "claim-capable front supplies its own absolute helper path to Node only" 'grep -Fxq "node LCLAIM=$work/noevia-server" "$work/log" && grep -qx "front LCLAIM=" "$work/log"'
+reset; touch "$work/die-front"
+run NOEVIA_LEGACY_CLAIM_BIN=/untrusted/inherited >/dev/null 2>&1
+check "older front cannot pass an inherited claim helper path" 'grep -qx "node LCLAIM=" "$work/log" && grep -qx "front LCLAIM=" "$work/log"'
 
 # #1822 regression: a front that dies at once must not cut a slow-starting Node's startup log short
 # (the supervisor TERMs the survivor the moment one child exits).
