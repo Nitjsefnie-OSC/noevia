@@ -95,3 +95,44 @@ retention policy permits removal.
 Keep exact backup paths, host/service inventories, recovery manifests, and deployment evidence
 outside version control. Public release notes should describe software behavior and validation
 limits rather than the private state of an installation.
+
+## Services on other Inference machines (#1843)
+
+Services assigned to another inference machine are not counted against this host's budget.
+The remote inference model is outside this budget too. Account for each role's residency on
+its own machine; do not restart retained local sidecars merely because the selected role runs
+elsewhere. This describes resource accounting, not any installation's current assignments.
+
+Host preflight and restart-notification tooling reads an explicit `NOEVIA_REMOTE_SERVICES`
+list because it cannot depend on web administrator credentials or settings while web is stopped.
+The accepted role names and compatibility aliases are:
+
+| Role | Earlier service name |
+| --- | --- |
+| `decision` | `kev` |
+| `sensitivity` | `laya` |
+| `embedding` | `embed` |
+| `reranker` | `rerank` |
+
+For each selected role, configure `NOEVIA_REMOTE_<ROLE>_HEALTH_URL` and an optional
+`NOEVIA_REMOTE_<ROLE>_MACHINE` label using operator-local values. Role-named variables take
+precedence over their earlier service-name aliases. An unset or empty role list leaves the
+host helper inert. `NOEVIA_REMOTE_ENV_FILE` may name an operator-owned configuration file;
+the helper reads only `NOEVIA_REMOTE_*` assignments as data, never executes the file, and
+preserves values already present in the environment.
+
+Health probes are bounded, advisory, restricted to accepted private/overlay destinations,
+and do not follow redirects. URLs must contain no credentials. A 2xx response is healthy.
+Without an authentication file, HTTP 401 (needs auth) or 403 means the endpoint is reachable
+and requests authentication; a rejection after configured authentication is unhealthy.
+
+`NOEVIA_REMOTE_<ROLE>_AUTH_FILE` optionally supplies complete header lines. The helper checks
+the opened file's ownership, regular-file type, mode 0600 or stricter, bounded size, and safe
+header syntax. Symlinks are refused; ancestors must not be writable by another user unless
+protected by the sticky bit. A configured but unusable file reports
+`NOEVIA_REMOTE_<ROLE>_AUTH_FILE unusable` and sends no request. It must not be interpreted as
+healthy, unauthenticated, or recovered. Credential contents and paths are never logged.
+
+Keep actual assignments, hosts, endpoints, labels, and authentication-file locations in the
+local operator runbook or ignored configuration. These generic interfaces do not authorize
+probing a machine, changing its assignments, or starting model inference.
