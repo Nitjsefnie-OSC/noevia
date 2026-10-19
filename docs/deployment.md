@@ -12,7 +12,7 @@
 
 The cutover is complete. /mnt/docker/appdata/cowork/current resolves to /mnt/docker/appdata/cowork/releases/9375ce98e35abb1cef148c75835ad62b65de2448. Web, model manager, and Diary use this release tag; each is healthy with zero restarts.
 
-Release pins: rs 3071930a2c30880272621550c9dcf7a11f994164, web 29de536ed187e6c2019178dc6551d3ee9baf216d, core 1896db0d3f96a68b9015abb1ed3550d02435ab42, services 2545ebcf4d23f1a2f6e44aa035294465d04621a3. Retired selectors are absent from saved .env and both Compose copies. Preserve remote inference endpoints and stopped embed, Kev, and Laya containers.
+Release pins: rs 3071930a2c30880272621550c9dcf7a11f994164, web 29de536ed187e6c2019178dc6551d3ee9baf216d, core 1896db0d3f96a68b9015abb1ed3550d02435ab42, services 2545ebcf4d23f1a2f6e44aa035294465d04621a3. The 35 retired model-manager selectors were removed from saved .env and both Compose copies, and Diary TENANT_ASSERTION_IMPL was removed. Web selector keys were not part of this cleanup. Preserve remote inference endpoints and stopped embed, Kev, and Laya containers.
 
 The web request prologue still authenticates and delegates legacy workspace claims to the native helper. Separate project-context route cleanup (core PR #206) is not merged or deployed. See [changelog.md](changelog.md) for qualification boundaries and preserved-data checks. No authenticated real-user UI test or inference/model invocation was run.
 
