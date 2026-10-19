@@ -5,7 +5,8 @@ routes/import and rust-projects require ../tests/server/project-store-{stub,serv
 /app/tests/server/...), which the runtime stage did not copy (only the build stage did), so they failed
 with MODULE_NOT_FOUND. The build context is the assembled tree, whose core/tests/server is already inside it
 (assemble-release.sh) and not excluded by its .dockerignore, so a COPY in the runtime stage is enough.
-Only the Dockerfile text is read here.
+The legacy-claim qualification also needs seed-account.cjs (#2077).
+Only the Dockerfile text is read here; the assembled-release CI runs the actual in-image tests.
 """
 import pathlib
 import re
@@ -13,7 +14,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DOCKERFILE = ROOT / 'build' / 'web.Dockerfile'
-FIXTURES = ('project-store-stub.cjs', 'project-store-server.cjs')
+FIXTURES = ('project-store-stub.cjs', 'project-store-server.cjs', 'seed-account.cjs')
 
 
 def logical_lines(text):
@@ -59,7 +60,7 @@ def shipped_test_fixtures(text):
 
 
 class WebImageTestFixturesTests(unittest.TestCase):
-    def test_runtime_stage_copies_both_project_store_fixtures(self):
+    def test_runtime_stage_copies_required_qualification_fixtures(self):
         text = DOCKERFILE.read_text(encoding='utf-8')
         self.assertEqual(sorted(set(FIXTURES) - shipped_test_fixtures(text)), [])
 
@@ -68,7 +69,7 @@ class WebImageTestFixturesTests(unittest.TestCase):
         text = DOCKERFILE.read_text(encoding='utf-8')
         self.assertIn('COPY core/tests ./tests', text)
 
-    def test_only_the_two_fixtures_are_shipped_not_the_whole_tests_directory(self):
+    def test_only_required_fixtures_are_shipped_not_the_whole_tests_directory(self):
         text = DOCKERFILE.read_text(encoding='utf-8')
         self.assertEqual(shipped_test_fixtures(text), set(FIXTURES))
 
@@ -83,7 +84,7 @@ class WebImageTestFixturesTests(unittest.TestCase):
 
     def test_a_continued_copy_line_is_parsed(self):
         text = ('FROM b\nCOPY core/tests/server/project-store-stub.cjs \\\n'
-                '  core/tests/server/project-store-server.cjs ./tests/server/\n')
+                '  core/tests/server/project-store-server.cjs core/tests/server/seed-account.cjs ./tests/server/\n')
         self.assertEqual(shipped_test_fixtures(text), set(FIXTURES))
 
 

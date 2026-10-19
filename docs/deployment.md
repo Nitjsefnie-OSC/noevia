@@ -44,12 +44,13 @@ mounts and ownership rather than weakening the store guard.
 
 Before changing `current` or the live environment, qualify the web image's actual legacy claim
 helper with disposable data and no live mounts. This requires the helper and retains the provider
-and ownership assertions; it must not silently skip because the binary is missing:
+and ownership assertions; it must not silently skip because the binary is missing. This test-only
+tmpfs permits execution of its synthetic helper shims; production mounts are unchanged (#2078):
 
 ```sh
 docker run --rm --pull never --read-only --network none --cap-drop ALL \
   --security-opt no-new-privileges --memory 512m --cpus 1 --pids-limit 128 \
-  --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+  --tmpfs /tmp:rw,nosuid,nodev,exec,size=128m \
   -e NOEVIA_LEGACY_CLAIM_BIN=/usr/local/bin/noevia-server \
   -e NOEVIA_LEGACY_CLAIM_REQUIRED=1 -w /app/server "$WEB_CANDIDATE_IMAGE" \
   node --test --test-concurrency=1 legacy-claim-fifo.test.cjs legacy-claim.test.cjs provider-migration.test.cjs
