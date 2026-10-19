@@ -8,9 +8,21 @@
 > release also updates web's build block in the live Compose Manager file (same section).
 > Release records below that mention `apps/web` or `services/` describe the monorepo layout.
 
-## Native completion cutover prerequisites (#1318, #2027)
+## Current N5 deployment - 9375ce98e35abb1cef148c75835ad62b65de2448 (2026-10-19)
 
-The completion candidate has no Python process or private helper fallback. Its compiled native
+The cutover is complete. /mnt/docker/appdata/cowork/current resolves to /mnt/docker/appdata/cowork/releases/9375ce98e35abb1cef148c75835ad62b65de2448. Web, model manager, and Diary use this release tag; each is healthy with zero restarts.
+
+Release pins: rs 3071930a2c30880272621550c9dcf7a11f994164, web 29de536ed187e6c2019178dc6551d3ee9baf216d, core 1896db0d3f96a68b9015abb1ed3550d02435ab42, services 2545ebcf4d23f1a2f6e44aa035294465d04621a3. Retired selectors are absent from saved .env and both Compose copies. Preserve remote inference endpoints and stopped embed, Kev, and Laya containers.
+
+The web request prologue still authenticates and delegates legacy workspace claims to the native helper. Separate project-context route cleanup (core PR #206) is not merged or deployed. See [changelog.md](changelog.md) for qualification boundaries and preserved-data checks. No authenticated real-user UI test or inference/model invocation was run.
+
+Recovery artifacts: backup /mnt/disk3/noevia-backups/native-9375ce98e35abb1cef148c75835ad62b65de2448-20261019T015155Z (SHA256SUMS digest e4e192beae0840d25d669deae98e9986f61471eb677be8c99269eea9fbc14e21), manifest /mnt/docker/appdata/cowork/release-prep/native-completion-3071930/n5-native-release-manifest.json, and guarded script /mnt/docker/appdata/cowork/release-prep/native-completion-3071930/n5-native-cutover-reviewed.sh. The script's rollback does not overwrite live SQLite files; review the execution decision before recovery.
+
+> The completion checklist below records the procedure used for this cutover. It is historical and must not be replayed against the deployed release.
+
+## Native completion cutover prerequisites (historical checklist for release 9375ce98; completed 2026-10-19)
+
+The released 9375ce98 image has no Python process or private helper fallback. Its compiled native
 owners, exact `TZ=UTC`, qualified roots and nonempty trusted publisher sets must validate before
 startup effects. Keep the current image running until the candidate and rollback inputs qualify.
 
