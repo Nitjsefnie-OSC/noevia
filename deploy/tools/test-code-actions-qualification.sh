@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 import re
 s=Path(sys.argv[1]).read_text()
-bulk='node --test --test-timeout=120000 tests/client/*.test.cjs tests/server/*.test.cjs'
+bulk='node --test --test-concurrency=1 --test-timeout=120000 tests/client/*.test.cjs tests/server/*.test.cjs'
 phase='node --test --test-concurrency=1 tests/server/code-actions-performance.qualification.cjs'
 assert s.count(phase)==1,'mandatory isolated performance qualification missing/duplicated'
 assert s.index(bulk)<s.index(phase)<s.index('npm run build &&'),'qualification must follow full suite before build'
