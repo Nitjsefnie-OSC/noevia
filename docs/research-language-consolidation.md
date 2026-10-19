@@ -83,7 +83,7 @@ Nothing else on the request path reaches a millisecond.
 
 ### 2.4 The other sidecars
 
-- **Docling** (from `deployment.md`, measured on DaServer 2026-09-20): 1.9 s/page for native
+- **Docling** (from `deployment.md`, measured on the deployment host 2026-09-20): 1.9 s/page for native
   text, 3.4 s/page with OCR, 10.9 s/page for table-heavy pages. TableFormer is the cost, not
   Python. Node's part of an ingest — `chunkText` at 3 ms per 400 KB and one embedding call per
   chunk — is invisible next to it.

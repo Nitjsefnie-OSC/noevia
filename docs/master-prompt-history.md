@@ -1,5 +1,9 @@
 # noevia master prompt — history (to 2026-09-21)
 
+> Historical software/planning record. Installation-specific access, accounts, paths,
+> inventories, and recovery receipts are retained in a verified local archive excluded from
+> Git. This record is not current authorization or proof of any live deployment.
+
 **Archived 2026-09-21.** The per-area item lists, "current phase" and bug-hunt sections below
 describe work that is done or has moved to [roadmap.md](roadmap.md). The live brief is
 [master-prompt.md](master-prompt.md). Kept for context; do not update.
@@ -79,6 +83,7 @@ screenshots, fix, repeat. Suites complement looking; they don't replace it.
 
 Local spin-up (from `noevia-application/`):
 
+
 ```sh
 RUN=$(mktemp -d)/noevia && mkdir -p "$RUN/corpus" "$RUN/ui-data"
 cp -R "../diary-test/." "$RUN/corpus/"          # never point at diary-test itself
@@ -95,6 +100,7 @@ cd apps/web && rm -rf /tmp/noevia-qa-dist/* && npm run build && \
   MODEL_MANAGER_KIND=none node server/index.cjs
 ```
 
+
 Finish setup with the code in `$RUN/ui-data/first-run-setup-code`, synthetic accounts only.
 For model-manager UI, stub `/api/model-manager/**` as `qa/models-settings.cjs` does. Check the
 sidecar flags against `services/diary/README.md` before relying on them.
@@ -102,39 +108,12 @@ sidecar flags against `services/diary/README.md` before relying on them.
 Every commit, from `apps/web`: `npm test`, `npm run typecheck`, `npm run build` (vite build
 does not typecheck), plus the affected browser suites:
 
-```sh
-PLAYWRIGHT_MODULE=/Users/sebastiandalton/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright node qa/<suite>.cjs
-```
 
 Diary service changes: `.venv/bin/python -m pytest tests/ -q` in `services/diary`.
 
 ## Deployment boundaries
 
-Only when the user asks. Follow `docs/deployment.md`: take the appdata backup first
-(`php /usr/local/emhttp/plugins/appdata.backup/scripts/backup.php`), empty the build dir,
-use `deploy/examples/overlay-release.sh` (automatic rollback, native engine untouched), then
-record the release in `docs/deployment.md`. The `daserver` SSH alias works on the LAN only;
-over Tailscale use `root@100.70.173.74`.
-
 ## Carry-over — keep visible
-
-- **DaServer went down on 2026-09-17 (~04:15 to 08:24, cause unknown).** Syslog is in RAM and
-  was lost. The engine is back at `--models-max 1`. Don't raise it, run parallel model loads,
-  start large downloads or run benchmarks during a backup or mover window until
-  `research-findings-2026-09-17.md` §7 is done: syslog mirror on, measured GTT peak, GTT cap or
-  `--fit`.
-- Live Compose override: `/boot/config/plugins/compose.manager/projects/Cowork/docker-compose.override.yml`.
-  It holds the D1 token/network, MCP keys, Kiwix service and feature env. Every edit gets a
-  `.bak.before-<reason>` copy. Env: `/mnt/docker/appdata/cowork/config/.env` (path in `envpath`).
-  There's no python on the host; edit files locally and scp them back.
-- Start services with `bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file <.env> -- -d
-  --no-build --wait <services>` from the Compose Manager project directory. `up.sh` isn't
-  executable, so call it with `bash`.
-- Presets: Qwen3.5-4B (24 576), Ornith-1.5-9B (16 384), nomic-embed-text-v1. Backups are
-  `models.ini.bak-before-d3` and `ui-data/auto-roles.json.bak.before-d3`.
-  `EMBEDDING_MODEL=nomic-embed-text-v1` (renamed today); project RAG indexes may need a reindex.
-- `llama-vulkan-test` is stopped, not removed.
-- `docs/agent-brief.md`'s "verified at" header predates many sections; verify before relying.
 
 ---
 
@@ -216,38 +195,6 @@ captured 2026-09-15),
    manager"). · `models/ModelsSettings.tsx`, `App.tsx` · `qa/models-settings.cjs`, `qa/mtp.cjs`.
 
 ## C. Model management
-
-1. **Easy mode (default) / Advanced toggle.** Easy: automatic tuning as Model Loader did —
-   probe the context that actually fits real VRAM — plus MTP type and KV-cache quant toggles.
-   Advanced: the full `models.ini` form. · `ConfigureTab.tsx` (`AutoconfigPanel`), model-manager
-   `sections/{name}/autoconfig`.
-2. **Parity audit vs Model Loader.** Keep `cowork-model-loader-1`'s own UI running and compare
-   feature by feature against `services/model-manager/README.md` (search/download, 98-field
-   editor, autoconfig with concurrent sessions and measured throughput, benchmarks and sweeps,
-   badges, per-backend dashboard, logs, restart, prompt library, command palette, "serves on"
-   per backend, vision capability sync). Put the gap table in `docs/roadmap.md` under C; port
-   real gaps.
-3. **Safe defaults after download.** Register finished downloads automatically: 8k context,
-   MTP when the model ships a draft head, the GGUF's own chat template and sampling defaults. ·
-   `DownloadTab.tsx` completion, model-manager `PUT /sections/{name}` + presets reload (409 while
-   loaded — handle it).
-4. **Deleted model → "No model selected".** · `models-changed` event, `App.tsx`
-   `refreshModels`, `ModelPopup.tsx` · extend `qa/native-model-picker.cjs`.
-5. **Download location.** Choose target storage (e.g. Unraid `ai-models`, mounted at
-   `/mnt/user/ai-models`); document exposing other shares to the containers.
-6. **Routing clarity** — plain labels, what Auto does, per-project view.
-7. **HF cache hex names** — unconfirmed; build a real HF-cache fixture before changing
-   `services/model-manager/app/services.py` (the scanner already skips `blobs/`).
-8. **Configuration-scoped qualification (design first).** Spec: `docs/spec-agent-execution.md`
-   §1. Today: vision probe is an in-memory TTL cache (`server/vision.cjs`); native calibration
-   history (`server/llamacpp-calibration.cjs`) records `loadCtx/verifiedCtx/appliedCtx/build/
-   slots` but no artifact hash or preset and is never invalidated; context observations carry a
-   configuration fingerprint (`server/chat-context.cjs`). Design evidence records with states
-   (reported / unverified / verified for this configuration / failed / stale / unavailable) and
-   an identity tuple (backend, model, artifact, projector, runtime, context, MTP profile, and
-   for coding the harness and prompt-preparation mode, plus suite version, date, result,
-   limitations). Any identity change marks evidence stale. No universal score; show evidence.
-   Reuse the existing fingerprint approach. No credentials in records.
 
 ## D. Modes, projects, harnesses, prompt preparation
 
@@ -470,7 +417,7 @@ deployment's models. May run alongside the build order.
    node: it has no approval gate (wrap it), heavy pinned deps, PostHog telemetry to disable, and
    needs local Chrome — not for the web container. *Idea to explore, not a requirement:* trycua/cua (`8cb8f6d`, MIT) —
    its guest-side computer server in a VM (Lume on the Mac, Docker/QEMU Linux desktops on
-   DaServer) is one possible Cowork computer-use shape, adopt only if it fits; its host desktop driver has no VM
+   the deployment host) is one possible Cowork computer-use shape, adopt only if it fits; its host desktop driver has no VM
    boundary and comes later as the highest-trust node capability, with noevia's gate owning
    every decision through its bounded-manifest/authorization hooks. Its agent loop has no
    approval hook (wrap it). Disable its PostHog and component telemetry. Details: spec §5.
@@ -480,7 +427,7 @@ deployment's models. May run alongside the build order.
 8. Known-good settings per model × hardware.
 9. Wider model evidence (accuracy, reasoning budgets, MTP, multi-GPU) and backend portability
    (`docs/spec-backend-portability.md`); no silent migration. *Idea to explore:* larger MoE models on
-   DaServer by keeping experts in system memory / mmap'd from disk using llama.cpp's own options
+   the deployment host by keeping experts in system memory / mmap'd from disk using llama.cpp's own options
    (verify against the pinned build), measured. flash-moe (`3601d41`) and Swiftlet demonstrate
    SSD expert streaming but are Metal-only; flash-moe has no license — idea only, no code.
 10. Headscale vs NetBird (H1).
@@ -523,7 +470,7 @@ Don't grow `index.cjs`: when you touch a route block there, extract it.
 | D13 | Glass effect device check | Stays the user's check on real devices; don't change `glass.js` further without their report. | Only real displays show the bug. |
 
 Still the user's, whatever the decisions say: deploying, spending money or credits,
-downloading model weights to DaServer, editing live Compose/preset files, and anything
+downloading model weights to the deployment host, editing live Compose/preset files, and anything
 touching the real Diary corpus.
 
 **Decisions added 2026-09-17 (models, by the user).** D19: don't serve a model whose *measured*
@@ -556,15 +503,6 @@ llama.cpp Vulkan; vLLM only after the §8 gates.
 
 ## Current phase — run on what is deployed, then build
 
-Release **`877947c`** is live on DaServer (deployed 2026-09-18 from `1fe3f1b`, web-only
-overlay), with off-site backups on (D23). Confirmed at deploy: `current` → `releases/877947c`,
-`COWORK_VERSION=877947c` (it lives in
-the host `.env` at `/mnt/docker/appdata/cowork/config/.env`, **not** as a container env var), five
-services healthy with restarts 0, the native engine container id unchanged, and the public bundle
-byte-identical to a local build. D1 is satisfied live and its preflight passes. Status detail in
-`roadmap.md` → "Where things stand". Work in this order, one commit or more per step, with tests and
-screenshots as usual.
-
 1. **First, confirm the deployed state yourself**, as above. Docs go stale within a day on this box.
 2. **Context efficiency (step 5 of R1) — not ready yet.** `CONTEXT_LOG=1` has been on in production
    since 2026-09-17 11:20, and on 2026-09-17 night the log held **8 rounds** for one user. Read
@@ -581,7 +519,7 @@ screenshots as usual.
    Direct stays the default, and the UI now says why the architect modes are not on offer.
 5. **CodeHarness — built, staged, and proven against a real harness.** Spec §3's "next" list,
    its `_meta`/selector gaps, the sandbox container, and **contract v1**: real OpenCode 1.18.31
-   driven through the production modules on DaServer, 2026-09-17. The mapping held; four defects
+   driven through the production modules on the deployment host, 2026-09-17. The mapping held; four defects
    surfaced and were fixed, the worst being that git's "dubious ownership" check made `release()`
    strand every task's work in its clone. Details and evidence in `spec-agent-execution.md` §3
    "Contract v1"; staging notes in `deploy/examples/code-mode-staging.md`.
@@ -614,7 +552,7 @@ eviction — check `git status` for a block of ` D` lines and restore with `git 
 believing you broke something.
 
 Still the user's: deploying, spending money or credits, host settings (GTT, syslog), model weights on
-DaServer, live Compose and preset edits, and anything touching the real Diary corpus.
+the deployment host, live Compose and preset edits, and anything touching the real Diary corpus.
 
 ## Bug hunt (after the current phase)
 
@@ -656,33 +594,6 @@ rotation finds no new confirmed bug; then write a short summary (bugs fixed per 
 still suspected but unproven, what needs the user).
 
 ### Practical notes from the last session
-
-- Playwright: `PLAYWRIGHT_MODULE=/Users/sebastiandalton/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright`, `QA_SCREENSHOTS=/tmp/noevia-shots`. There's no `timeout` command on macOS; use `perl -e 'alarm N; exec @ARGV'`.
-- `apps/web/dist` is a symlink to `/tmp/noevia-qa-dist`. Empty it with `rm -rf /tmp/noevia-qa-dist/*`,
-  never delete the folder itself, or `npm run build` fails, and `| tail` hides the exit code.
-- Running every QA suite takes longer than a 10-minute tool call. Run it detached, writing results
-  to a file. Skip `nav.cjs` (helper), `workspace-preview.cjs` (manual server), `native-*` (GPU
-  window) and `load-perf.cjs` (report only). A crashed suite can leave a server on its port;
-  check `lsof -iTCP:<port>` before reading a failure as real.
-- New QA suites this session use API-created synthetic accounts, not the setup wizard:
-  `/api/setup/complete`, then `/api/profile/onboarding`, then inject cookies. Copy that pattern from
-  `qa/data-export.cjs` or `qa/personalization.cjs`. For chat, point `INFERENCE_BASE_URL` at a fake
-  OpenAI-compatible server and use a project with a model.
-- Vitest-free sandbox tests (`tool-exchange.test.cjs`, `vision-routing.test.cjs`) slice
-  `handleChat` out of `index.cjs`. A new global used there must be stubbed in their context, or the
-  whole suite hangs.
-- `npm run lint:design` now checks the type scale (`--text-*` tokens only), weights 400–700 and
-  undefined `var(--x)` across `src/` and `public/`.
-- Model-manager pytest: `../diary/.venv/bin/python -m pytest -q` from `services/model-manager` (there
-  is no venv of its own; the Diary's has the dependencies).
-- On the server, long jobs over SSH must be detached with `setsid bash -c '… > log 2>&1' < /dev/null &`
-  — a plain `nohup … &` in an `ssh` command dies with the session (the appdata backup did). Several
-  open SSH sessions during heavy I/O made sshd stop answering.
-- `pkill -f` / `pgrep -f` patterns match your own SSH command line and will kill your session. Use a
-  bracketed pattern (`[d]aily-backup`) or an explicit PID.
-- Sign-in is rate limited; reuse storage state or API cookies in scripts.
-- Edit JS/TS with Python or the Edit tool, not `sed` with complex replacements.
-- Leave nothing running: previews, the sidecar, servers on QA ports, temp dirs.
 
 Deploying stays the user's call. When they say deploy: take the appdata backup, run
 `deploy/examples/overlay-release.sh OLD NEW` (web-only overlays reuse the old image's

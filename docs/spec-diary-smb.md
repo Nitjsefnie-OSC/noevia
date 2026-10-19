@@ -8,39 +8,13 @@ and pilot below are historical evidence; no real cutover was performed.
 Historical status: storage support deployed on 2026-09-12; restricted synthetic SMB pilot
 created. Mac SMB authentication is pending. Real Diary cutover is not yet done.
 
-## Implementation evidence — 2026-09-12
+## Implementation evidence — historical
 
-- Diary image `cowork-diary:ae39000-diary-smb-20260912` is healthy, zero restarts.
-  Web/OCR remain `ae39000`. The live Compose override pins the separate Diary
-  image and source directory; the main `current` release symlink remains unchanged.
-- `DIARY_LOCAL_VOLUMES` provides an operator-owned tenant/root/prefix mapping,
-  separate from the general Nextcloud connection. An identity marker is checked
-  on every tenant request and backend operation; missing/wrong storage returns
-  503. One dedicated state is reused across general-storage header changes.
-- Optional `reader_uid` preserves SMB readability after atomic root-container
-  saves. This grants file ownership to the reader while Samba remains read-only.
-- 192 local Diary tests passed, 3 skipped; all 195 Linux candidate tests passed.
-  A real-image synthetic bind/HTTP pilot verified sequential saves, stale 409,
-  UID 1000 reading replacement files, missing-volume 503 and recovery. Embeddings
-  were stubbed; no private Diary prompt or live inference was used.
-- `Diary-Pilot` in `/boot/config/smb-extra.conf` exports only synthetic
-  `/mnt/docker/appdata/cowork/diary-smb-pilot/corpus`. Existing `sebastian` account
-  only, no guest access, read-only, private-network host restrictions, no symlinks.
-  `testparm` passes and anonymous share access is denied. Port 445 is reachable
-  from the Mac; macOS is waiting for the existing SMB password.
-- The selected tenant has 80 files on both Mac and server, all matching by SHA-256
-  excluding Finder metadata. Originals and comparison are retained at
-  `~/.local/share/noevia/diary-migration/20260912/` on the Mac. SQLite backup-API
-  snapshots (legacy and selected tenant) passed integrity checks and were also
-  copied to that Mac backup. The selected journal had 16 applied/0 pending and
-  0 dirty documents at preflight.
-- Real corpus, general storage connection and Mac sync selection are unchanged.
-  The dedicated mapping is not enabled yet. Finish authenticated Mac reopen and
-  rename-visibility checks, recompare/drain/backup at cutover, then copy to the
-  dedicated volume and enable the mapping. Do not delete either original.
-
-See [operator setup](../deploy/diary/README.md). Arbitrary writable SMB editing
-and external-edit indexing remain deferred; noevia/scoped API are the write path.
+The synthetic pilot exercised sequential saves, stale-write conflicts, reader ownership,
+missing-volume refusal, and recovery with stubbed embeddings. It did not authorize a real
+corpus cutover. Account identifiers, share settings, host paths, corpus inventories, and recovery
+receipts remain in the local operator record. Re-qualify the selected implementation and storage
+contract before any migration; do not replay historical deployment steps.
 
 ## User direction
 
@@ -72,11 +46,11 @@ it must receive only the same scoped corpus and its own explicit access policy.
 
 ## Intended topology
 
-One dedicated, durable corpus directory on DaServer, outside Nextcloud's internal
+One dedicated, durable corpus directory on the deployment host, outside Nextcloud's internal
 managed data tree, provides the authoritative Markdown files:
 
 - The Diary container accesses it through a local bind mount and the existing
-  `local` backend. On the same host, mounting DaServer's own SMB share back into
+  `local` backend. On the same host, mounting the deployment host's own SMB share back into
   the container would add an unnecessary network dependency.
 - Unraid's existing SMB service exports only this user's corpus. Prefer the
   host service over a second Samba container; inspect the existing configuration
@@ -153,7 +127,7 @@ change detection/scanning before Nextcloud reflects external writes.
 6. **Verify and retain rollback.** Record the original settings and directories.
    If new writes occurred after switching, reconcile them before rollback; do not
    repoint clients at an older snapshot and lose those writes. Document the
-   server change in the canonical DaServer changelog when implementation occurs.
+   server change in the canonical the deployment host changelog when implementation occurs.
 
 ## Acceptance criteria
 

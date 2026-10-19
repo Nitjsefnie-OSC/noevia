@@ -3,5 +3,6 @@
 Read [AGENTS.md](AGENTS.md), then [docs/agent-brief.md](docs/agent-brief.md).
 
 [DEPLOY.md](DEPLOY.md) and [cowork.setup.json](cowork.setup.json) cover generic
-fresh installs; [docs/deployment.md](docs/deployment.md) is the live Unraid runbook.
+fresh installs; [docs/deployment.md](docs/deployment.md) describes generic release operations.
+Use a local operator runbook for an existing installation.
 Cowork-prefixed identifiers are intentional; do not rename them.

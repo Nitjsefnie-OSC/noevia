@@ -18,7 +18,7 @@ non-negotiables, testing, deploying and decisions D1–D27. Also read `docs/road
 `docs/research/system-one/18-decision-service-settings.md`.
 
 Starting state: branch `main`; source `80d116f` is pushed to `origin/main` but is not deployed.
-Production remains release `3d2521d` on DaServer (2026-09-22). Confirm repository, origin and box
+Production remains release `3d2521d` on the deployment host (2026-09-22). Confirm repository, origin and box
 before assuming — `current`, `COWORK_VERSION` in the host `.env`, `docker ps`, and the site. Where
 the docs and the code or the box disagree, believe the code and the box, and fix the doc.
 

@@ -100,7 +100,7 @@ of preference, chosen by capability detection rather than hard-coded:
    decisions; acceptable only for rare, high-value decisions.
 
 **Measured constraint (doc 13 §13.3):**
-- On DaServer the iGPU borrows system RAM, so options (2) and (3) draw on the same 29 GB pool; option (3) only avoids the 14 GB llama.cpp cap.
+- On the deployment host the iGPU borrows system RAM, so options (2) and (3) draw on the same 29 GB pool; option (3) only avoids the 14 GB llama.cpp cap.
 - The second router slot is now the class-A RAG reranker.
 - Doc 13 §13.4 lists each candidate's resident footprint.
 

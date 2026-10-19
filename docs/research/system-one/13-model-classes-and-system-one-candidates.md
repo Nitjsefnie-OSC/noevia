@@ -97,7 +97,7 @@ The weight file sizes mean bf16 storage.
 - The System-1 benchmark ran it on a 4-thread Ryzen 5 3600: raw p50 0.79 s, with the benchmark's ×2 + 0.15 s
   adjustment [B].
 - A cold checkpoint build takes about 7.4 s on CPU [V].
-- DaServer (24 threads, Zen 5) is untested [—].
+- the deployment host (24 threads, Zen 5) is untested [—].
 
 **Accuracy and calibration.**
 
@@ -128,7 +128,7 @@ The weight file sizes mean bf16 storage.
   memory cap.
 - fp32 ONNX needs about 2 GB [P]. A bf16/fp16 or int8 export should need about 0.9 GB or
   0.5 GB [E, accuracy unverified].
-- DaServer has about 6 GB of RAM available while gpt-oss-20B is loaded (13.3), so
+- the deployment host has about 6 GB of RAM available while gpt-oss-20B is loaded (13.3), so
   bf16 fits with margin; fp32 fits but is tight.
 
 **Maintenance and licence.**
@@ -136,7 +136,7 @@ The weight file sizes mean bf16 storage.
 - About a week old, one vendor (Convai), and 0 recorded downloads on the Hub API today.
 - Pin the exact revision.
 
-## 13.3 DaServer memory budget (why residency is the first-class metric)
+## 13.3 the deployment host memory budget (why residency is the first-class metric)
 
 Measured 2026-09-21 [M]:
 - **The GPU is a Radeon 890M iGPU with a 2 GB VRAM carve-out**; llama.cpp (Vulkan) borrows the rest
@@ -178,7 +178,7 @@ The Mac is a 16 GB M2 with unified memory, which gives the same conclusion.
 | *(class A)* Qwen3-Reranker-0.6B | router second slot | ≈ 0.6 GB + 8k context | the second slot (by the user's choice) | [M] file |
 
 Reading:
-- **On DaServer, a dedicated 4B decision model cannot stay loaded beside the large System Two.**
+- **On the deployment host, a dedicated 4B decision model cannot stay loaded beside the large System Two.**
   gpt-oss-20B plus a Q4 4B is over the 14 GB cap, and the second router slot now holds the
   reranker. So every call would either swap models (seconds) or queue on the System-Two slot.
 - Only four candidates can stay resident at any time without competing for the llama.cpp slots
@@ -196,7 +196,7 @@ Reading:
 | L2 | Laya fine-tuned on the noevia training split, refit | real adaptation (2×T4-class GPU, hours; or rent) |
 | Q06 | Qwen3-0.6B GGUF, option-logit via llama.cpp `logprobs`, CPU instance | smallest resident logit model |
 | Q17 | Qwen3-1.7B GGUF, same | |
-| Q4 | Qwen3.5-4B Q8 GGUF, option-logit, recreated SemIf technique | on the Mac GPU and on DaServer, both warm and **including swap cost** |
+| Q4 | Qwen3.5-4B Q8 GGUF, option-logit, recreated SemIf technique | on the Mac GPU and on the deployment host, both warm and **including swap cost** |
 | S2L | option-logit on the loaded System Two | zero extra residency; measured against each System-Two model |
 | SEMIF | SemIf itself (its llama.cpp/GGUF build, or MPS on the Mac) | kept separate from Q4 so our recreation is checked against the original; it is MIT and available [P], so include it |
 | K06 | kev-0.6B | only if the Python sidecar cost is acceptable; otherwise note and skip |
@@ -225,7 +225,7 @@ frozen before any run.
 | Calibration | ECE (15 bins), Brier, NLL; before and after temperature refit |
 | Abstention | risk–coverage curve, AURC, accuracy at 50/80% coverage, how often it escalates and whether that was right (Laya's act head; confidence thresholds for the others) |
 | Latency | p50/p95 for 1, 5 and 20 questions batched on one state; **startup / cold load time**; swap-in time when not resident |
-| Viability | CPU-only (DaServer 24 threads, Mac M2) and GPU (Mac Metal, DaServer Vulkan iGPU) |
+| Viability | CPU-only (the deployment host 24 threads, Mac M2) and GPU (Mac Metal, the deployment host Vulkan iGPU) |
 | Footprint | steady RSS / GTT; peak during a batch; effect on System-Two tokens/s while co-resident |
 | Residency | can it stay loaded for 24 h beside gpt-oss-20B and beside Qwen3.5-9B without OOM or eviction? |
 | Batching | questions per forward pass; shared-state prefix reuse |
@@ -258,7 +258,7 @@ Current answer: **hybrid.**
 
 **Q24. Is the 4B option-logit approach better at system level once residency and swapping are
 counted?**
-Current answer: **probably not on DaServer as a dedicated model; possibly yes as "logit readout on
+Current answer: **probably not on the deployment host as a dedicated model; possibly yes as "logit readout on
 whatever System Two is loaded".**
 - A dedicated 4B cannot stay loaded beside gpt-oss-20B (13.4), so it pays a swap on every
   decision burst, or it must *be* the System Two.
@@ -306,18 +306,18 @@ In order:
    the 7-action switching family. No downloads needed.
 2. **Cheap resident baselines:**
    - H;
-   - Q06/Q17 on a CPU llama.cpp instance on the Mac, then DaServer;
+   - Q06/Q17 on a CPU llama.cpp instance on the Mac, then the deployment host;
    - S2L on the Mac's Gemma-4-E2B and Qwen3.5-4B.
 
    Needs Qwen3-0.6B/1.7B GGUF downloads (about 0.6 GB / 1.8 GB, from `Qwen/…-GGUF` on Hugging Face):
    **needs your approval.**
-3. **Laya L0 → L1 on CPU:** footprint, cold start, p50/p95 on DaServer and the Mac; calibration
+3. **Laya L0 → L1 on CPU:** footprint, cold start, p50/p95 on the deployment host and the Mac; calibration
    before and after refit; act-head abstention.
 
    Needs `convaiinnovations/laya` `typed-decisions/` (843 MB safetensors) or the receptron fp32
    ONNX (about 1.7 GB): **needs your approval.**
 4. **Q4 and SEMIF on the Mac GPU:** accuracy per family, then the **swap-inclusive** latency on
-   DaServer while gpt-oss-20B is the System Two. That needs a maintenance window you start (D2).
+   the deployment host while gpt-oss-20B is the System Two. That needs a maintenance window you start (D2).
 5. **Laya L2** fine-tune on the training split, if L1 is promising (about 2 h on a rented
    2×T4-class GPU, or longer on the Mac's MPS). Rented GPU time needs your approval.
 6. **The closed API (J)** on the same frozen test split, as the reference. **Needs your approval** (remote,
@@ -343,7 +343,7 @@ One run completed: Gemma-4-E2B, compact state, on the M2 GPU. The user stopped t
 the Mac was in use.
 
 **Execution boundary, from now on:**
-- No model servers, inference, benchmarks, training or heavy builds on the Mac **or** DaServer
+- No model servers, inference, benchmarks, training or heavy builds on the Mac **or** the deployment host
   without approval for that run.
 - A run proposal states:
   - host;
@@ -444,7 +444,7 @@ It kept no raw top-k tokens, first token or label-to-token mapping. From it:
 - **Use:** a shortlist carries each candidate's fit class. A `SWITCH` action to an `after_swap`
   candidate is offered **only** when session durability can checkpoint and resume (doc 6). Until
   then it is shown, but not permitted.
-- **Scope:** DaServer's numbers go in its own profile, not in noevia-wide rules.
+- **Scope:** the deployment host's numbers go in its own profile, not in noevia-wide rules.
 
 ### Policy-wrapped pipeline over the saved v1 run (`pipeline.cjs`, analysis only)
 
@@ -675,7 +675,7 @@ switching.
 
 | Item | Proposal |
 |---|---|
-| Host | **Your choice.** Default: the Mac, at a time you name, since the model and runtime are already there. The alternative is DaServer, which would first need a copy of the 3.2 GB model and a CPU-only llama.cpp binary |
+| Host | **Your choice.** Default: the Mac, at a time you name, since the model and runtime are already there. The alternative is the deployment host, which would first need a copy of the 3.2 GB model and a CPU-only llama.cpp binary |
 | Model / runtime | `~/noevia-models/gemma-4-E2B_q4_0-it.gguf` (3.12 GiB, Q4_0); Homebrew `llama-server` 0.4.1, build 10964, commit `b29c606e2` |
 | Configuration | `-c 8192 -np 1 --jinja`. Mac: `-ngl 99` (Metal) with `-t 4`. CPU alternative: `-ngl 0 -t 4` |
 | Cases | 10: the first 10 of the v2 calibration split (`--splits calib --limit 10`), state v2, compact rendering |
@@ -684,7 +684,7 @@ switching.
 | Hard wall-clock limit | `--max-minutes 5`; per-decision deadline 30 s; worker startup limit 120 s |
 | Stop conditions | 5 invalid readouts in a row; worker exit; wall-clock limit; your Ctrl-C (cleanup tested) |
 | Expected duration | about 20–40 s of inference (≈0.7 s × 2 requests × 10, plus a 1–2 s cold start) |
-| Expected impact | Mac: the GPU and about 4 GB of memory are busy for under a minute; other apps may stutter briefly, but not for the 40 minutes of the stopped run. DaServer (CPU): 4 of 24 threads for a few minutes; live chat may slow slightly and the reranker is unaffected |
+| Expected impact | Mac: the GPU and about 4 GB of memory are busy for under a minute; other apps may stutter briefly, but not for the 40 minutes of the stopped run. the deployment host (CPU): 4 of 24 threads for a few minutes; live chat may slow slightly and the reranker is unaffected |
 | Output | `experiments/system-one/decisions/results/<stamp>-gemma-4-E2B-compact-s2.jsonl` (written row by row) and `node smoke-report.cjs <file>` |
 | Pass criteria | every decision has diagnostics; one runtime identity; each label letter always maps to the same ids and to one token; label mass at the answer position ≥ 0.5 in most cases; residual ≈ 0; readouts `exact` (or `bounded` with a recorded reason); no truncation; normal end |
 

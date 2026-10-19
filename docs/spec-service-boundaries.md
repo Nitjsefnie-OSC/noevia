@@ -1,5 +1,7 @@
 # Service boundaries and migration contracts — spec
 
+> Hostnames and network addresses in this document are illustrative examples, not live targets.
+
 Issue [#267](https://github.com/sbstndalton/noevia/issues/267), roadmap "Later — modular
 platform", workstream 1. Written 2026-09-25 from `main` at `a6663cc`. **Status: proposed, not
 reviewed.** This document maps what exists, names the seams and proposes contracts. It does not
@@ -7,9 +9,9 @@ move code, change a Compose file, or authorise any routing, provider or model-li
 (see [§9](#9-what-this-does-not-authorise)).
 
 Every architectural claim cites a file. The code was read for this document, but no server was
-reachable from the session that wrote it: anything that depends on the live DaServer
+reachable from the session that wrote it: anything that depends on the live deployment-host
 configuration (the Compose Manager copy, `.env`, which overlays are active) is marked
-**[live: verify]** and has a matching check in [Appendix A](#appendix-a--live-verification-on-daserver).
+**[live: verify]** and has a matching check in [Appendix A](#appendix-a--live-verification-on-the-deployment-host).
 The agent brief warns that its architecture notes are not a release snapshot
 ([agent-brief.md](agent-brief.md)); where this document and the brief disagree, the code cited
 here wins until the appendix is run.
@@ -38,7 +40,7 @@ diagram is repeated as a table so the document still reads where Mermaid does no
 7. [Findings the map surfaced](#7-findings-the-map-surfaced)
 8. [Recommendations for #268–#271](#8-recommendations-for-268271)
 9. [What this does not authorise](#9-what-this-does-not-authorise)
-- [Appendix A — live verification on DaServer](#appendix-a--live-verification-on-daserver)
+- [Appendix A — live verification on the deployment host](#appendix-a--live-verification-on-the-deployment-host)
 
 ## 1. Summary of conclusions
 
@@ -337,11 +339,11 @@ limiter is in memory (`createRateLimiter`, `index.cjs`).
 | `CODE_ENGINE_API_KEY` | web → written into harness config | `.env` | sandbox harness | `index.cjs`, `code-harness-config.cjs` |
 | Code relay token (#1853) | web → written into harness config, per run | minted per Executor run, revoked at its end; never stored | web's relay (`CODE_ENGINE_RELAY_PORT`) | `code-machine.cjs`, `code-harness.cjs` |
 
-`.env` is owned by the operator on the host (`/mnt/docker/appdata/cowork/config/.env`, chmod 600,
-[deployment.md](deployment.md) "Layout on the box"). The web keys Compose may pass are listed in
+The effective `.env` is operator-owned and kept private. Its actual location and access
+controls belong in the local runbook; see [deployment.md](deployment.md). The web keys Compose may pass are listed in
 `deploy/preflight/web-env-keys.txt` and checked by `apps/web/server/deployment-config.test.cjs` and `deploy/preflight/up.sh`.
 Three Compose copies must be kept in step by hand (repo, `deploy/examples/unraid-compose-manager.yml`,
-the live Compose Manager file) — [deployment.md](deployment.md) "Three copies".
+the operator-selected Compose Manager file) — see [deployment.md](deployment.md).
 
 ### 3.10 Per-tenant state on disk
 
@@ -514,8 +516,8 @@ scope was accepted for #268; the optional UI container remains deferred.
   An optional future step is to build the SPA into its own static image served at the same
   origin by a front proxy, with core serving `/api/*`.
 - **Live path: the UI container is out of scope** until a front proxy and the Cloudflare tunnel
-  target are designed. Today the tunnel points at `http://10.69.0.130:8021`, i.e. web directly
-  ([deployment.md](deployment.md) "Release f0ea80b"). A UI container would need a front proxy, a
+  target are designed. An installation that routes a tunnel directly to web needs its actual
+  effective routing verified locally. A UI container would need a front proxy, a
   fourth Compose service in all three Compose copies, a new tunnel target, and a release/rollback
   flow that bumps two images instead of one. Until that design exists, M1 is the contract work only.
 - **State/secrets:** none move. The UI container holds no secret and no state; cookies stay
@@ -672,66 +674,29 @@ repository must honour. No corpus migration.
 - No Diary corpus or state migration, and no test against the real Diary.
 - No new Docker-socket consumer.
 
-## Appendix A — live verification on DaServer
+## Appendix A — live verification on the deployment host
 
-Read-only. Run on the host as the operator. **Never print `.env` values** — the commands below
-print variable *names* only. Access: [deployment.md](deployment.md) "Reaching the host".
+These checks require a separately authorized, read-only inspection of the intended installation.
+Keep the host target, selected container identities, effective configuration, mount paths, and
+raw outputs in the local operator runbook. Never print environment values or credentials.
+The repository's generic topology is not proof of the current installation's topology.
 
-```sh
-# A1. Which release is live, and which images (confirms §2 and the tag pins).
-readlink -f /mnt/docker/appdata/cowork/current
-docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' | grep cowork
+| Check | Evidence to compare with the contracts above |
+| --- | --- |
+| A1 — release identity | Selected application image identities and pinned source revisions |
+| A2 — network membership | Required service-role connectivity and internal-network isolation |
+| A2b — external engine network | Only if configured: its intended membership and exposure |
+| A3 — published ports | Only ports explicitly enabled for the installation; no internal MCP listener |
+| A4 — privileged mounts | Docker-socket access limited to the qualified lifecycle owner |
+| A5 — environment names | Expected variable names on each selected service; names only |
+| A6 — authentication | Required credentials present and boundaries enforced; values never logged |
+| A7 — health | Bounded, authorized health checks from the relevant service context |
+| A8 — Diary isolation | Diary cannot resolve/reach model lifecycle management |
+| A9 — effective service definitions | Inspect all operator-selected Compose inputs, not only repository examples |
+| A10 — writable model configuration | Verify which role can write model configuration and that other mounts are read-only |
 
-# A2. Networks per container (confirms §2: model-loader only on models; diary not on models;
-#     each internal network (ocr, laya, kiwix, code) contains only web and the sidecars that
-#     serve it; ocr holds web, ocr and docling).
-for c in $(docker ps --format '{{.Names}}' | grep cowork); do
-  printf '%s\t' "$c"; docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c"
-done
-for n in $(docker network ls --format '{{.Name}}' | grep -i cowork); do
-  printf '%s internal=' "$n"; docker network inspect -f '{{.Internal}} {{range .Containers}}{{.Name}} {{end}}' "$n"
-done
-
-# A2b. Members of the external lemonade_default network from the live override (§2).
-docker network inspect -f '{{.Name}} internal={{.Internal}} {{range .Containers}}{{.Name}} {{end}}' lemonade_default
-
-# A3. Published ports (expect only web's 8021; no MCP_INTERNAL_PORT, no DAV unless enabled).
-docker ps --format '{{.Names}}\t{{.Ports}}' | grep cowork
-
-# A4. Docker socket holders (expect model-loader only).
-for c in $(docker ps --format '{{.Names}}' | grep cowork); do
-  docker inspect -f '{{.Name}} {{range .Mounts}}{{.Source}} {{end}}' "$c" | grep -q docker.sock && echo "$c holds docker.sock"
-done
-
-# A5. Env variable NAMES only, per container (confirms §3.9; never values).
-for c in cowork-web-1 cowork-diary-1 cowork-model-loader-1; do
-  echo "== $c"; docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$c" | cut -d= -f1 | sort
-done
-
-# A6. Which secrets are set, without printing them (findings 1 and 3).
-for k in DIARY_AUTH_TOKEN MODEL_LOADER_TOKEN UI_AUTH_TOKEN; do
-  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' cowork-web-1 | grep -q "^$k=." && echo "$k set" || echo "$k empty/unset"
-done
-# These six are non-secret configuration and are deliberately printed with their values.
-docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' cowork-web-1 | grep -E '^(LEGACY_AUTH_COMPAT|MODEL_MANAGER_KIND|CODE_EGRESS_BIND|CODE_EGRESS_PORT|MCP_INTERNAL_PORT|COWORK_DAV_PORT)='
-
-# A7. Health endpoints (unauthenticated ones only).
-docker exec cowork-web-1 node -e "fetch('http://127.0.0.1:8021/api/setup/status').then(r=>console.log('web',r.status))"
-docker exec cowork-web-1 node -e "fetch('http://model-loader:8090/api/v1/health').then(r=>console.log('model-loader',r.status))"
-docker exec cowork-web-1 node -e "fetch('http://ocr:8030/health').then(r=>console.log('ocr',r.status))"
-docker exec cowork-web-1 node -e "fetch('http://llama:8080/health').then(r=>console.log('llama',r.status))"
-docker exec cowork-web-1 node -e "fetch('http://embed:8080/health').then(r=>console.log('embed',r.status)).catch(e=>console.log('embed',e.cause?.code))"
-docker inspect -f '{{.State.Health.Status}}' cowork-diary-1
-
-# A8. Isolation from the Diary side (expect failures: model-loader must not resolve).
-docker exec cowork-diary-1 python -c "import socket; socket.gethostbyname('model-loader')" && echo "UNEXPECTED: diary resolves model-loader"
-
-# A9. The embed service's definition lives only in the live override (finding 8).
-grep -n 'embed:' /boot/config/plugins/compose.manager/projects/Cowork/docker-compose*.yml
-
-# A10. Who can write models.ini (finding 4): the config mounts and whether each is read-write.
-docker inspect -f '{{range .Mounts}}{{.Source}} -> {{.Destination}} rw={{.RW}}{{println}}{{end}}' cowork-web-1 cowork-model-loader-1 | grep -i config
-```
-
-Accept the map when A1–A10 match §2 and §3; record any mismatch in this document before a
-migration in §6 starts.
+Use the selected service's current contracts and helper interfaces to construct checks. A health
+endpoint alone does not qualify tenant isolation or a user workflow; no inference is implied.
+When evidence is unavailable or differs from the proposed map, record the uncertainty and
+resolve it before migration. Public findings should state contract-level mismatches and
+validation limits without publishing the installation inventory.

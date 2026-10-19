@@ -171,7 +171,7 @@ without lower citation validity. Record results here with the date and model con
 
 ### Gate result — 2026-09-17 (failed; feature turned off)
 
-Ornith-1.5-9B-Q5_K_M (ctx 16 384) on DaServer, llama.cpp b10920, `--models-max 1`, harness run
+Ornith-1.5-9B-Q5_K_M (ctx 16 384) on the deployment host, llama.cpp b10920, `--models-max 1`, harness run
 from inside the web container against `http://llama:8080/v1`, 12 + 4 + 2 fixtures, variants A/B/C.
 Questions 9–12 of the run hit `Model HTTP 500` in every variant because a Nextcloud Assistant test
 evicted the 9B mid-run (single model slot), so only questions 1–8 are clean. They already decide it:

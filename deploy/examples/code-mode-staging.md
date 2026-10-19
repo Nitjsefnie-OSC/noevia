@@ -1,31 +1,21 @@
 # Code mode — staged, off (historical snapshot, 2026-09-17)
 
-> **Historical.** This records the state of DaServer on 2026-09-17 (release `1fe3f1b`, flag off)
+> **Historical.** This records the state of the deployment host on 2026-09-17 (release `1fe3f1b`, flag off)
 > and is kept only because the roadmap and master-prompt history link to it. It is not current:
-> the Code sandbox has since moved to newer images (see `docs/deployment.md` and
-> `docs/changelog.md` for the live tag), and the commands and image names below are not
+> the Code sandbox has since moved to newer images (consult current source, release qualification, and the local operator runbook), and the commands and image names below are not
 > instructions. Current setup: `services/code-sandbox/README.md` and
 > `deploy/examples/code-sandbox.override.yml`.
 
-Everything here is prepared on DaServer and **nothing is running**. Code mode is unreachable:
-the web container has no `CODE_*` environment and `features.codeHarness` is off, so its routes
-return 404. A copy of this file sits at `/mnt/docker/appdata/cowork/tools/CODE-MODE-READY.md`.
+This historical staging exercise used a disposable `scratch` repository and an isolated sandbox.
+Its installation-specific image inventory, volume ownership, and saved Compose state remain
+in the local operator archive. It does not establish the current state of any installation.
 
-Prepared 2026-09-17, release `1fe3f1b`:
+The synthetic fixture's `median()` had two deliberate bugs (lexicographic in-place sorting and
+missing averaging for even-length inputs). Its test file was held unchanged. Equivalent disposable
+fixtures are useful for qualifying the full task/approval/result path before granting real
+repository access. Do not infer authorization to run such a test from this historical note.
 
-- **`cowork-code-sandbox:1fe3f1b`** — image built, OpenCode 1.18.31 pinned at build time, runs
-  as uid 1000.
-- **`cowork_code-workspaces` volume**:
-  - `repos/scratch` — a throwaway git repository whose `median()` has two deliberate bugs
-    (lexicographic in-place sort; no averaging of the middle two on an even-length list) and a
-    `test.js` that must not be edited. This is what the first real run should be pointed at,
-    **not** noevia's own source.
-  - `trees/` — owned by `1000:1000`, where per-task clones are created.
-- **`code-sandbox.override.yml`** beside this file on the server — the compose override,
-  deliberately **not wired into the Compose Manager project**: bringing it up would add a
-  network and a volume to the running web container for no benefit while the feature is off.
-
-## Verified on the box, not merely intended
+## Historical sandbox qualification
 
 Escape probes against the image under the override's hardening:
 
@@ -54,9 +44,10 @@ Escape probes against the image under the override's hardening:
 4. **The tmpfs mounts need `uid=1000,gid=1000`**, not just a mode, or the harness cannot write
    its own `.gitconfig`.
 
-## To actually turn it on
+## Example capability wiring
 
-1. Add to the live Compose override, on `web` (keeping a `.bak.before-code-mode` copy as always):
+For a separately authorized qualification, the historical contract used these example keys on
+`web`. Verify the current contract and preserve the operator configuration before any change:
 
    ```
    NOEVIA_FEATURE_CODE_HARNESS=true
@@ -68,8 +59,8 @@ Escape probes against the image under the override's hardening:
 
    plus `code-workspaces:/workspaces` mounted on web, and web and the sandbox both on the
    internal `code` network.
-2. Bring it up with the `code` profile.
-3. Run one task against `scratch` and read every approval before answering it.
+The sandbox and web share the same workspace path and an internal network. Activation and a
+synthetic task run are separate authorized operations; inspect every approval when qualifying them.
 
 Do not point it at a repository that matters until that has been done once. The whole contract
 is still tested only against a scripted fake agent.

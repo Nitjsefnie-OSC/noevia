@@ -6,7 +6,7 @@
 
 ## Where things stand
 
-- **Live on daserver:** `ab2720a` (release 2), deployed 2026-09-18 after backup
+- **Live on noevia-host:** `ab2720a` (release 2), deployed 2026-09-18 after backup
   `ab_20260918_092222`. Rollback target `35ed364` (release 1). The user is reviewing release 2 on
   desktop and phone; fold their feedback in before anything else.
 - **Release 1 (Foundation):** one M3 palette (`apps/web/scripts/palette.cjs`), `tokens.css`,

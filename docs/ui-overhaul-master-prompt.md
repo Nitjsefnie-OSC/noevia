@@ -45,7 +45,7 @@ Do not discard the screenshot-derived architecture just because the external vis
 
 The UI screenshots, descriptions, merged Markdown reference, and related inspiration material are located here:
 
-`/Users/sebastiandalton/Library/CloudStorage/Nextcloud-drive.daserver.work-SebastianDalton/Documents/ai-agentic-folder/Projects/Docker App Projects/AI frontend thing/ui mockups/inspiration`
+`$NOEVIA_UI_REFERENCES` (an operator-selected local reference directory, excluded from Git)
 
 Before substantial implementation:
 

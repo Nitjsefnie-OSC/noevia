@@ -12,12 +12,8 @@ Status words: **Done** = deployed and verified · **Next** = to build, in the or
 
 ## Where things stand — 2026-10-06 (overnight: Rust start, repo split, bug rounds 3–7)
 
-- **Live:** **`cowork-web:7baecb40`** (UI redo #953, 2026-10-07; rollback `a1dfd69f`), **`cowork-model-loader:227903da`** (now carries the Rust
-  `gguf-meta` binary; `GGUF_PARSER` unset = Python parser), **`cowork-ocr:227903da`**,
-  **`cowork-diary:f6885a55`**, **`cowork-code-sandbox:pi-0.87.0-f6885a55`**, **`cowork-docling:f6885a55`**.
-  Web releases, newest first: `7baecb40` (2026-10-07), then on 2026-10-06 `a1dfd69f`, `e2f9d59b`, `eee0dc93`, `e9efa32e` (adds `users.credential_epoch`;
-  db backup `state/web/cowork.db.bak.before-e9efa32e`), `cf662822`, `8cbced50`. Rollback recipes in
-  [changelog.md](changelog.md).
+- **Release references:** use `release/versions.lock`, software change notes, and exact-head CI.
+  Private installed-service inventories and recovery receipts belong in the local operator runbook.
 - **Repos:** [sbstndalton/noevia-rs](https://github.com/sbstndalton/noevia-rs) (Rust workspace:
   `crates/gguf` + `gguf-meta`, `crates/egress` + `egress-proxy`, both differential-tested against the
   JS/Python they replace, dark) and [sbstndalton/noevia-macos](https://github.com/sbstndalton/noevia-macos)
@@ -118,12 +114,8 @@ web-only.
 
 - **Source:** current `main` is **`958022b`**. The web package's `0.1.0` is metadata, not the
   application release number; deploy images use their source commit as `COWORK_VERSION`.
-- **Live:** web release **`cowork-web:958022b`** on DaServer at **https://noevia.daserver.work**,
-  built from `main` (GitHub `sbstndalton/noevia`). `cowork.daserver.work` no longer
-  resolves (NXDOMAIN, #1460); remove it under Settings → Web address → Earlier addresses, and
-  re-register passkeys made there. 2026-09-24 web-only releases, in order: `7b6942c`, `7ce2213`, `7e8ce3a`, `0c2be32`,
-  `852ef76`, `c3a03c7`, `958022b`. See the
-  [release record](changelog.md#release-958022b--2026-09-24-job-start-controller-leak-phone-preview-settings-web-only).
+- **Historical software snapshot:** release `958022b`; this does not establish any current
+  installation origin, deployed image, or account state.
 - **Not yet deployed:** Diary still runs `cowork-diary:5004b50` and the model-manager and
   code-sandbox images are unchanged, so the Diary/sidecar fixes merged on 2026-09-24
   (#77, #79, #84, #87, #93, #94, #99) are in `main` only.
@@ -240,7 +232,7 @@ merged but not deployed (see above).
 - Plugins → MCP servers and Skills open with "Recommended by noevia": Exa, Notion, Linear,
   Hugging Face and Cloudflare docs (first-party, hosted, all addable), and the pdf, docx, xlsx,
   doc-coauthoring, frontend-design and skill-creator skills, each with a line on why. Resolved
-  against the live directories (5 and 6 found from DaServer); a vanished pick drops out.
+  against the live directories (5 and 6 found from the deployment host); a vanished pick drops out.
 
 ### 2026-09-21 — Ordinary WebDAV clients can write (release `42540fb`, web only)
 - Your decision: relax If-Match, keeping a version. DELETE/MOVE use the current version; a PUT
@@ -376,43 +368,18 @@ issue or milestone assignment.
 
 ## Needs the user — in order
 
-0. **Added 2026-10-06 (overnight):**
-   - **Set `TRUST_PROXY=true`** on DaServer (cloudflared sets X-Forwarded-For). The web log warns at start while it is off, and until then the sign-in limits treat every visitor as one address.
-   - **Switch on the Rust GGUF parser** when you want: add `GGUF_PARSER=rust` to the model-loader env and recreate it; remove it to roll back (docs/deployment.md). Output is identical to Python on 232 differential files.
-   - **Reconnect Claude in Chrome in Brave:** the post-deploy live UI tests could not run overnight (no connected browser); only server-side checks were done.
+1. Confirm outstanding user-workflow checks on the intended device and approved synthetic data.
+2. Select which repositories and execution nodes Code may access; keep grants scoped.
+3. Approve any model download, benchmark, residency change, or inference-host migration separately.
+4. Resolve storage-account configuration through the owner; do not record real account identifiers
+   or document/source names in public issues. Validate rejected-login behavior with synthetic data.
+5. Select a maintenance window and recovery plan before deployment or data migration.
+6. Decide whether to enable optional DAV sharing, browser execution, or research features after
+   their permission, privacy, and resource contracts qualify.
 
-0. **Added 2026-10-05 (repo sweep):**
-   - **Rotate the Cloudflare tunnel token:** a fragment of it was printed into an agent session log while debugging the backup plugin (release 8e96d876).
-   - **Re-run the Diary overlay** (`deploy/examples/diary-overlay.sh 8e96d876`) once the appdata backup succeeds; the last attempt failed on the Jellyfin step.
-   - **Archived QA chats** `qa-live-sweep` A/B/C (with hidden context projects) can be deleted; your pending Manual + ChatGPT composer choice moved to QA chat A.
-   - **`CODE_VERIFY` is empty** in `.env`, so code-verify serves 0 repositories (pre-existing).
-   - Unexplained: several non-noevia containers (CloudflaredTunnel, Jellyfin, the *arr apps, Gluetun, nextcloud-mcp) were recreated on newer images around 23:50Z during release 8e96d876; no release command touched them.
-0. **Added 2026-10-05 (earlier):**
-   - **#767:** change the Settings → Storage username from `sebastian` to `Sebastian Dalton`.
-   - **Delete the archived QA chats and projects** "QA 744 …" and "QA 25c …".
-   - **Flip the remaining flags** in the order above.
-   - **Eval runs:** set `FRAMING_EVAL_API_KEY`, or allow a local DaServer run.
-   - **Open issues:** #780 (concurrent Laya), #749 (computer use: not yet, per Fable), #732, #263.
-1. **Look at the live footer once** while a reply streams (phone and desktop): the session had
-   no signed-in browser, so only the synthetic QA and bundle identity were verified.
-2. **Which repositories Code mode may open.** Only the throwaway `scratch` fixture is
-   registered (`CODE_REPOS`); nothing real is reachable until you choose.
-3. **One model or two in the engine** — partly settled 2026-09-21: the second router slot is
-   the RAG reranker (the user's choice); embeddings run on the CPU `embed` container. The idle
-   `nomic-embed-text-v1` router preset can go once nothing else needs it.
-4. **`Ornith-1.5-9B-Q5_K_M`** was removed from `models.ini` at 00:08 on 2026-09-21 (backup
-   `models.ini.bak-20260921-040852`); a restart dropped it from the served list. Restore or not.
-5. **First Connect Google Drive** on the live site, then retire the host rclone cron.
-6. **A maintenance window** (D2) for: the Tasks-box hints, the Prompt Architect benchmark, and the
-   known-good settings measurements.
-7. **An engine API key** shared by noevia and the Nextcloud Assistant.
-8. **Real-device checks:** phone polish judgement, the glass banding check (D13), and a Finder
-   Connect to Server with an app password once DAV sharing is on (docs/dav.md, 2026-09-22).
-9. **`--fit on --fit-target 1024`** for the engine, now that the syslog mirror is on.
-10. **Deep research live run** approval (D12).
-11. **Claude Code in the sandbox** — pinned and proven locally; installing it is your call (it
-    needs llama.cpp's Anthropic endpoint to work with your model, and your sign-in if ever pointed
-    beyond the local engine).
+Installation-specific credential follow-ups, flags, source inventories, model residency, and
+service incidents belong in the local operator runbook. Historical task lists are not current
+authorization and must not be replayed against a live system.
 
 ## Lessons worth keeping
 

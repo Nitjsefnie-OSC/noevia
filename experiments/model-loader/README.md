@@ -1,11 +1,11 @@
 # Model-specific context calibration
 
-Isolated DaServer experiment authorized on 2026-09-12. This is an operator tool,
+Isolated inference-host experiment authorized on 2026-09-12. This is an operator tool,
 not a background job and not a production-provider replacement.
 
 > Archived in #846: the calibration and benchmark scripts (`calibrate.py`,
 > `catalog.py`, `benchmark.py`, `test_calibration.py`) were removed from main; see
-> git history at `84eeb471`. This README and `compose.daserver.yaml` stay
+> git history at `84eeb471`. This README and the accompanying Compose example stay
 > (`services/model-manager/tests/test_download_auth.py` reads the Compose file).
 
 ## Current follow-up — 2026-09-13
@@ -24,7 +24,7 @@ four idle slots, each with 32,768 tokens. No saved model options changed.
 
 Fingerprint collection reads the actual test container's immutable image ID,
 not a mutable local tag. The recorded raw trial and telemetry are also retained
-on DaServer under results/calibration. Historical September 12 results follow;
+on the deployment host under results/calibration. Historical September 12 results follow;
 the Qwen qualification above supersedes their then-unverified capacity status.
 
 ## Measured results — 2026-09-12
@@ -49,34 +49,18 @@ cold-load budgeting correction passed 342 web tests, typecheck/build and a real
 HTTP regression including auto-routing to a cold Fast model; it is not deployed
 to production by this experiment.
 
-## Deployment
+## Experiment configuration
 
-- Model Loader source pinned to `e11a6ec307fa405144678930d507046163369b46`.
-- llama.cpp Vulkan image pinned in `compose.daserver.yaml`; build 10920,
-  commit `eafe15a5e`. Production Lemonade 10.8.0 uses llama.cpp build 9632.
-- Server directory: `/mnt/docker/appdata/model-loader-test`.
-- Model Loader: `http://10.69.0.130:8092` (JSON API under `/api/v1` only, with the token header; the browser UI this experiment used was removed in #806, so a rebuilt image serves no pages).
-- Test inference: `http://10.69.0.130:8082/v1`, when its container is running.
-- Existing model bytes are mounted read-only. Configuration and database are
-  independent. No OpenWebUI database is mounted and no public tunnel is added.
-- The UI has no authentication and mounts the Docker socket. Keep it on the
-  trusted LAN. Its container whitelist is discovery configuration, not an
-  authorization boundary. Downloads/deletion cannot write the read-only corpus.
+This archived experiment's Compose file is an operator example, not a live inventory.
+Select the model runtime, device bindings, port bindings, authentication token, read-only
+model mounts, and independent configuration/state roots for an isolated test host. Review
+the actual configuration before running anything. The Docker socket is privileged; a
+discovery whitelist is not an authorization boundary. No public tunnel is implied.
 
-The host has a Radeon 890M integrated GPU, 29 GiB system RAM and an Intel Arc
-A380 used by other services. This test uses the same AMD Vulkan device as
-Lemonade. Vulkan reports about 16.5 GiB addressable device memory, including
-shared memory; only 2 GiB is firmware-reserved VRAM. Model Loader cannot discover
-this budget automatically. `GPU_VRAM=llama-vulkan-test:12` is a conservative,
-operator-supplied planning budget, not 12 GiB of dedicated VRAM.
-
-Do not run a production and test chat model concurrently. The calibration guard
-stops the test below 4 GiB available host memory, when production loads a chat
-model, or after three telemetry failures. Tests stop the candidate and restore
-the previously loaded production model with its original options. They never
-save different Lemonade options. Check restoration after an interrupted host or
-network connection; a local process cannot guarantee recovery during a network
-partition or power failure.
+Keep production and candidate residency within a measured shared-memory budget. Check
+restoration after interruption; a local process cannot guarantee recovery through a host
+or network failure. Raw host telemetry and installation configuration belong in the local
+operator record, separate from generic workload and qualification evidence.
 
 ## What is remembered
 

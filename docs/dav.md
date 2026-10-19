@@ -191,7 +191,7 @@ version and every refused request, and confirms protected paths stayed byte-iden
 ### Interoperability run 1 — 2026-09-21 (rclone v1.75.1)
 
 `apps/web/qa/dav-interop.cjs`: rclone against the real web server and the real Diary companion on
-a throwaway tenant (temp folder; nothing on DaServer). **Protection holds; ordinary writes do not
+a throwaway tenant (temp folder; nothing on the deployment host). **Protection holds; ordinary writes do not
 work.** PROPFIND, MKCOL and `DAV: 1` pass; deleting or moving the protected `INDEX.md` is refused
 and it stays byte-identical. Every PUT, MOVE, COPY-then-read, DELETE, sync and purge fails with
 **428**, because rclone (like Finder, Explorer and Obsidian WebDAV sync) never sends `If-Match` /
