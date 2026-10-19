@@ -16,16 +16,16 @@
 # restart policy brings both back together.
 set -uo pipefail
 
-# Only this script may confirm the project writes to Node and hand out the project store (below);
+# Only this script may hand out the project store (below);
 # never trust a value from the environment. (The retired confirmations, rust-auth's, the projects'
 # and the front routes', are scrubbed too, so an inherited value can never reach a Node of either age.)
 unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED NOEVIA_RUST_PROJECT_WRITES_CONFIRMED NOEVIA_RUST_PROJECT_STORE_CONFIRMED NOEVIA_PROJECT_STORE_PORT NOEVIA_PROJECT_STORE_TOKEN NOEVIA_FRONT_CLIENT_IP NOEVIA_LEGACY_CLAIM_BIN
-FRONT_ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode rust-projects rust-project-chats project-store"
+FRONT_ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode rust-projects rust-project-chats rust-project-writes project-store"
 # Their old switches only earn a warning now (noevia-server says the same), and neither process
 # gets them (each would only warn again).
 for retired in NOEVIA_RUST_AUTH NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS NOEVIA_RUST_REASONING_SETTINGS NOEVIA_RUST_ROUTING_MODE \
   NOEVIA_RUST_ROUTING_DEFAULT NOEVIA_RUST_STATS NOEVIA_RUST_EXPORT NOEVIA_RUST_CHATGPT_STATUS NOEVIA_RUST_STORAGE_READS \
-  NOEVIA_RUST_STORAGE_BROWSE NOEVIA_RUST_PROJECTS; do
+  NOEVIA_RUST_STORAGE_BROWSE NOEVIA_RUST_PROJECTS NOEVIA_RUST_PROJECT_WRITES; do
   if [ -n "${!retired+set}" ]; then
     echo "web-supervisor: $retired is retired (sbstndalton/noevia#1071) and ignored; remove it from the environment" >&2
     unset "$retired"
@@ -94,18 +94,6 @@ if grep -qx 'legacy-root-claim' <<<"$rust_features"; then
     *) echo "web-supervisor: legacy-root-claim requires an absolute NOEVIA_SERVER_BIN" >&2; exit 2 ;;
   esac
 fi
-# The project writes moved off Node (sbstndalton/noevia#1264): their own switch,
-# NOEVIA_RUST_PROJECT_WRITES=1, off by default (the permanent project routes never move them). Node
-# refuses its copies only once this front is confirmed to answer them: a noevia-server that lists
-# rust-project-writes. The front refuses to start otherwise.
-rust_project_writes_confirmed=""
-if [ "${NOEVIA_RUST_PROJECT_WRITES:-}" = 1 ]; then
-  if ! grep -qx 'rust-project-writes' <<<"$rust_features"; then
-    echo "web-supervisor: NOEVIA_RUST_PROJECT_WRITES=1 but this noevia-server has no rust-project-writes" >&2
-    exit 2
-  fi
-  rust_project_writes_confirmed=1
-fi
 port="${UI_PORT:-8021}"
 if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 64535 ]; then
   echo "web-supervisor: UI_PORT '$port' leaves no room for the legacy port UI_PORT+1000" >&2
@@ -151,7 +139,6 @@ trap 'signalled=1; stop' TERM INT
 UI_HOST="$node_host" UI_PORT="$legacy" \
   NOEVIA_FRONT_CLIENT_IP="$client_ip_confirmed" \
   NOEVIA_LEGACY_CLAIM_BIN="$legacy_claim_bin" \
-  NOEVIA_RUST_PROJECT_WRITES_CONFIRMED="$rust_project_writes_confirmed" \
   NOEVIA_PROJECT_STORE_PORT="$store_port" NOEVIA_PROJECT_STORE_TOKEN="$store_token" \
   node server/index.cjs &
 node_pid=$!

@@ -20,9 +20,9 @@ fails=0; passes=0
 check() { if eval "$2"; then passes=$((passes+1)); echo "ok - $1"; else fails=$((fails+1)); echo "FAIL - $1"; fi; }
 
 # The features build/web-supervisor.sh requires (FRONT_ROUTE_FEATURES), and a front that has them.
-ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode rust-projects rust-project-chats project-store"
+ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode rust-projects rust-project-chats rust-project-writes project-store"
 BASE_FEATURES="code-net-guard rust-auth $ROUTE_FEATURES"
-RETIRED="NOEVIA_RUST_AUTH NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS NOEVIA_RUST_REASONING_SETTINGS NOEVIA_RUST_ROUTING_MODE NOEVIA_RUST_ROUTING_DEFAULT NOEVIA_RUST_STATS NOEVIA_RUST_EXPORT NOEVIA_RUST_CHATGPT_STATUS NOEVIA_RUST_STORAGE_READS NOEVIA_RUST_STORAGE_BROWSE NOEVIA_RUST_PROJECTS NOEVIA_RUST_PROJECT_CHATS NOEVIA_RUST_FREE_CHATS NOEVIA_RUST_PROJECT_STORE"
+RETIRED="NOEVIA_RUST_AUTH NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS NOEVIA_RUST_REASONING_SETTINGS NOEVIA_RUST_ROUTING_MODE NOEVIA_RUST_ROUTING_DEFAULT NOEVIA_RUST_STATS NOEVIA_RUST_EXPORT NOEVIA_RUST_CHATGPT_STATUS NOEVIA_RUST_STORAGE_READS NOEVIA_RUST_STORAGE_BROWSE NOEVIA_RUST_PROJECT_WRITES NOEVIA_RUST_PROJECTS NOEVIA_RUST_PROJECT_CHATS NOEVIA_RUST_FREE_CHATS NOEVIA_RUST_PROJECT_STORE"
 
 mkdir -p "$work/bin"
 # Each stub records its environment, then lives until killed or until its "die" file appears.
@@ -37,7 +37,7 @@ retired=""
 for v in $RETIRED; do c="\${v}_CONFIRMED"; [ -n "\${!c:-}" ] && retired="\$retired \$c"; done
 echo "\$name RETIRED=\$retired" >> "$work/log"
 echo "\$name PROJECTS=\${NOEVIA_RUST_PROJECTS-unset}" >> "$work/log"
-echo "\$name WCONF=\${NOEVIA_RUST_PROJECT_WRITES_CONFIRMED:-}" >> "$work/log"
+echo "\$name WCONF=\${NOEVIA_RUST_PROJECT_WRITES_CONFIRMED:-} WRITES=\${NOEVIA_RUST_PROJECT_WRITES-unset}" >> "$work/log"
 echo "\$name SSTORE=\${NOEVIA_RUST_PROJECT_STORE_CONFIRMED:-} SPORT=\${NOEVIA_PROJECT_STORE_PORT:-} STOKLEN=\${#NOEVIA_PROJECT_STORE_TOKEN}" >> "$work/log"
 echo "\$name AUTH=\${NOEVIA_RUST_AUTH-unset}" >> "$work/log"
 echo "\$name LCLAIM=\${NOEVIA_LEGACY_CLAIM_BIN:-}" >> "$work/log"
@@ -101,7 +101,7 @@ for feature in $ROUTE_FEATURES; do
 done
 reset
 run STUB_FEATURES="code-net-guard rust-auth rust-usage" >/dev/null 2>"$work/err"; rc=$?
-check "every missing feature is listed at once" '[ $rc -eq 2 ] && grep -q "rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-stats .* rust-projects rust-project-chats project-store;" "$work/err" && [ ! -s "$work/log" ]'
+check "every missing feature is listed at once" '[ $rc -eq 2 ] && grep -q "rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-stats .* rust-projects rust-project-chats rust-project-writes project-store;" "$work/err" && [ ! -s "$work/log" ]'
 reset
 run UI_PORT=65000 >/dev/null 2>&1; rc=$?
 check "a UI_PORT with no room for +1000 is refused" '[ $rc -eq 2 ] && [ ! -s "$work/log" ]'
@@ -135,21 +135,16 @@ reset; touch "$work/die-front"
 run >/dev/null 2>"$work/err"; rc=$?
 check "without NOEVIA_RUST_AUTH or NOEVIA_RUST_PROJECTS both start, with no warning about either" '[ $rc -eq 3 ] && grep -q "^node AUTH=unset$" "$work/log" && ! grep -q "NOEVIA_RUST_AUTH" "$work/err" && ! grep -q "NOEVIA_RUST_PROJECTS" "$work/err"'
 
-# The project writes (#1264): their own switch over the confirmed project slice and the compiled
-# The project writes (#1264) keep their own switch: never confirmed by the permanent project routes.
-WRITES_FEATURES="$BASE_FEATURES rust-project-writes"
-reset; touch "$work/die-front"
-run STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1
-check "the permanent project routes alone never confirm the project writes" 'grep -q "^node WCONF=$" "$work/log"'
+# Context ownership is permanent: the capability is required in ROUTE_FEATURES,
+# and neither old selector nor a spoofed confirmation reaches either process.
+for v in "" 0 1 true; do
+  reset; touch "$work/die-front"
+  run NOEVIA_RUST_PROJECT_WRITES="$v" NOEVIA_RUST_PROJECT_WRITES_CONFIRMED=1 >/dev/null 2>"$work/err"; rc=$?
+  check "retired context selector '$v' warns and cannot restore Node ownership" '[ $rc -eq 3 ] && grep -q "NOEVIA_RUST_PROJECT_WRITES is retired" "$work/err" && grep -q "^node WCONF= WRITES=unset$" "$work/log" && grep -q "^front WCONF= WRITES=unset$" "$work/log"'
+done
 reset
-run NOEVIA_RUST_PROJECT_WRITES=1 >/dev/null 2>"$work/err"; rc=$?
-check "project writes missing the native feature refuse before startup" '[ $rc -eq 2 ] && grep -q "no rust-project-writes" "$work/err" && [ ! -s "$work/log" ]'
-reset; touch "$work/die-front"
-run NOEVIA_RUST_PROJECT_WRITES=1 STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1
-check "project writes confirmed only to Node after the native probe" 'grep -q "^node WCONF=1$" "$work/log" && grep -q "^front WCONF=$" "$work/log"'
-reset; touch "$work/die-front"
-run NOEVIA_RUST_PROJECT_WRITES_CONFIRMED=1 STUB_FEATURES="$WRITES_FEATURES" >/dev/null 2>&1
-check "an inherited project-writes confirmation is dropped" 'grep -q "^node WCONF=$" "$work/log"'
+run STUB_FEATURES="$(without rust-project-writes)" NOEVIA_RUST_PROJECT_WRITES=0 NOEVIA_RUST_PROJECT_WRITES_CONFIRMED=1 >/dev/null 2>"$work/err"; rc=$?
+check "spoofed context confirmation cannot bypass the mandatory compiled capability" '[ $rc -eq 2 ] && grep -q "lacks the front route feature(s): rust-project-writes;" "$work/err" && [ ! -s "$work/log" ]'
 
 # The project store (#1264), permanent: always set up, a per-start secret and UI_PORT+2000 for both
 # processes; never from the environment; refused without project-store (a front route feature,
@@ -184,7 +179,7 @@ check "older front cannot pass an inherited claim helper path" 'grep -qx "node L
 # (the supervisor TERMs the survivor the moment one child exits).
 reset; touch "$work/die-front"
 run STUB_NODE_DELAY=0.4 >/dev/null 2>&1
-check "a front dying at once does not truncate a slow Node's startup log" 'grep -q "^node WCONF=$" "$work/log" && grep -q "^node KCONF=" "$work/log"'
+check "a front dying at once does not truncate a slow Node's startup log" 'grep -q "^node WCONF= WRITES=unset$" "$work/log" && grep -q "^node KCONF=" "$work/log"'
 
 # --- Process lifecycle -----------------------------------------------------------------------
 reset
