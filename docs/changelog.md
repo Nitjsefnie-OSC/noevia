@@ -10,6 +10,8 @@ prior to this cleanup can still contain the earlier text.
 
 Chat-context routes (GET and POST `/api/chats/{id}/context`) are permanently Rust-owned (#1071, #1264). The web supervisor now requires the `rust-project-writes` front feature, no longer reads or forwards `NOEVIA_RUST_PROJECT_WRITES` (set to any value it only logs the retired-switch warning), and the release assembler refuses a noevia-rs that still gates chat context on that switch or a core whose `OWNED_ROUTES` omits either context method.
 
+The release assembler (#2091, #2096) reads `routes.toml` as TOML rather than matching one spelling: an indented, tab-separated, single-quoted or trailing-comment `switch` is found, a comment that merely names a switch is not, and a route carrying any other switch is refused (deployment switches are retired, so none is expected). The idle-jobs test falls back to `shasum -a 256`. An unset `NOEVIA_FRONT` now defaults to `rust` in the web supervisor instead of the refused value `node` (#2094), and the release pins for web, core, services and rs moved to the permanent chat-context heads.
+
 ## Release 9375ce98e35abb1cef148c75835ad62b65de2448 - 2026-10-19 (native-service completion; #1318, #1071, #2027)
 
 Core 1896db0 makes role-context, streamed JSON validation, presets, and relevant tool decisions unconditionally Rust-owned, and adds the bounded Rust workspace-claim helper called by Node while the authenticated account transaction is held (#2027). Services 2545ebc retires Diary's tenant selector while keeping its restart guard and nonce cache.

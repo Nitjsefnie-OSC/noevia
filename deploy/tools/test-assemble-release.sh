@@ -411,6 +411,118 @@ check "a switched sign-in front (pre-rs#146) under this supervisor is refused" \
 g rm -q apps/web/server/rust-auth.cjs && g commit -qm core-no-auth
 g rm -q apps/web/server/rust-projects.cjs && g commit -qm core-plain
 
+# sbstndalton/noevia#2096: routes.toml is read as TOML, not as one spelling of it. A switch written
+# indented, tab-separated, single-quoted, without spaces or with a trailing comment is still a
+# switch (and is refused), a comment that merely mentions a switch is not, and any other switched
+# route is refused too instead of being silently left out of the ownership comparison.
+rz="$work/remote/noevia-rs-t"
+mkdir -p "$rz/bins/noevia-server" "$rz/contracts/http"
+echo '[workspace]' > "$rz/Cargo.toml"
+echo synthetic > "$rz/bins/noevia-server/Cargo.toml"
+cat > "$w/server/rust-projects.cjs" <<'JS'
+function refuseOwnedRoute() {}
+const OWNED_ROUTES = Object.freeze(new Set([
+  'POST /api/projects/{id}/assets',
+]));
+JS
+printf '%s\n' "function refuseOwned(req, res, pathname, json) { return false; }" > "$w/server/rust-auth.cjs"
+# try_routes <name>: routes.toml = the sign-in route (unless auth_route=0), then stdin; pins it and assembles. Sets rc, tsha.
+try_routes() {
+  { [ "${auth_route:-1}" = 0 ] || printf '[[route]]\npath = "/api/auth/session"\nowner = "rust"\nmethods = ["GET"]\n\n'; cat; } > "$rz/contracts/http/routes.toml"
+  tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-t
+  rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+  printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+  g add -A && g commit -qm "$1"; tsha="$(g rev-parse --short HEAD)"
+  PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$tsha" "$out" >/dev/null 2>"$work/err"; rc=$?
+}
+refused() { [ $rc -ne 0 ] && grep -q "$1" "$work/err" && [ ! -f "$out/noevia-release-$tsha.tar.gz" ]; }
+
+try_routes comments-only <<'TOML'
+# The old switch = "NOEVIA_RUST_PROJECTS" and switch = "NOEVIA_RUST_PROJECT_WRITES" are retired.
+[[route]]
+  # switch = "NOEVIA_RUST_PROJECTS"
+path = "/api/projects/{id}/assets"
+owner = "rust" # not switch = "NOEVIA_RUST_AUTH"
+methods = ["POST"]
+TOML
+check "#2096: comments that name a switch do not refuse the assembly" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$tsha.tar.gz" ]'
+
+try_routes indented <<'TOML'
+[[route]]
+  path = "/api/projects/{id}/assets"
+  owner = "rust"
+  switch = "NOEVIA_RUST_PROJECTS"
+  methods = ["POST"]
+TOML
+check "#2096: an indented project switch is refused" 'refused "still gates the project routes on NOEVIA_RUST_PROJECTS"'
+
+printf '[[route]]\npath = "/api/projects/{id}/assets"\nowner = "rust"\nswitch\t=\t"NOEVIA_RUST_PROJECTS"\nmethods = ["POST"]\n' > "$work/t.toml"
+try_routes tabbed < "$work/t.toml"
+check "#2096: a tab-separated project switch is refused" 'refused "still gates the project routes on NOEVIA_RUST_PROJECTS"'
+
+try_routes single-quoted <<'TOML'
+[[route]]
+path = '/api/projects/{id}/assets'
+owner = 'rust'
+switch = 'NOEVIA_RUST_PROJECTS'
+methods = ['POST']
+TOML
+check "#2096: a single-quoted project switch is refused" 'refused "still gates the project routes on NOEVIA_RUST_PROJECTS"'
+
+try_routes tight-trailing <<'TOML'
+[[route]]
+path = "/api/chats/{id}/context"
+owner = "rust"
+switch="NOEVIA_RUST_PROJECT_WRITES"   # old
+methods = ["GET", "POST"]
+TOML
+check "#2096: a spaceless context switch with a trailing comment is refused" 'refused "still gates chat context on NOEVIA_RUST_PROJECT_WRITES"'
+
+auth_route=0 try_routes auth-indented <<'TOML'
+[[route]]
+path = "/api/auth/session"
+owner = "rust"
+    switch = 'NOEVIA_RUST_AUTH'
+methods = ["GET"]
+TOML
+check "#2096: an indented sign-in switch is refused" 'refused "still gates sign-in on NOEVIA_RUST_AUTH"'
+
+try_routes unknown-switch <<'TOML'
+[[route]]
+path = "/api/usage"
+owner = "rust"
+switch = "NOEVIA_RUST_SOMETHING_ELSE"
+methods = ["GET"]
+TOML
+check "#2096: a route with any other switch is refused (fail closed)" 'refused "has switched routes in routes.toml (NOEVIA_RUST_SOMETHING_ELSE /api/usage)"'
+
+printf '[[route]]\npath = "/api/usage"\nowner = "node"\n\tswitch = "NOEVIA_RUST_SOMETHING_ELSE"\n' > "$work/t.toml"
+try_routes unknown-switch-node < "$work/t.toml"
+check "#2096: ...whatever the owner and however it is spelled" 'refused "has switched routes in routes.toml"'
+
+try_routes other-table <<'TOML'
+[meta]
+switch = "NOT_A_ROUTE_SWITCH"
+
+[[route]]
+path = "/api/projects/{id}/assets"
+owner = "rust"
+methods = ["POST"]
+TOML
+check "#2096: a switch key outside a [[route]] table is not a route switch" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$tsha.tar.gz" ]'
+
+# Multi-line methods arrays, indentation, a spaced [[ route ]] header and CRLF line endings are read
+# the same: PUT is not in the core's OWNED_ROUTES, so the assembly is refused naming exactly it.
+{
+  printf '[[ route ]]\r\n  path = "/api/projects/{id}/assets"\r\n  owner = "rust"\r\n'
+  printf '  methods = [\r\n    "POST", # listed\r\n    "PUT",\r\n  ]\r\n'
+} > "$work/t.toml"
+try_routes multiline-crlf < "$work/t.toml"
+check "#2096: multi-line methods in CRLF TOML are compared per method" 'refused "PUT /api/projects/{}/assets"'
+check "#2096: ...and POST, which the core lists, is not named" '! grep -q "POST /api/projects" "$work/err"'
+
+g rm -q apps/web/server/rust-auth.cjs apps/web/server/rust-projects.cjs && g commit -qm core-plain-2096
+
 # A failing final tar must not leave out.partial (or a final tarball) behind. The shim writes a
 # truncated archive first, like a full disk would.
 real_tar="$(command -v tar)"

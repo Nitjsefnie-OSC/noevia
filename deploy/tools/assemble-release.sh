@@ -173,41 +173,81 @@ fi
 # chats dropped by Node's whole-field merge (sbstndalton/noevia#1409), so that pairing is refused
 # here; likewise a front that saves the free-chat list (GET/POST /api/freechats) over a core from
 # before noevia-core#76, whose own free-list writers would overwrite free-chats.json whole. Placeholder names ({id}, {projectId}) are compared as one.
-# Includes the permanent context slice (#1264); switched routes are rejected below.
-project_routes_rs() {
+# Includes the permanent context slice (#1264). routes.toml is read by routes_toml below, which
+# understands the TOML that matters here (indented keys, spaces or tabs around "=", "basic" or
+# 'literal' strings, trailing comments, multi-line arrays, quoted keys, [[ route ]] headers) rather
+# than one literal spelling; comments never count. Any route that still carries a `switch` is
+# refused further down (#2096).
+#
+# One tab-separated record per [[route]] table: path, owner, switch, methods. An absent or empty
+# field is "-", except that a present-but-empty switch is "?" (still switched: fail closed).
+routes_toml() {
   awk '
-    function flush(  n, i, m) {
-      if (owner == "rust" && sw == "" && (path ~ /^\/api\/(projects\/|freechats$)/ || path ~ /^\/api\/chats\/[^/]+\/context$/)) {
-        if (methods == "") print "ALL " path
-        n = split(methods, m, /[^A-Z]+/)
-        for (i = 1; i <= n; i++) if (m[i] != "") print m[i] " " path
-      }
-      path = ""; owner = ""; sw = ""; methods = ""
+    function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+    function orDash(s) { return s == "" ? "-" : s }
+    function flush() {
+      if (seen) print orDash(path) "\t" orDash(owner) "\t" (hasSw ? (sw == "" ? "?" : sw) : "-") "\t" orDash(methods)
+      path = ""; owner = ""; sw = ""; methods = ""; hasSw = 0; seen = 0
     }
-    function value(line) { sub(/^[a-z_]+ *= */, "", line); gsub(/"/, "", line); return line }
-    /^\[\[route\]\]/ { flush(); next }
-    /^path *=/ { path = value($0) }
-    /^owner *=/ { owner = value($0) }
-    /^switch *=/ { sw = value($0) }
-    /^methods *=/ { methods = value($0) }
+    function setkey(key, val) {
+      if (key == "path") path = val
+      else if (key == "owner") owner = val
+      else if (key == "switch") { hasSw = 1; sw = val }
+      else if (key == "methods") methods = val
+    }
+    function scalar(rest,   q, e) {
+      q = substr(rest, 1, 1)
+      if (q == "\"" || q == "\047") { rest = substr(rest, 2); e = index(rest, q); return e ? substr(rest, 1, e - 1) : rest }
+      sub(/[ \t]*#.*$/, "", rest)
+      return trim(rest)
+    }
+    function endarr() { sub(/\].*/, "", abuf); gsub(/["\047]/, "", abuf); setkey(arrkey, trim(abuf)); arr = 0 }
+    {
+      line = $0; sub(/\r$/, "", line); line = trim(line)
+      if (arr) {
+        chunk = line; sub(/#.*/, "", chunk); abuf = abuf " " chunk
+        if (index(chunk, "]")) endarr()
+        next
+      }
+      if (line == "" || line ~ /^#/) next
+      if (line ~ /^\[/) {
+        flush()
+        inroute = (line ~ /^\[\[[ \t]*route[ \t]*\]\]/)
+        if (inroute) seen = 1
+        next
+      }
+      if (!inroute) next
+      if (!match(line, /^("[A-Za-z0-9_-]+"|\047[A-Za-z0-9_-]+\047|[A-Za-z0-9_-]+)[ \t]*=/)) next
+      key = substr(line, 1, RLENGTH - 1); sub(/[ \t]+$/, "", key); gsub(/["\047]/, "", key)
+      rest = trim(substr(line, RLENGTH + 1))
+      if (substr(rest, 1, 1) == "[") {
+        arrkey = key; arr = 1
+        chunk = substr(rest, 2); sub(/#.*/, "", chunk); abuf = chunk
+        if (index(chunk, "]")) endarr()
+        next
+      }
+      setkey(key, scalar(rest))
+    }
     END { flush() }
-  ' "$1" | sed 's/{[^}]*}/{}/g' | sort -u
+  ' "$1"
+}
+project_routes_rs() {
+  routes_toml "$1" | awk -F'\t' '
+    $2 == "rust" && $3 == "-" && ($1 ~ /^\/api\/(projects\/|freechats$)/ || $1 ~ /^\/api\/chats\/[^/]+\/context$/) {
+      if ($4 == "-") { print "ALL " $1; next }
+      n = split($4, m, /[^A-Z]+/)
+      for (i = 1; i <= n; i++) if (m[i] != "") print m[i] " " $1
+    }
+  ' | sed 's/{[^}]*}/{}/g' | sort -u
 }
 # Whether routes.toml gives GET /api/auth/session to Rust with no switch (sign-in is the front's
 # permanently, sbstndalton/noevia#1071).
 rust_auth_unswitched() {
-  awk '
-    function flush() {
-      if (path == "/api/auth/session" && owner == "rust" && sw == "") found = 1
-      path = ""; owner = ""; sw = ""
-    }
-    function value(line) { sub(/^[a-z_]+ *= */, "", line); gsub(/"/, "", line); return line }
-    /^\[\[route\]\]/ { flush(); next }
-    /^path *=/ { path = value($0) }
-    /^owner *=/ { owner = value($0) }
-    /^switch *=/ { sw = value($0) }
-    END { flush(); exit(found ? 0 : 1) }
-  ' "$1"
+  routes_toml "$1" | awk -F'\t' '$1 == "/api/auth/session" && $2 == "rust" && $3 == "-" { found = 1 } END { exit(found ? 0 : 1) }'
+}
+# "<switch> <path>" for every route that carries a switch.
+switched_routes() {
+  routes_toml "$1" | awk -F'\t' '$3 != "-" { print $3 " " $1 }'
 }
 project_routes_core() {
   [ -f "$1" ] || return 0
@@ -216,7 +256,9 @@ project_routes_core() {
 if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   # The supervisor no longer forwards a context switch. An older switched front
   # paired with permanent core refusal would leave these routes unavailable.
-  if grep -q '^switch *= *"NOEVIA_RUST_PROJECT_WRITES"' "$tree/rs/contracts/http/routes.toml"; then
+  routes_file="$tree/rs/contracts/http/routes.toml"
+  route_switches="$(switched_routes "$routes_file")"
+  if printf '%s\n' "$route_switches" | grep -q '^NOEVIA_RUST_PROJECT_WRITES '; then
     die "noevia-rs at $rs_ref still gates chat context on NOEVIA_RUST_PROJECT_WRITES; pin permanent GET/POST context ownership (sbstndalton/noevia#1071)"
   fi
   # sbstndalton/noevia#1071: the project routes are the front's with no switch. The web supervisor
@@ -224,7 +266,7 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   # noevia-rs retirement) would leave them to a Node that refuses them; and a front that owns them
   # with no switch needs a core whose refusal is unconditional (rust-projects.cjs refuseOwnedRoute)
   # and that always writes through the project store.
-  if grep -q '^switch *= *"NOEVIA_RUST_PROJECTS"' "$tree/rs/contracts/http/routes.toml"; then
+  if printf '%s\n' "$route_switches" | grep -q '^NOEVIA_RUST_PROJECTS '; then
     die "noevia-rs at $rs_ref still gates the project routes on NOEVIA_RUST_PROJECTS, which this web supervisor no longer passes; pin a noevia-rs that owns them with no switch (sbstndalton/noevia#1071)"
   fi
   if ! grep -q '^function refuseOwnedRoute' "$tree/core/server/rust-projects.cjs" 2>/dev/null; then
@@ -244,6 +286,12 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   if rust_auth_unswitched "$tree/rs/contracts/http/routes.toml" \
      && ! grep -q '^function refuseOwned' "$tree/core/server/rust-auth.cjs" 2>/dev/null; then
     die "noevia-rs at $rs_ref owns sign-in with no switch, but noevia-core at $(lock_value NOEVIA_CORE_REF) still gates its rust-auth guard on NOEVIA_RUST_AUTH (pin a core with an unconditional server/rust-auth.cjs, sbstndalton/noevia#1071)"
+  fi
+  # #2096: no other switch is accepted either. routes.toml carries none since #1071 (it says so),
+  # this supervisor passes none, and a switched route is excluded from the ownership comparison
+  # above, so one that slipped in would be silently unchecked: refuse it, fail closed.
+  if [ -n "$route_switches" ]; then
+    die "noevia-rs at $rs_ref has switched routes in routes.toml ($(printf '%s' "$route_switches" | tr '\n' ';')); deployment ownership switches are retired and this web supervisor passes none (sbstndalton/noevia#1071, #2096)"
   fi
 fi
 
