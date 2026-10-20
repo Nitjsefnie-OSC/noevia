@@ -90,7 +90,7 @@ The live reranker is a class-A component. It is not the generic System One, and 
 | 2 | What stays deterministic? | Auth, tenancy, tool policy and the three approval actions, Code-mode action classes, egress/SSRF/filesystem, budgets and caps, context-fit arithmetic, schema validation, cloud policy, secrets | High |
 | 3 | Strongest local System One? | *Corrected in doc 13.*
 
-- **RAG ranking (class A):** Qwen3-Reranker is a ranking candidate; verify its quality and footprint for each profile.
+- **RAG ranking (class A):** A reranker model is a ranking candidate; verify its quality and footprint for each profile.
 - **Generic decisions (class B):** unresolved. The candidates are compared on quality **and** residency.
   - A 4B option-logit model is one candidate, not the answer.
   - Laya (421M, fine-tuned) is the leading always-resident prior. | Medium (independent benchmark + vendor numbers; not yet measured here) |

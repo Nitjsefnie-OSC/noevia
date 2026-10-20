@@ -174,9 +174,9 @@ Never copy a `.env.bak.*` file back wholesale.
 ## Diary overlay d3474b3c and Kev cutover (limited) — 2026-10-15 00:01Z / 00:04Z / 00:12Z (Diary + new cowork-kev + web env; #1759, #1766, #1639)
 
 What changed for you: the Diary now splits a chunk that the embedding server refuses as too long, instead of leaving it without a vector (#1759, #1766).
-The 12 long Diary chunks still need one re-index pass before EmbeddingGemma 2 covers all 53.
-Route, tool gate, step supervision, chat framing and the load advisor are now decided by Kev-0.8B.
-Sensitivity stays on Laya.
+The 12 long Diary chunks still need one re-index pass before the next embedding model covers all 53.
+Route, tool gate, step supervision, chat framing and the load advisor are now decided by the decision model.
+Sensitivity stays on the sensitivity model.
 
 ### Diary overlay
 
@@ -213,17 +213,17 @@ Vision descriptions now use only the default provider, a missing sensitivity key
 ## EmbeddingGemma 2 switch: preparation — 2026-10-14 17:59Z (embed memory limit live; model not switched yet)
 
 What changed for you: nothing visible.
-Search still uses nomic-embed-text-v1.
-The embedding service can now hold nomic and EmbeddingGemma 2 together, which the owner-approved switch (#1636) needs.
+Search still uses the current embedding model.
+The embedding service can now hold the current and the next embedding model together, which the owner-approved switch (#1636) needs.
 The switch itself is not done yet.
 
 Then send one synthetic embedding to `http://embed:8080/v1/embeddings` from web to load nomic at once (the model manager's watcher also re-warms it within about 30 s).
 
-## Release d37a16e5 — 2026-10-14 16:45Z / 17:37Z / 17:42Z (whole stack: web + model manager + Docling)
+## Release d37a16e5 — 2026-10-14 16:45Z / 17:37Z / 17:42Z (whole stack: web + model manager + document extraction)
 
-What changed for you: decision prompts now use the wording tuned for Kev-0.8B, follow the configured decision model, and keep the Code route label (#1639, #1739, #1740).
-Multimodal RAG (#1726) is shipped in web, the model manager and Docling but stays off (`NOEVIA_MULTIMODAL_RAG` is not set).
-Docling can now return a document's figures and mark OCR-read pages, but only when it is asked to.
+What changed for you: decision prompts now use the wording tuned for the decision model, follow the configured decision model, and keep the Code route label (#1639, #1739, #1740).
+Multimodal RAG (#1726) is shipped in web, the model manager and document extraction but stays off (`NOEVIA_MULTIMODAL_RAG` is not set).
+Document extraction can now return a document's figures and mark OCR-read pages, but only when it is asked to.
 
 ## llama.cpp image b11610 on embed and the chat engine — 2026-10-14 14:22Z / 14:32Z (live)
 
@@ -240,19 +240,19 @@ What changed for you: the New chat button works again (#1716). After the embeddi
 What changed for you: nothing visible.
 The Diary now checks every web request's tenant signature twice, once in Python and once in the Rust `tenant-assertion` leaf.
 
-## Laya cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (Laya only)
+## Decision service cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (decision service only)
 
 What changed for you: nothing visible.
-Laya now runs the image with the late-answer guards (#1074) and the native front (#1326).
+The decision service now runs the image with the late-answer guards (#1074) and the native front (#1326).
 
 Then check: image `cowork-laya:0.3.5-noevia4`, healthy, restarts 0, a synthetic `/v1/decisions` returns `selected` in the options.
 
-## Docling native mode on — 2026-10-14 13:42Z (`NOEVIA_DOCLING_IMPL=rust`)
+## Document extraction native mode on — 2026-10-14 13:42Z (`NOEVIA_DOCLING_IMPL=rust`)
 
 What changed for you: nothing visible.
 Document extraction now goes through the native `noevia-docling` server (#1322), with the same results: the synthetic PDF reads correctly and Markdown still gets the 415 "unsupported" answer.
 
-## Docling cutover 785643f4 — 2026-10-14 13:30Z (native mode off)
+## Document extraction cutover 785643f4 — 2026-10-14 13:30Z (native mode off)
 
 What changed for you: Markdown files no longer go to Docling. They now get a clear "unsupported" answer (415) instead of the misleading "processing limits" error (#1711). PDF and other document extraction works as before. Native Docling stays off: `NOEVIA_DOCLING_IMPL` is not set, so the service runs `python server.py` (#1322, owner switch).
 
@@ -276,7 +276,7 @@ Behind the scenes:
 ## Docling cutover attempt fbb960dd — 2026-10-14 10:45Z (rolled back; no live change)
 
 What changed for you: nothing.
-Docling stays on `cowork-docling:f6885a55`.
+Document extraction stays on `cowork-docling:f6885a55`.
 The same check also fails on the existing image, so this is filed as #1711.
 
 ## Release fbb960dd — 2026-10-14 (tool-call follow-ups, Models page prune, embedding warm-up; web + model manager)
