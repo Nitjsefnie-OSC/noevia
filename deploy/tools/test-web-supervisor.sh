@@ -67,8 +67,12 @@ without() { local out="" f; for f in $BASE_FEATURES; do [ "$f" = "$1" ] || out="
 
 # --- Fail closed before either process starts -----------------------------------------------
 reset
+touch "$work/die-front"
+(cd "$work" && env -u NOEVIA_FRONT NOEVIA_SERVER_BIN="$work/noevia-server" bash "$sup") >/dev/null 2>"$work/err"; rc=$?
+check "an unset NOEVIA_FRONT starts as rust (#2094), not refused as node" '[ $rc -eq 3 ] && ! grep -q "NOEVIA_FRONT" "$work/err" && grep -q "^front " "$work/log" && grep -q "^node " "$work/log"'
+reset; touch "$work/die-front"
 run NOEVIA_FRONT= >/dev/null 2>"$work/err"; rc=$?
-check "the image default (node) is refused, nothing started" '[ $rc -eq 2 ] && grep -q "NOEVIA_FRONT=node is no longer supported" "$work/err" && [ ! -s "$work/log" ]'
+check "an empty NOEVIA_FRONT also starts as rust" '[ $rc -eq 3 ] && ! grep -q "NOEVIA_FRONT" "$work/err" && grep -q "^front " "$work/log"'
 reset
 run NOEVIA_FRONT=node >/dev/null 2>"$work/err"; rc=$?
 check "NOEVIA_FRONT=node is refused, nothing started" '[ $rc -eq 2 ] && grep -q "#1071" "$work/err" && [ ! -s "$work/log" ]'

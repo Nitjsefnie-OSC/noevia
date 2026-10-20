@@ -31,7 +31,9 @@ for retired in NOEVIA_RUST_AUTH NOEVIA_RUST_USAGE NOEVIA_RUST_SAMPLING_SETTINGS 
     unset "$retired"
   fi
 done
-front="${NOEVIA_FRONT:-node}"
+# Rust is the only front (sbstndalton/noevia#1071, #2094): unset or empty means rust, matching the image
+# default; node and anything else are refused below.
+front="${NOEVIA_FRONT:-rust}"
 case "$front" in
   rust) ;;
   node) echo "web-supervisor: NOEVIA_FRONT=node is no longer supported: the Rust front owns sign-in and routes Node no longer has (sbstndalton/noevia#1071); set NOEVIA_FRONT=rust" >&2; exit 2 ;;
