@@ -62,7 +62,7 @@ force-replaces their history with a fresh extraction.
 
 ## Cutover steps
 
-Do these in one sitting, on a quiet main. Nothing here touches DaServer; the next release after the
+Do these in one sitting, on a quiet main. Nothing here touches the deployment host; the next release after the
 cutover is a normal release.
 
 1. **Freeze and pick the cut sha.** The UI redo, **PR #953 (issue #951), must be merged first**.

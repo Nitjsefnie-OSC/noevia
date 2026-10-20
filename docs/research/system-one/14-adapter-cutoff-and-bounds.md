@@ -93,7 +93,7 @@ node --test apps/web/server/decision/readout-bounds.test.cjs \
 The full repository suite, typecheck, build, existing experiment suites, real llama.cpp scoring,
 model memory behavior, cache reuse, and real cancellation/slot release were **not** verified in
 this isolated patch workspace. Those must not be represented as passing based on this batch.
-No code or tests ran on the user's MacBook or DaServer.
+No code or tests ran on the user's MacBook or the deployment host.
 
 ## Next boundary
 

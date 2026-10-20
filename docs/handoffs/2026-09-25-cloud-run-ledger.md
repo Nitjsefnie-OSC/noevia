@@ -1,6 +1,10 @@
 # Noevia run ledger, 2026-09-25 (cloud session; append to Claude handoff 2026-09-24/OVERNIGHT-RUN.md on the Mac)
 
-Environment: cloud container, no ssh to DaServer, no gh CLI (GitHub MCP used), Mac ledger folder absent.
+> Historical software/planning record. Installation-specific access, accounts, paths,
+> inventories, and recovery receipts are retained in a verified local archive excluded from
+> Git. This record is not current authorization or proof of any live deployment.
+
+Environment: cloud container, no ssh to the deployment host, no gh CLI (GitHub MCP used), Mac ledger folder absent.
 Start state: origin/main a19ff5d, 0 open PRs, open issues 255, 261-265, 267-273, 275 (all deferred earlier). Live web 5a47942 per brief (not re-verified here).
 
 ## Triage
@@ -28,7 +32,7 @@ Start state: origin/main a19ff5d, 0 open PRs, open issues 255, 261-265, 267-273,
 - NEEDS DEPLOY (web, src changed): a6663cc. LEFTOVER: remote branch claude/i18n-b delete (403 here).
 
 ## User decisions (this run)
-- No-doc-PR rule lifted for #267. Opus writing docs/spec-service-boundaries.md (map + contracts + recommendations for #268-#271 + DaServer verification appendix), Closes #267, branch claude/arch-267.
+- No-doc-PR rule lifted for #267. Opus writing docs/spec-service-boundaries.md (map + contracts + recommendations for #268-#271 + the deployment host verification appendix), Closes #267, branch claude/arch-267.
 - "Merge #289 when ready" (i18n-a restructured onto #288 segments).
 
 ## Issues filed from the #267 map (Haiku, code-verified by Opus reviewer)
@@ -46,7 +50,7 @@ Start state: origin/main a19ff5d, 0 open PRs, open issues 255, 261-265, 267-273,
 - Head dcb724d -> squash 1217498 on main. CI 7/7 green. Docs-only (spec + two link lines): no deploy needed.
 - Verdicts: web process is the core (in-process: orchestration, approvals, auth, secrets, MCP wiring, storage client); existing sidecars stay; browser executor must be sandboxed before enabling; Diary contract weakest (M2 tenant assertion); models.ini needs one owner (M3, gated on System-One).
 - Recommendations: #268 narrow (API contract + /api/ready), #269 narrow then defer, #270 defer, #271 adopt comparison but M2 first.
-- LEFTOVER: remote branch claude/arch-267 delete (403 here). Appendix A: read-only DaServer checks for the user to run.
+- LEFTOVER: remote branch claude/arch-267 delete (403 here). Appendix A: read-only the deployment host checks for the user to run.
 
 ## MERGE: PR #289 i18n: account menu, Projects, Diary (Closes #285)
 - Head 94d0d54 -> squash 779634f on main. CI 7/7 green. #285 CLOSED.

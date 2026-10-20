@@ -1,7 +1,7 @@
 # Research findings — 2026-09-17
 
 What was measured or learned this session, what it changed, and what is still unknown. Each
-finding names its evidence. Numbers come from this deployment (DaServer, native llama.cpp on
+finding names its evidence. Numbers come from this deployment (the deployment host, native llama.cpp on
 Vulkan, integrated GPU with unified memory) unless stated.
 
 ## 1. Served models and context caps (D3)
@@ -57,7 +57,7 @@ content, allowed/denied/chat-wide writes), two repeats, rotated order, Qwen3.5-4
 **Status: not measured.** The fixture set grew to the spec's size (12 questions, 4 needing project
 sources, 2 adversarial pages) and the harness now runs variants A (chat-style), B (pipeline) and
 C (pipeline + plan) with production-identical request shape. The run on Ornith-9B was cut off when
-DaServer became unreachable (§5). No adoption claim can be made; the feature is on only for
+the deployment host became unreachable (§5). No adoption claim can be made; the feature is on only for
 administrators with its budgets.
 
 **Carried forward from earlier:** citation checks prove a claim is *in* a source, not that the
@@ -99,27 +99,11 @@ removed, not the material.
 **Next.** Status vocabulary (Idle/Running/Waiting/
 Failed…) unified across jobs, models and Diary; icon sizes on a scale.
 
-## 5. Operations: DaServer became unreachable
+## 5. Connectivity qualification
 
-**Observation.** About 20 minutes after enabling `--models-max 2`, downloading a 52 GB ZIM to
-the array and running an appdata backup, SSH accepted TCP but timed out in banner exchange, and
-the Unraid web UI timed out. The public app kept serving (index 200 in 0.28 s, session 401).
-The user suspects the Docker/mover schedule.
-
-**Hypotheses, ranked.**
-1. *Memory.* On a unified-memory iGPU, Vulkan allocations (weights + KV cache) come from system RAM
-   and are not counted in the container's `mem_limit`. Two chat models plus the embedding model can
-   exceed what the 14 GB limit suggests. Earlier the host showed 9 GB available with both loaded;
-   a backup, mover and page cache on top may have exhausted it.
-2. *I/O.* Mover or backup on the array plus the 52 GB write starving sshd/emhttp (which run from
-   RAM but block on shared storage paths).
-3. Both.
-
-**How to tell next time.** After boot: `dmesg | grep -i -E "oom|killed"`, the syslog around 04:15,
-mover logs, and `free -m` with both models loaded and no backup running.
-**Mitigation until known.** `--models-max 1` (backup of the override kept), no large downloads or
-benchmarks during backup/mover windows, and a memory check in the model manager that counts
-GPU allocations on unified-memory hosts (proposed, not built).
+A historical connectivity interruption prevented some checks. Distinguish unavailable evidence
+from a failed product test. Verify reachability, live state, and authorization before resuming;
+keep addresses, diagnostic logs, and installation-specific incident records outside version control.
 
 ## 6. Research priorities — status
 
@@ -298,7 +282,7 @@ coding agents. Is that still sound, and can noevia's approval gate cover what th
    proxy. The sandbox is the boundary; permission prompts are the user experience on top.
    This is the spec's "OS-level enforcement" note, now with a concrete reason.
 4. **Location.** Stdio means the harness runs next to its client. Put the ACP client on the
-   execution node (DaServer container or the future Mac node) and relay job events to the web app
+   execution node (the deployment host container or the future Mac node) and relay job events to the web app
    over the existing jobs primitive. Don't wait for remote ACP.
 5. **Measured locally (experiments/acp-spike, archived at `cc1bc4a9`; OpenCode 1.18.31, fake model).** With the agent's
    default config, a write inside the workspace happened **without any permission request**,
@@ -318,10 +302,10 @@ Sources: [ACP introduction](https://agentclientprotocol.com/overview/introductio
 [ACP v1 tool calls and permissions](https://agentclientprotocol.com/protocol/v1/tool-calls.md),
 [ACP streamable HTTP/WebSocket RFD](https://agentclientprotocol.com/rfds/streamable-http-websocket-transport.md).
 
-## 12. KoboldCpp vs native llama.cpp on DaServer (user request)
+## 12. KoboldCpp vs native llama.cpp on the deployment host (user request)
 
 **Setup.** KoboldCpp v1.121 (`koboldcpp-linux-x64-nocuda`, sha256 `5939cb13…`, AGPL-3.0) inside the
-pinned llama.cpp Vulkan image (for its RADV drivers), same read-only `/mnt/user/ai-models`, same
+pinned llama.cpp Vulkan image (for its RADV drivers), the same read-only model-store mount, the same
 GGUF, context and `q8_0` KV cache; flash attention on in both. Harness:
 `experiments/backend-portability/kobold-vs-llamacpp.cjs` (archived; see git history at `cab205a1`), run from the web container; prompts with a
 fresh nonce so neither engine reuses a prompt cache; engines alternated per repeat. For the 9B the
@@ -367,6 +351,6 @@ race; they were not re-run.
 every dense and MoE model tested, never faster, and lacks the router noevia is built on. Removed:
 the `koboldcpp` service and container, the provider row, the binary, the harness and its result
 files, and both Qwen3.6-35B-A3B downloads. D18 stands (llama.cpp Vulkan). **vLLM** stays a possible
-future engine test, under the §8 gates. Kept from this round: gpt-oss-20b, Gemma 4 E4B and Gemma 4
-26B-A4B in `/mnt/user/ai-models` (not in `models.ini`; the model page now sets new folder models up
-automatically).
+future engine test, under the §8 gates. Artifact retention and any installed-model inventory remain in the local operator record.
+The model page can configure newly discovered folder models; discovery does not qualify their
+performance or authorize loading them.

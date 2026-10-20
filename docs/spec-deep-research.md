@@ -171,7 +171,7 @@ without lower citation validity. Record results here with the date and model con
 
 ### Gate result — 2026-09-17 (failed; feature turned off)
 
-Ornith-1.5-9B-Q5_K_M (ctx 16 384) on DaServer, llama.cpp b10920, `--models-max 1`, harness run
+Ornith-1.5-9B-Q5_K_M (ctx 16 384) on the deployment host, llama.cpp b10920, `--models-max 1`, harness run
 from inside the web container against `http://llama:8080/v1`, 12 + 4 + 2 fixtures, variants A/B/C.
 Questions 9–12 of the run hit `Model HTTP 500` in every variant because a Nextcloud Assistant test
 evicted the 9B mid-run (single model slot), so only questions 1–8 are clean. They already decide it:
@@ -185,10 +185,9 @@ evicted the 9B mid-run (single model slot), so only questions 1–8 are clean. T
 (Facts are counted over all 12 questions; the failed 4 contributed none to any variant.)
 B and C miss the ≥ 0.95 citation-validity bar, B covers no more facts than A, and C is worse than
 B at four times the time. The pipeline's one clear win is adversarial resistance (0 vs 2).
-**Decision:** not adopted. `NOEVIA_FEATURE_DEEP_RESEARCH` set to `"false"` in the live override
-(copy `.bak.before-deep-research-off`), web recreated. Before a re-run: find why a third of cited
-sentences fail the §5 check on a 9B (claim extraction vs. citation format), and run the gate with
-nothing else using the engine.
+**Decision:** not adopted. Before a re-run, investigate citation-validation failures
+(claim extraction versus citation format) and repeat the gate on an isolated evaluation
+profile. Installation settings and operational receipts are retained offline.
 
 ## 9. Build order
 

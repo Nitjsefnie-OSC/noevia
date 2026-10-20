@@ -90,11 +90,11 @@ The live reranker is a class-A component. It is not the generic System One, and 
 | 2 | What stays deterministic? | Auth, tenancy, tool policy and the three approval actions, Code-mode action classes, egress/SSRF/filesystem, budgets and caps, context-fit arithmetic, schema validation, cloud policy, secrets | High |
 | 3 | Strongest local System One? | *Corrected in doc 13.*
 
-- **RAG ranking (class A):** Qwen3-Reranker, measured and live.
+- **RAG ranking (class A):** Qwen3-Reranker is a ranking candidate; verify its quality and footprint for each profile.
 - **Generic decisions (class B):** unresolved. The candidates are compared on quality **and** residency.
   - A 4B option-logit model is one candidate, not the answer.
   - Laya (421M, fine-tuned) is the leading always-resident prior. | Medium (independent benchmark + vendor numbers; not yet measured here) |
-| 4 | Can it stay resident beside System Two? | On DaServer, CPU and iGPU share one 29 GB pool, and llama.cpp is capped at 14 GB. A dedicated 4B cannot stay beside gpt-oss-20B. Laya (≈0.5–2 GB, in process) or a 0.6–1.7B CPU logit model can (doc 13 §13.4) | Medium; doc 5 §5.8 |
+| 4 | Can it stay resident beside System Two? | Measure total memory, context/KV usage, runtime limits and slot contention on each target profile; residency is not implied by model file size | Requires per-profile measurement; doc 13 §13.3 |
 | 5 | Does it improve task quality? | Unknown | Configurations C vs A/B (doc 9) |
 | 6 | How much does RAG improve? | Unknown; reranking reliably helps in the literature and the current pipeline has no rerank stage at all | First prototype measures it |
 | 7 | How much does tool reliability improve? | Unknown; the existing embedding router already cut input tokens 23% with no loss (14/14 vs 14/14, `experiments/tool-routing`, archived; see git history at `0eee673f`) | Doc 9 tool family |
@@ -118,8 +118,8 @@ The live reranker is a class-A component. It is not the generic System One, and 
 
 | # | Question | Answer now | How it gets settled |
 |---|---|---|---|
-| 23 | One generic System-One model for all bounded decisions, or a hybrid (specialised discriminative models for narrow tasks such as RAG reranking, plus a tiny generic decision model for orchestration)? | Hybrid, unless one class-B backend matches the reranker **on the RAG set** at lower total residency | Doc 13 §13.5, including the RAG suite run through the winning class-B backend |
-| 24 | Is the 4B option-logit approach better at system level once residency pressure and swap costs are counted? | Probably not as a *dedicated* model on DaServer; possibly yes as readout on the *already-loaded* System Two | Doc 13 §13.5 system-level run: Q4 and S2L vs Laya L1/L2 and Q06/Q17 |
+| 23 | One generic System-One model for all bounded decisions, or a hybrid (specialised discriminative models for narrow tasks such as RAG reranking, plus a tiny generic decision model for orchestration)? | Hybrid, unless one class-B backend matches the reranker **on the RAG set** at lower total residency | Doc 13 §13.5: compare held-out RAG quality and total residency across candidate backends |
+| 24 | Is the 4B option-logit approach better at system level once residency pressure and swap costs are counted? | Unresolved: compare a dedicated model with readout on an already-loaded System Two, including queue and swap costs | Doc 13 §§13.3–13.5: per-profile memory, latency and quality qualification |
 
 ## 3. Prototype order, and one change to it
 

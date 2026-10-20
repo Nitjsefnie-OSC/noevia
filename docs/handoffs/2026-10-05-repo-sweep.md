@@ -1,5 +1,9 @@
 # Handoff — 2026-10-05: full repo sweep (bugs + old/deprecated/broken code)
 
+> Historical software/planning record. Installation-specific access, accounts, paths,
+> inventories, and recovery receipts are retained in a verified local archive excluded from
+> Git. This record is not current authorization or proof of any live deployment.
+
 Paste this as the first message of the next session. It is complete on purpose: running agents
 ignore steering added later, so everything the sweep needs is in this brief.
 
@@ -14,18 +18,6 @@ old, deprecated, dead or broken code. Ship each fix through review → merge →
 2. `docs/roadmap.md`, especially "Where things stand — 2026-10-05".
 3. `docs/changelog.md` (latest releases and their rollback recipes) and `docs/deployment.md`.
 4. Open issues: `gh issue list -R sbstndalton/noevia --state open`.
-
-## Current state
-- **Live:** web `cowork-web:29732472` on DaServer (`ssh daserver`, 10.69.0.130),
-  https://noevia.daserver.work.
-- **Flags:** `chatFraming` is ON. Everything else from the last sprint is OFF: `framingReasoner`,
-  `brainContext`, `provenancePolicy`, `routingModes`, and the per-user mirror and traces.
-  **Never flip flags.** That is the owner's call.
-- **Recent code you may touch carefully** (all in `apps/web/server/` unless noted):
-  - `chat-framing.cjs`, `chat-frame-steering.cjs`, `task-packet.cjs`, `framing-reasoner.cjs`
-  - `chat-vault-mirror.cjs`, `chat-brain.cjs`, `provenance-policy.cjs`, `routing-modes.cjs`
-  - `storage-client.cjs` `checkLogin`
-  - `experiments/framing-eval/` (repo root)
 
   These have specs (`docs/spec-task-packet.md`, `docs/spec-chat-brain.md`) and byte-identity
   tests for flag-off. Keep them passing.
@@ -56,52 +48,6 @@ Work area by area; one PR per coherent area.
 - **Broken code:** tests skipped for no current reason, scripts that no longer run, and dangling
   references.
 - **Do NOT rename `cowork*` identifiers.** That is intentional.
-
-## Required process (owner's standing rules)
-1. **File an issue first.** Every finding becomes a labelled GitHub issue before you fix it
-   (`bug`, `cleanup`, `security`, `chat-framing`, …). The fixing PR closes it.
-2. **Model roles:**
-   - **Fable** orchestrates and does the final review.
-   - **Opus** handles complex or security code.
-   - **Sonnet** does ordinary fixes, merges and deploys.
-   - **Haiku** does clerical work.
-3. **Use worktrees outside Nextcloud.** Work in `~/.noevia-worktrees/<name>`, never inside the
-   synced folder: Nextcloud deletes refs and files. Use
-   `NODE_PATH=/Users/sebastiandalton/.noevia-deps/node_modules` if needed. `better-sqlite3` is
-   missing locally, so DB-backed tests run only in CI.
-4. **Check for phantom deletions.** Run `git status` before every commit.
-5. **Tests:**
-   - Use `node:test` and pytest. CI is authoritative; do not run the full `npm test` locally.
-   - UI changes need a Playwright QA script in `apps/web/qa/` that fails before the change and
-     passes after. Run it with Brave via `QA_CHROME_PATH` and `PLAYWRIGHT_MODULE` from the npx
-     cache, because Chrome isn't installed.
-6. **Review:**
-   - Fable reviews every diff before merge. The `noevia-reviewer` agent has **no Bash**, so
-     capture `gh pr diff` into an untracked `review-input/` folder for it and delete the folder
-     afterwards.
-   - Fold medium findings into the PR before merging; file low ones as issues.
-7. **Merge:** squash-merge with `--match-head-commit` on the head CI verified, then delete the
-   branch.
-8. **Deploy:**
-   - **Web:** web-only. Overlay `dist/` and `server/` from `git archive` onto the current
-     `cowork-web:<sha>`. Back up `.env`, update `COWORK_VERSION` and the `current` symlink, then
-     run the guarded `tools/preflight/up.sh --env-file <abs> -- -d --no-build --no-deps --wait web`.
-     Snapshot all containers before and after; only web may change. Add a changelog entry with a
-     rollback recipe.
-     - Never use `overlay-release.sh` for a web-only release.
-     - Never print `.env` values; refer to key names only.
-   - **Diary and sidecars:** follow the per-service overlay flows in `docs/deployment.md` (Diary
-     ships from the running image, `agent/` only). Model-manager fixes also ship a model-loader
-     image.
-9. **Live-test** after each deploy with an Opus live-tester:
-   - Use the owner's signed-in Brave via Claude in Chrome.
-   - Use only test items the tester creates itself; never touch the owner's data.
-   - Never delete anything permanently. Archive test items instead.
-10. **No model runs** (local or DaServer) without per-run approval. A safety classifier blocks
-    them anyway.
-11. **Context:** at about 150k tokens, save state to the memory ledger, then compact.
-12. **Branches:** delete merged work branches. Only `main`, plus ChatGPT's branches, should
-    remain.
 
 ## Known loose ends worth checking in the sweep
 - `docs/project-ideas.md` is untracked in the local checkout. It is the owner's file; leave it.

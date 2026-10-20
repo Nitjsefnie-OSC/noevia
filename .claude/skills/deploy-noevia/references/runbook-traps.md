@@ -1,121 +1,20 @@
-# DaServer deployment: the five traps
+# Deployment compatibility and recovery checks
 
-Distilled from `docs/deployment.md`, which stays authoritative. Read that file for the
-full history; this is the part that bites if you skip it.
+Read `docs/deployment.md` and the installation's local operator runbook before an authorized
+release. This guide does not identify a live host or grant deployment permission.
 
-## Contents
+1. **Assemble all pinned components.** Since the repository split, an archive of the integration
+   repository alone does not contain the application. Verify source refs and archive checksums.
+2. **Inspect effective Compose inputs.** Repository examples and saved operator configuration do
+   not synchronize automatically. Back up the copies actually used by the installation and
+   validate the effective configuration before a change.
+3. **Use the installed preflight wrapper.** Confirm writable mount validation, maintenance-window
+   checks, idle-job checks, and service scope. A manager GUI can bypass these checks.
+4. **Qualify before activation.** Verify the candidate's binaries, contracts, startup, health,
+   and compatibility using isolated state. Do not switch the active release after a failed check.
+5. **Retain rollback inputs.** Keep the previous release, images, environment, and Compose files
+   together locally. Roll back only the scoped services; an image rollback must not overwrite
+   live application databases or private corpora.
 
-1. There are no git credentials on the server
-2. Three copies of the compose config, none of which auto-sync
-3. The preflight wrapper, not the GUI
-4. Verify the candidate before flipping the symlink
-5. Rollback
-
----
-
-## 1. There are no git credentials on the server
-
-`git fetch` in `/mnt/docker/appdata/cowork` fails with "could not read Username" — that
-directory is a stale checkout, far behind. Only release `a576ecf` was a real
-`git worktree`; everything since is a plain directory.
-
-**Deploy by shipping a tarball.** There is no pull-based path.
-
-Since the repo split (#952) the tarball is the **assembled release**, built from the repos
-pinned in `release/versions.lock` (a `git archive` of noevia no longer contains the code). Run
-from a clean noevia checkout at the released commit; docs/deployment.md "The deploy" is the
-reference.
-
-```sh
-SHA=$(git rev-parse --short HEAD)
-mkdir -p /tmp/noevia-release && bash deploy/tools/assemble-release.sh $SHA /tmp/noevia-release
-scp "/tmp/noevia-release/noevia-release-$SHA.tar.gz" root@100.70.173.74:/mnt/docker/appdata/cowork/releases/
-ssh root@100.70.173.74 "set -e
-cd /mnt/docker/appdata/cowork/releases && mkdir -p $SHA && tar -xzf noevia-release-$SHA.tar.gz -C $SHA && rm -f noevia-release-$SHA.tar.gz
-cd /mnt/docker/appdata/cowork && cp config/.env config/.env.bak.\$(date +%Y%m%d%H%M%S)
-cd /boot/config/plugins/compose.manager/projects/Cowork
-bash /mnt/docker/appdata/cowork/releases/$SHA/noevia/deploy/tools/build-web-release.sh $SHA /mnt/docker/appdata/cowork/releases/$SHA
-# STOP HERE if candidate verification fails — see trap 4.
-ln -sfn /mnt/docker/appdata/cowork/releases/$SHA /mnt/docker/appdata/cowork/current
-sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=$SHA/' /mnt/docker/appdata/cowork/config/.env
-bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --wait --wait-timeout 120"
-```
-
-Layout: `/mnt/docker/appdata/cowork/releases/<git-sha>/` holds the unpacked assembled tree
-(`noevia/`, `web/`, `core/`, `services/`, `release-refs`; pre-split releases are monorepo trees);
-`current` is a symlink to the active one. `COWORK_SOURCE_DIR` in `.env` points the
-compose file's `build: context:` at `current`, and `COWORK_VERSION` sets the image tag.
-`config/.env` is chmod 600 — back it up before editing, the `.env.bak.<timestamp>`
-convention is already established.
-
-A build takes ~10 min over the Tailscale relay. Run it in the background and poll for
-`docker ps | grep cowork-web`. An image that downloads models at build time (the Docling
-sidecar) takes considerably longer — and needs outbound access from the box at that
-moment, which is worth confirming with a single `curl` before starting rather than
-discovering 10 minutes in.
-
-## 2. Three copies of the compose config, none of which auto-sync
-
-A new service or env var must be added to **all three** by hand:
-
-1. repo `compose.yaml`
-2. `deploy/examples/unraid-compose-manager.yml`
-3. `/boot/config/plugins/compose.manager/projects/Cowork/docker-compose.yml` — **the live
-   one**, plus its `docker-compose.override.yml` for the `lemonade_default` external
-   network
-
-Editing only the repo file does nothing. Back the live one up first:
-
-```sh
-cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)
-```
-
-**Compose overlays do not work here.** The Unraid Compose Manager plugin drives project
-"Cowork" from that single `docker-compose.yml` plus the one override. A
-`docker compose -f a.yaml -f b.yaml` pattern is fine on a dev box and cannot be deployed
-— the plugin will not read a second `-f`. An optional service shipped as an overlay in
-the repo has to be hand-merged into the live file to go live.
-
-## 3. The preflight wrapper, not the GUI
-
-Before any Compose `up` on Unraid, validate resolved writable mounts with the host-side
-preflight — `deploy/preflight/README.md`, installed at
-`/mnt/docker/appdata/cowork/tools/preflight/up.sh`. Call it from the Compose Manager
-project directory with `--env-file … --` followed by the usual `up` options. It rejects
-writable `/boot` paths and device aliases without changing state bindings.
-
-**Starting the project from the Compose Manager GUI bypasses this helper entirely.**
-
-## 4. Verify the candidate before flipping the symlink
-
-The build step and the symlink flip are deliberately separate. Between them is the point
-where a bad candidate can still be abandoned at zero cost — once `current` moves and
-`COWORK_VERSION` is rewritten, recovery is a rollback rather than a no-op.
-
-If candidate verification fails, stop. Do not flip.
-
-## 5. Rollback
-
-Repoint `current` and `COWORK_VERSION` at the previous SHA and re-run Compose up with
-`--no-build --wait`. The previous release directory is still there — releases are not
-pruned on deploy.
-
-```sh
-ssh root@100.70.173.74 "set -e
-ln -sfn /mnt/docker/appdata/cowork/releases/<previous-sha> /mnt/docker/appdata/cowork/current
-sed -i 's/^COWORK_VERSION=.*/COWORK_VERSION=<previous-sha>/' /mnt/docker/appdata/cowork/config/.env
-bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --wait --wait-timeout 120"
-```
-
----
-
-## Other things that have wasted time
-
-- **`UPGRADES.md` on the server is stale.** It describes a retired AnythingLLM + LiteLLM
-  stack. Ignore it.
-- **`/mnt/docker` has no redundancy.** Single-device pool, with daily state and config
-  backups to a separate array disk (`deploy/backups/README.md`). That does not cover
-  unrelated appdata or the remote Nextcloud corpus.
-- **Containers are `cowork-web-1`, `cowork-diary-1`, `cowork-ocr-1`**, plus
-  `cowork-embed-1`, native llama.cpp, the model loader and Kiwix. The `cowork-` prefix is
-  deliberate and load-bearing.
+Never infer model residency or current versions from historical notes. Exact paths, SSH targets,
+origins, backup inventories, network topology, and credentials remain outside version control.

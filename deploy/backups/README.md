@@ -1,68 +1,43 @@
-# noevia backups on DaServer
+# Application backup and restore
 
-Configured 2026-09-12 using the already-installed Appdata Backup plugin.
-Persistent settings: `/boot/config/plugins/appdata.backup/config.json`.
-Schedule: daily 04:10 in the server's configured timezone. The plugin installs
-its own persistent cron through `scripts/checkCron.php`; this is not a Codex task.
+This guide describes backup coverage and verification. Configure schedules, destinations,
+retention, selected services, and recovery receipts in the installation's local operator
+runbook, excluded from Git. It is not a record of a running backup job.
 
-Destination: `/mnt/disk3/noevia-backups`, mode 0700, outside SMB exports, on an
-array disk separate from `/mnt/docker`'s single NVMe. Keep at least 7 backup
-directories and retain newer-than-30-day backups. This is local recovery, not
-an off-site copy or a claim of whole-server backup coverage.
+## Coverage
 
-Only `cowork-web-1` and `cowork-diary-1` are selected as a group. Both stop before
-state archives are created/verified; Diary starts before web afterwards. Expect
-a short nightly interruption (about 16 seconds for the first run). Other
-containers are skipped; container updates are disabled. Future unconfigured
-containers default to no stop/no backup/no update. Include paths cover noevia
-config, Cowork Compose Manager configuration, SMB custom configuration and the
-backup settings. The plugin also copies Docker templates. Flash/VM backups are off.
+- Include application state, configuration, tenant mappings, encryption keys, and the effective
+  Compose inputs required to restore the same release. Match each key with the databases and
+  provider files it encrypts.
+- Coordinate writers before taking a consistent snapshot. Record service shutdown/startup
+  dependencies and the expected interruption locally.
+- Verify that each configured Diary storage backend is actually covered. A remote corpus is
+  not backed up merely because the application's local configuration is included.
+- Keep the destination outside application writable roots and file-sharing exports. A backup
+  on the same machine is local recovery; it is not an independent off-site copy.
 
-The allowed-source list includes current noevia state and the planned dedicated
-Diary storage root; once the real Diary volume is mounted, verify it actually
-appears in backup archives. The current remote Nextcloud corpus is **not** copied
-by this job. Its verified migration originals are separately preserved on Mac;
-Nextcloud-wide backup remains a separate service responsibility.
+An operator may use a host backup plugin or another qualified mechanism. Inspect the selected
+tool's current configuration and logs rather than assuming a historical schedule still runs.
+Check archive completeness and writer recovery; a successful process exit is insufficient.
 
-Initial backup: `ab_20260912_224418`, approximately 6.1 MB. Both archive comparisons
-passed. An isolated restore under `restore-check-20260912` passed integrity checks
-for 11 SQLite databases, exact encryption-key comparison, configuration presence,
-and decryption of the restored storage connection. No private content was printed
-or sent to an inference provider. Restored files have never replaced live state.
+## Restore verification
 
-Manual run: `php /usr/local/emhttp/plugins/appdata.backup/scripts/backup.php`.
-Check `/tmp/appdata.backup/ab.log` for completion/errors and verify both services
-restart. Plugin notifications are set to errors. Never assume process exit code
-alone proves the backup succeeded; inspect the backup log and expected archives.
+Restore into a new private directory first and validate extraction paths. Check SQLite integrity,
+configuration presence, encryption-key compatibility, and readable restored credentials without
+printing their values. Load any required database extensions when checking vector databases.
+Never send restored private content to an inference provider for verification.
 
-Restore into a new, private directory first. Treat archives as sensitive and
-extract with path protections. Load SQLite's sqlite-vec extension when checking
-vector databases. Restore `secrets.key` with its matching database/provider files;
-losing the key makes encrypted credentials unusable. Stop writers before restoring
-live state and retain the displaced current state. Reconcile newer Diary writes
-before rolling back to an older corpus. Preserve current tenant mappings, mount
-identity markers and read-only SMB policy.
+Use synthetic state to test login, prior entries, continued writes, and stale-write conflicts.
+The historical `qa/restore-http.cjs` workflow exercised these behaviors with real web/Diary
+processes and a synthetic HTTP provider. A synthetic workflow does not prove a particular
+production archive is complete, nor a disaster-site or container-image restore.
 
-Follow-up: the restored web image starts with the restored accounts/configuration
-and serves HTTP in a network-none container. This verifies web startup, not a full
-end-to-end restored Diary/provider exchange. No restored state replaced production.
+Before an authorized live restore, stop writers, preserve displaced state, and reconcile writes
+newer than the backup. Preserve tenant boundaries and storage identity markers. An image rollback
+does not authorize replacing application databases or a Diary corpus.
 
+## Off-site copies
 
-### Full synthetic workflow restore — 2026-09-13
-
-`node apps/web/qa/restore-http.cjs` passed with real web and Diary processes and a
-synthetic HTTP provider. It created disposable state, captured an entry, stopped
-both writers, archived/extracted into a new directory, then verified restored
-login, prior corpus, encrypted provider credential use, continued Diary capture,
-and HTTP 409 for a stale file write. All temporary state was removed afterward.
-
-This complements the production archive integrity/key/startup checks above. It
-does not replay the real journal or send restored private data to a provider, and
-is not a container-image or disaster-site recovery test. Off-site backup has no
-chosen destination or budget; the user deferred that decision. Dedicated corpus
-archive coverage still needs verification after SMB storage cutover.
-
-
-Scheduled-run evidence: on2026-09-13 the04:10 EDT job completed at04:10:18,
-verified both state archives and restarted web/Diary. Subsequent inspection found
-all three production services running, with zero restarts/OOM reported.
+Store encryption recovery material separately from the encrypted backup. Verify the off-site
+copy and restore process independently. Provider selection, account configuration, cost, and
+retention are operator decisions; see [the off-site guide](../offsite/README.md).

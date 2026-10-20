@@ -6,9 +6,9 @@
 
 ## Where things stand
 
-- **Live on daserver:** `ab2720a` (release 2), deployed 2026-09-18 after backup
-  `ab_20260918_092222`. Rollback target `35ed364` (release 1). The user is reviewing release 2 on
-  desktop and phone; fold their feedback in before anything else.
+- **Historical status:** Foundation and Shell/Primitives/Connectors were the first two
+  software stages. Verify current implementation and user feedback before selecting work;
+  installation release, backup and rollback receipts are retained offline.
 - **Release 1 (Foundation):** one M3 palette (`apps/web/scripts/palette.cjs`), `tokens.css`,
   `materials.css` (Soft default, Liquid glass, Material 3), `public/lens.js`,
   `SegmentedControl`.
@@ -43,15 +43,15 @@
 
 ## How to work (the user's rules — follow exactly)
 
-- Repo: `…/AI frontend thing/noevia-application` (the parent folder is not a git repo). Web app
+- Repo: the configured repository checkout. Web app
   in `apps/web`. Read `AGENTS.md` and `docs/agent-brief.md` first.
 - **Use the Impeccable skill** (`.claude/skills/impeccable`; run its launcher as
-  `sh .claude/skills/impeccable/scripts/impeccable context` because Nextcloud drops exec bits).
+  `sh .claude/skills/impeccable/scripts/impeccable context` if executable permissions are unavailable).
   Read `reference/craft-floor.md` before UI edits; run `impeccable detect` on changed files.
 - **Click-test every change yourself in Chrome** with Playwright
-  (`PLAYWRIGHT_MODULE=~/noevia-local-test/node_modules/playwright-core`), desktop and phone,
-  light and dark, all three materials where relevant. Test data and screenshots live in
-  `~/noevia-local-test` (never inside the repo).
+  using the configured local Playwright installation, desktop and phone,
+  light and dark, all three materials where relevant. Keep synthetic test data and screenshots
+  in a local scratch directory excluded from Git.
 - **Before each commit:** `npm test`, `npm run typecheck`, `npm run build` (empty
   `/tmp/noevia-qa-dist/*` first), `npm run lint:design`, and the affected `qa/*.cjs` suites all
   pass. Known unrelated failure: `qa/notifications.cjs` fails on `35ed364` too.
@@ -66,6 +66,6 @@
 
 ## Open threads
 
-- User review of `ab2720a` (desktop + phone).
+- Review the current UI on desktop and phone with the user.
 - Google Drive uses `drive.file`; whole-Drive search would need a restricted scope and Google
   verification. Not planned unless the user asks.

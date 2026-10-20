@@ -96,7 +96,7 @@ These sources seed [a measured research plan](research-skills-mcp-loading.md). N
 
 | Source | Kind | Used for |
 | --- | --- | --- |
-| [Tailscale](https://tailscale.com) | Runs here | Remote access to DaServer |
+| [Tailscale](https://tailscale.com) | Runs here | Remote access to the deployment host |
 | [Headscale](https://headscale.net) and [NetBird](https://netbird.io) | Read | Remote-access alternatives; [research](research-remote-access.md) says don't migrate |
 | [Unraid](https://docs.unraid.net) Compose Manager and the appdata backup plugin | Runs here | How noevia is deployed and backed up |
 | [canirun.ai](https://github.com/midudev/canirun.ai) ([models](https://github.com/midudev/canirun.ai/blob/main/packages/models/src/index.ts), [compatibility](https://github.com/midudev/canirun.ai/blob/main/packages/compatibility/src/index.ts)) | Read | Fit estimates: how someone else judges whether a model runs on given hardware |
@@ -216,7 +216,7 @@ commit, not the README.
 | Idea | Came from | Why it is waiting |
 | --- | --- | --- |
 | Computer use in a sandboxed desktop, with the approval gate owning every action | [trycua/cua](https://github.com/trycua/cua) read at source (`8cb8f6d`, MIT) | Take parts, not the platform: it couples toward a hosted product, and its telemetry is on by default. A VM boundary looks like the right shape if it is ever built |
-| A Mac node running models locally, streaming experts from SSD | [leonickson1/Swiftlet](https://github.com/leonickson1/Swiftlet) read at source (`909c042`, Apache-2.0) | Metal-only, so irrelevant to DaServer; a candidate if the Mac ever becomes a trusted node |
+| A Mac node running models locally, streaming experts from SSD | [leonickson1/Swiftlet](https://github.com/leonickson1/Swiftlet) read at source (`909c042`, Apache-2.0) | Metal-only, so irrelevant to the deployment host; a candidate if the Mac ever becomes a trusted node |
 | Cheaper mixture-of-experts serving | [danveloper/flash-moe](https://github.com/danveloper/flash-moe) read at source (`3601d41`) | Noted as an idea to explore; nothing measured here yet |
 | A browser capability noevia owns end to end | Browser Use, playwright-mcp and the Playwright MCP security guides | Recorded as later work; the approval rule above is the part that already applies |
 | Single sign-on across the box | [nextcloud/all-in-one](https://github.com/nextcloud/all-in-one) and the Jellyfin SSO projects | Not pursued; noevia keeps its own accounts and passkeys |
