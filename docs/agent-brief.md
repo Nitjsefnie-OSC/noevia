@@ -287,9 +287,9 @@ merge like `frame`. Each reply's `meta.routing` carries `{ route, reason }`; log
 
 ### Models and vision
 
-Lemonade at `http://10.69.0.130:13305/v1`. Installed: `Gemma-4-E4B-it-GGUF`,
-`gemma-4-E2B-it-GGUF-UD-Q4_K_XL`, `Qwen3.5-9B-GGUF-UD-Q4_K_XL`,
-`nomic-embed-text-v1-GGUF`.
+Configure an OpenAI-compatible inference endpoint and qualified model roles for the installation.
+Endpoint addresses, credentials, and installed-model inventories belong in local operator
+configuration, not in this public brief.
 
 Auto-routing has `fast`, `smart`, and an optional **`vision`** role. With `vision`
 set, that model describes the project's images and the answering model reasons

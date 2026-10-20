@@ -1,4 +1,8 @@
-# Handoff: continue the 2026-09-25 run locally (Mac, with ssh to DaServer)
+# Handoff: continue the 2026-09-25 run locally (Mac, with ssh to the deployment host)
+
+> Historical software/planning record. Installation-specific access, accounts, paths,
+> inventories, and recovery receipts are retained in a verified local archive excluded from
+> Git. This record is not current authorization or proof of any live deployment.
 
 Paste into the local Claude Code session on the Mac:
 

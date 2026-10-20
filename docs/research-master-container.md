@@ -33,7 +33,7 @@ container.
    it for model-loader and passes it to web. Unit tests cover all route kinds.
 2. Network isolation: model-loader joins only a new `models` network with `web` and `llama`;
    `diary` stays on `default` and can no longer resolve it. Both compose variants render as
-   intended (`docker compose config` on DaServer, temp directory).
+   intended (`docker compose config` on the deployment host, temp directory).
 
 The engine still shares a network with model-loader (model-loader needs `llama:8080`), so the
 token is the boundary for that path.

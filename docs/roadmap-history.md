@@ -1,5 +1,11 @@
 # noevia roadmap — history (to 2026-09-21)
 
+> Hostnames and network addresses in this document are illustrative examples, not live targets.
+
+> Historical software/planning record. Installation-specific access, accounts, paths,
+> inventories, and recovery receipts are retained in a verified local archive excluded from
+> Git. This record is not current authorization or proof of any live deployment.
+
 **Archived 2026-09-21.** This was `docs/roadmap.md` until it reached 973 lines of accumulated
 status, session logs and superseded plans. The live plan is [roadmap.md](roadmap.md). Keep this
 file for the reasoning and evidence behind past decisions; do not update it.
@@ -17,44 +23,28 @@ ships — is listed in [sources.md](sources.md).
 Status words: **Shipped** = deployed and verified · **Open** = to build ·
 **Research** = ends in a written recommendation · **Decision** = waiting on the user · **Decided** = settled 2026-09-17 by delegation (table in master-prompt.md § Decisions).
 
-## Where things stand — 2026-09-18, morning
+## Historical software snapshot — 2026-09-18
 
-`main` (GitHub `sbstndalton/noevia`), release **`f0ea80b`** live on DaServer at
-**`https://noevia.daserver.work`** (cowork.daserver.work stays routed: it serves
-`/.well-known/webauthn` so passkeys made under that name keep working). See `deployment.md`.
+The historical release added tool routing, auto-tuning, model-folder discovery, server-judged
+model discovery, and optional integrations. Service-role boundaries remain useful architectural
+context; the installation's actual services, origins, feature flags, and recovery state are
+retained in the operator-local archive.
 
-**New on 2026-09-18 (all live in `f0ea80b`):** Settings regrouped (Account, Preferences,
-Connections, Server, Coming later); Settings → Web address (rename with a reachability check,
-earlier addresses stay valid for sign-in, passkeys via WebAuthn related origins); Google Drive
-backups done by noevia's backend (device sign-in, one button in the wizard and Settings →
-Backups, auto-opened Google tab, recovery-key download); public `/about` and `/privacy`; Google
-Cloud app `noevia` **in production** (drive.file, non-sensitive); wizard palette sits with
-light/dark and no longer flips light to dark. **Pending:** the admin's first Connect on the live
-site, then retire the host rclone cron (`/boot/config/plugins/dynamix/noevia-offsite.cron`).
+Related-origin passkey support lets an operator migrate an application origin while keeping
+eligible existing passkeys working. Configure and qualify the actual origins locally rather
+than treating an example hostname as a working target. A release record does not establish
+current configuration or authorize changing it.
 
-### Live and verified in production
-- Services: web, Diary, OCR, model-loader (D1), native llama.cpp (`--models-max 1`), the CPU
-  embedding server `cowork-embed-1`, Kiwix. KoboldCpp was tested and removed (slower generation on
-  every model, no router; findings §12).
-- Tool routing is on and backed by `cowork-embed-1`; auto-tune, model folder sync and the
-  server-judged Discover panel are live (release `ca5d2f6`).
-- Models change over time at the user's discretion; don't treat a new or missing preset as a finding.
-- MCP: Nextcloud (160 tools), Tavily, in-app server (10 tools).
-- Features on through env: previews, Diary append tool, offline Wikipedia. **Deep research is off**
-  (gate failed, parked until the user returns to it).
-- **Nextcloud AIO repaired** (apache/talk crash-loop after the nightly update; this broke Diary
-  storage with a 502) and **Nextcloud Assistant runs on the native engine** (`integration_openai` →
-  `http://noevia-llama:8080/v1`, verified with a text task).
+### Historical measurement findings
+The following findings belong to the measured configurations and workloads from 2026-09-17.
+They are not installed-service defaults or proof of current performance.
 
-### Measured, and now deployed
-Everything below was measured on the branch during 2026-09-17 and went live with `ca5d2f6`.
-
-- **APU memory (step 1):** GTT is kernel-capped at 14.85 GiB (half of RAM) plus 2 GiB VRAM. 4B = 3.1
-  GiB GTT + 1.9 GiB VRAM; embedding 0.3 GiB. Proposal: keep the cap, add `--fit on --fit-target 1024`
-  after the syslog mirror. [research-known-good-settings.md](research-known-good-settings.md)
+- **Unified-memory budgeting (step 1):** count host and integrated-GPU allocations together,
+  including model weights, caches, retrieval, and other permitted workloads. A configured cap
+  is not evidence of usable capacity. [Qualification guidance](research-known-good-settings.md).
 - **Retrieval swap (step 2):** a RAG turn under `--models-max 1` cost ~4.6 s of swapping and dropped
-  the prompt cache; a CPU nomic answers in ~30 ms. `cowork-embed-1` now serves embeddings and web
-  points at it through `EMBEDDING_BASE_URL`.
+  the prompt cache; the measured CPU embedding path answered in ~30 ms.
+  `EMBEDDING_BASE_URL` selects an independently configured embedding service.
 - **Tool router (step 4):** best-first ordering reaches the needed box 26/26 (was 8/26), right first
   call 21/26, 10.8 s vs 14.3 s median, on the real Nextcloud boxes. Live.
   [experiments/tool-routing/README.md](https://github.com/sbstndalton/noevia/blob/0eee673f/experiments/tool-routing/README.md) (archived; see git history at `0eee673f`)
@@ -74,153 +64,9 @@ Everything below was measured on the branch during 2026-09-17 and went live with
 - **CodeHarness spike (step 9, D14):** OpenCode over ACP solved a synthetic bug on the 4B (165 s) and
   9B (265 s) in a read-only, capability-less container with only the engine reachable; escape probes
   all blocked. `experiments/acp-spike` (archived; see git history at `cc1bc4a9`).
-- **Context logging (step 5):** `CONTEXT_LOG=1` on in production since 11:20, counts only. Read
-  `context-log.cjs report()` from about 2026-09-24 and write reducers for what repeats.
-
-### Broken or risky right now
-- **Outage cause unknown** (2026-09-17, 04:15–08:24). Mover 03:40 and the appdata backup 04:10
-  precede it. **The syslog mirror is now on** (2026-09-17 night): the box's own syslog is written
-  to `/boot/logs/syslog`, bounded at 10 MB × 4, so a repeat leaves evidence. Note that "Local
-  syslog server: Enabled" did *not* do this — that only receives syslog from other devices. The
-  original outage's log is still gone; `/var/log/syslog` starts at the reboot that ended it. Leading guess moved from
-  engine GTT to RAM-backed paths during the ZIM download or backup staging (the engine alone cannot
-  exceed ~16.9 GiB). Unproven — keep `--models-max 1`.
-- **FIXED 2026-09-17 night — Auto routing was pointing at models the engine does not serve.**
-  Live `auto-roles.json` named `gemma-4-E2B-it-GGUF-UD-Q4_K_XL` / `Gemma-4-E4B-it-GGUF`; the engine
-  serves `gemma-4-E2B_q4_0-it` / `gemma-4-E4B-it-qat-UD-Q4_K_XL` and four others. **Every
-  Auto-routed message would have failed.** It showed no errors only because nobody had chatted
-  that day. Cause: the D3 session edited `/mnt/docker/appdata/cowork/ui-data/auto-roles.json`,
-  which **is mounted into nothing** — the live path is
-  `/mnt/docker/appdata/cowork/state/web/auto-roles.json`. That dead directory's
-  `.bak.before-d3` still holds the stale values, which is how it was traced. Repaired to
-  Qwen3.5-4B (fast, vision) and Ornith-1.5-9B (smart), both confirmed served, web restarted
-  because roles are cached at workspace load, and a real completion verified.
-  **Lesson for the next session: `state/web/` is live; `ui-data/` is abandoned.** Check the mount
-  before believing an edit landed.
-- **The Nextcloud Assistant shares the single llama.cpp slot** with noevia chats and can evict the
-  loaded model mid-conversation. Its thinking is disabled (2.9 s answers). **Much reduced
-  2026-09-17 night:** the Assistant asks for `Qwen3.5-4B-Q5_K_M`, and noevia's fast and vision
-  roles are now that same model, so the common path no longer evicts anything. Only a `smart`
-  (9B) message still swaps. The engine has no API key on the `nextcloud-aio` network.
-- **Deployed but only exercised by me — all three now addressed in code, none yet confirmed live.**
-  The 4B not calling the Tasks box: every tool in it is named `nc_calendar_*` and described in
-  calendar words, so `tool-hints.cjs` adds a plain-language sentence per tool and the box leads with
-  "Tasks, to-dos, reminders" (`a9a3ff4`) — a hypothesis with a mechanism; confirming it needs a
-  model run in a D2 window. Discover showing nothing for a one-word query: the empty state now
-  offers "Show all publishers (N)" instead of only explaining itself (`03658d3`). Auto-tune's
-  resumable state: an expired partial silently restarted from scratch; the job reports `resumed`
-  and expired partials are deleted (`241af38`).
-- Previously: **release `877947c`** (2026-09-18 night): off-site backups to an encrypted local
-  store, restore-tested with the Diary included, mirrored by host rclone (D23, being retired).
-- **Shipped (2026-09-18, D24 replaces D23)** — Google Drive backups run entirely in noevia's
-  backend: one **Connect Google Drive** button (setup wizard and Settings → Backups) starts
-  Google's device sign-in, the backend polls for approval and uploads the encrypted store to a
-  `noevia-offsite` folder itself (`server/gdrive.cjs`), with the rclone script's safety rules
-  (refuse a wiped store, upload then prune, 500-delete cap, size mismatch = corruption). Refresh
-  token sealed with a key derived from the backup key; never reaches the browser; Disconnect
-  revokes. Recovery key downloads from the page. Uses `GOOGLE_OAUTH_CLIENT_ID/SECRET` (a
-  "TVs and Limited Input devices" OAuth client in Google Cloud project `noevia`, scope
-  `drive.file`, published). Host rclone + cron retire once the new path has copied live.
-  Settings regrouped: Account, Preferences, Connections, Server, Coming later. QA:
-  `qa/google-drive.cjs`, `qa/wizard-backup.cjs`, `server/gdrive.test.cjs` (fake Google).
-- **Next (user, 2026-09-18) — UI overhaul.** Brief: [ui-overhaul-master-prompt.md](ui-overhaul-master-prompt.md)
-  (the user's prompt, plus one added line: *the current noevia visual design is not a
-  reference; preserve functionality, data flows and tests, replace the visual language
-  entirely*). Architecture from `ui mockups/inspiration/` (merged descriptions + screenshots);
-  look from Apple HIG, Material 3 roles with Ramps Studio character, Aero/UniFi structural panes,
-  selective Liquid Glass, Impeccable as skill and final critique. **Release 1 deployed 2026-09-18 as `35ed364`** (Soft default, four materials in Settings → Appearance, `SegmentedControl`): palette generator `apps/web/scripts/palette.cjs`, M3 role tokens, `materials.css`, `public/lens.js` (replaces `glass.js`), palette picker removed, Impeccable installed at `.claude/skills/impeccable` with `PRODUCT.md`; samples in `docs/ui-samples/`. Release 2 deployed as `ab2720a`. Planned releases,
-  each deployed and click-tested:
-  1. **Foundation** — one noevia palette (light/dark) on M3 roles, spacing/radius/type/motion/
-     elevation/surface tokens; `public/glass.js` replaced; the whole app switches at once. Two or
-     three sample screens (settings, a project, connectors) shown to the user before rollout.
-  2. **Shell + Primitives + Connectors** (merged at the user's request after testing release 1,
-     2026-09-18; deployed 2026-09-18 as `ab2720a`) — the samples as the app: sidebar and workspace as framed
-     panes; Settings slides in and replaces the workspace (phone: list → page, rising sheet);
-     floating phone drawer; context panel as a surface; composer pane with glass send/model;
-     one look for every button, field, select, switch and row (`styles/primitives.css`,
-     `styles/shell-v2.css`). **Connectors** (Settings → Customize): Google Drive per account
-     with seven chat tools (`gdrive-tools.cjs`, `gdrive-files.cjs`, `drive-accounts.cjs`) and
-     per-tool Allow / Ask / Block (`tool-policy.cjs`, enforced in the chat gate; blocked tools are
-     not offered; writes can never be Allow). The admin's backup connection doubles as their
-     Drive, with an Offsite backups switch on the page. Nextcloud and custom MCP by URL are listed
-     as coming later. QA: `qa/connectors.cjs`, `qa/drive-tools-live.cjs`.
-  **Phase 2 (from 2026-09-18, brief: [ui-overhaul-phase2-prompt.md](ui-overhaul-phase2-prompt.md)):**
-  **User review of `ab2720a` — folded in, not yet deployed.** Eleven items from a desktop and
-  phone pass. Fields are 16px on touch devices so iOS stops zooming on focus (`styles/phone.css`);
-  a reload returns to where you were, Settings page included (`src/last-view.ts`, per device,
-  guarded by account id); the phone chat pins the composer to the bottom edge and greets you at
-  the top instead of centring the column; the inference strip is one tappable line on a phone and
-  one always-open horizontal row on a desktop (`StatsBar`); the sidebar is a fixed top group,
-  three independently scrolling lists (Projects first, then Pinned, then Recent chats) and a fixed
-  pane holding Diary — on a phone the whole rail scrolls with Diary and the account row stuck to
-  the bottom edge; Customize and Explore left the sidebar (Customize is Settings → Customize),
-  Plugins stayed; Settings goes single-pane below 820px rather than 700px, because Safari widens
-  the layout viewport when anything overflows and their phone was sitting just above the old
-  breakpoint; the five accent palettes are back (Iris, Warm, Cool, Neutral, Sage) generated from
-  `scripts/palette.cjs`, applied before paint, with the contrast suite now measuring all five in
-  both modes; and Auto routing gained an optional **Code** role that the classifier can choose
-  (a fenced block or a diff skips straight to it), falling back to Smart when no code model is
-  set. This reverses the earlier "one palette" decision at the user's request. Then:
-  3. **Primitives beyond Settings** — menus, context menus, modals as aero overlays (phone:
-     bottom sheets), confirm dialogs, cards, banners, empty states, chat bubbles and tool-call
-     list (approval card restyled, never simplified). **Built, not yet deployed**:
-     `styles/overlays.css` (loads after `primitives.css`, before `materials.css`) carries the
-     whole release; components only gained classes (`overlay` on the context menu, account
-     popover and composer panel; `aero dialog-sheet` on every `<dialog>` or its panel;
-     `surface` on project, month and model cards). Phone dialogs are bottom sheets with a
-     grabber that follow the *visible* viewport, so the software keyboard shortens them
-     instead of hiding their lower half. Context menus gained a complete symbol column, and
-     the sort menu's `✓ ` label prefix became a checked `menuitemradio`; the tool-call list's
-     `✓`/`⃠` became drawn Lucide icons (`arrow-down` added to the vendored subset). The
-     approval card is restyled on the warning role with 44px decisions on every device, its
-     three actions and its full unclamped arguments unchanged.
-  4. **Customize backends** — **Shipped 2026-09-19/21**: Plugins
-     (its own page) browses the public MCP registry and Anthropic's skills; a skill is added to a
-     project needing review; an administrator adds a hosted MCP server from the registry **or by
-     URL**, with a shared key, a per-account key, or per-account OAuth (dynamic registration, or
-     an app registered by hand). Each server becomes its own toolbox a project must choose, gets
-     no user credentials, and every one of its tools asks before it runs. Skills whose
-     description matches a message are loaded for that message. Nextcloud is a connector of its
-     own (**2026-09-21**): it reuses the connection set under Settings → Diary & storage, says
-     plainly when that connection is missing or its address is not on `MCP_NEXTCLOUD_ORIGINS`,
-     lists the toolboxes it offers, and carries the same per-tool permissions as Drive — writes
-     can never be “Always allow”. **Left: a curated marketplace list.**
-  5. **Projects and chats** — **Shipped 2026-09-21**: the project header carries its actions
-     (New chat, Project settings) beside the icon and goal; chips above the composer name what
-     rides along with the next message (instructions, memory, sources, linked folders) and open
-     what they count; an Outputs row lists the documents noevia made here — today only deep
-     research reports, each with its sources file — above the recent chats; the context panel
-     gained Context (model, thinking, toolboxes, folders, outputs) and lists Scheduled as not
-     yet available. On phones the header stacks instead of squeezing the title.
-  6. **Activity/usage** — **Shipped 2026-09-21**, still only from real usage data: the server
-     now also records replies by hour of the local clock and counts each tool call where it
-     runs, so Usage shows a peak hour, the favourite model and a per-tool call list beside the
-     token totals, heatmap and streaks. Files written before these counters existed read as
-     empty, and an account with nothing recorded says so instead of showing a figure.
-  7. **Impeccable critique pass and phone polish pass.** The mechanical half is covered and
-     green: `qa/mobile-audit.cjs` checks horizontal overflow and sub-44px tap targets at
-     320/375/390/768 in both themes, `qa/touch-targets.cjs` and `qa/mobile-surfaces.cjs` cover
-     the keyboard cases, and `npm run lint:design` is clean. What is left is judgement on a
-     real device, which is the user's.
-  **Decided 2026-09-18** (recorded at the top of the brief): plugins are bundles of skills,
-  connectors and commands; marketplace sources are Claude-compatible repos, any GitHub repo
-  added by URL, own/imported skills, and a curated noevia list; desktop first with a phone
-  polish pass after; skip Billing, Browser/Computer use, Desktop app/Extensions/Reveal in
-  Finder; Voice shown as not yet available; one palette to start.
-- Previously: **release `1fe3f1b`** (deployed 2026-09-17 night from `ca5d2f6`, web-only overlay,
-  appdata backup `ab_20260917_192134` first). All five services healthy, engine untouched, public
-  bundle byte-identical to the local build. Code mode ships **off** with no `CODE_*` environment
-  set. D1 needed no operator steps — it was already applied in `657d21b`, and the preflight passes
-  live; the earlier "blocked until the operator steps are applied" note was stale.
-- **Code mode is live (2026-09-21).** The sandbox is deployed (`code` profile, its own internal
-  network with the engine as the only other member), `features.codeHarness` is on, and a real
-  task ran the whole way through noevia's own service: OpenCode 1.18.31 on Qwen3.5-4B fixed the
-  `scratch` fixture's `median()`, four approvals (two edits, two commands) were raised and
-  answered, only `median.js` changed, the work came back on the task branch and the
-  repository's own test prints `ok`. Two defects had to be fixed first — noevia never wrote the
-  harness's own configuration file (so the agent had no model endpoint and its own permission
-  defaults), and a repository owned by the harness user was reported as "Not a git repository".
-- Glass banding on real devices: the user's check (D13). `llama-vulkan-test` is stopped, kept.
+- **Context logging (step 5):** counts-only context reports can identify repeated overhead and
+  guide deterministic reducers. Enable logging only under the current configuration and privacy
+  contract; retain operational output locally.
 
 ### Obsidian compatibility (2026-09-21)
 The Diary is a folder of Markdown, which is what Obsidian is too — so a vault opened in noevia
@@ -238,7 +84,7 @@ API key shared by noevia and the Nextcloud Assistant · the first live Connect G
 Customize/UI overhaul brief · deep research when they return to it · Talk's `changed-users` waits on an upstream
 AIO image · the glass banding check on real devices (D13).
 
-Deploying, spending, model weights on DaServer and live Compose/preset edits stay the user's call.
+Deploying, spending, model weights on the deployment host and live Compose/preset edits stay the user's call.
 
 ## Shipped (do not rebuild)
 
@@ -374,69 +220,6 @@ mobile composer and tap targets).
 - **Research** — Backend portability (llama.cpp vs vLLM), measured, no silent migration
   ([spec](spec-backend-portability.md)).
 
-### D. Modes, projects and harnesses
-- **Shipped** — Projects carry `modes` (`chat`/`cowork`/`code`, at least one). Existing
-  projects migrate to `['chat']` on workspace load and are saved once; create/patch validate.
-  The chat sidebar lists Chat-enabled projects, the Projects page lists all with an
-  availability chip, a project not enabled for Chat shows why and hides its composer, and
-  `/api/chat` refuses it (409) before any inference. Project settings → "Available in".
-  Tenant isolation unchanged (per-user `projects.json`). Cowork and Code are recorded only;
-  they are enforced when those modes get routes.
-- **Blocked on a second working mode** — Optional shared context layer across a project's
-  modes (per project, per mode, off by default). Nothing can share context until Cowork or
-  Code exists, so no flag is stored yet; design it with that mode.
-- **Built 2026-09-17 (on `main`, not deployed; `features.codeHarness`, off)** — `CodeHarness`, nine
-  modules, spec §3's "next" list complete **and its `_meta`/selector gaps closed**: `code-actions.cjs` (ACP tool call → noevia's action classes,
-  fail-closed, compound commands take their worst part, refusals never downgrade to an allow),
-  `code-workspace.cjs` (per-task git worktree, one writer per repository+branch, realpath
-  containment including for files that do not exist yet), `code-egress.cjs` (D15: per-task domain
-  allowlist at the proxy, check-then-connect to the same address, 80/443 only, credentials stripped),
-  `code-harness.cjs` (the session: approvals, "allow for this task" scoped to one action class and
-  never to a delete or push, containment re-checked at write time, job events), `code-acp.cjs`
-  (hand-written JSON-RPC over stdio, no SDK, cancellation wired before the handshake, process-group
-  kill), `code-service.cjs` + `routes/code.cjs` (admin-only, `CODE_REPOS` is the only way a
-  repository becomes reachable, one task per project), and the Code tab UI
-  (`src/components/code/`, `qa/code-mode.cjs`). Added the same day: `code-sandbox` — the harness
-  runs in its own container reached over an internal socket, never as a child of the web process
-  and never through the Docker socket (`services/code-sandbox/`,
-  `deploy/examples/code-sandbox.override.yml`); `code-meta.cjs` — token usage, harness version,
-  exit codes and the §1 identity tuple, read defensively and **naming what the harness did not
-  report** rather than defaulting it; and the Harness / Prompt-preparation selectors, with no
-  `Auto` (§2 permits one only after evidence) and the unavailable modes carrying their measured
-  reason. **Staged on DaServer 2026-09-17 with the flag off** (`deploy/examples/code-mode-staging.md`,
-  and a copy at `/mnt/docker/appdata/cowork/tools/CODE-MODE-READY.md`): sandbox image built and
-  probed, `cowork_code-workspaces` volume with a deliberately buggy `scratch` fixture repo, the
-  override staged but *not* wired into the Compose Manager project. Staging found three real gaps,
-  now fixed — worktrees must sit on the shared volume at an identical path, a workspace must be
-  handed to the harness uid, and a handed-over worktree **cannot commit**, so a separate harness
-  user now gets `git clone --shared` with the branch fetched back on release. **Contract v1 complete, 2026-09-18: the whole loop works.** Ornith-1.5-9B fixed the fixture in
-  46 s — two approvals, the edit through noevia's file API, only the intended file changed, and the
-  repository's own test passing on the task branch. Getting there found that **noevia's approvals
-  never reached the harness at all**: ACP nests the permission outcome and noevia sent it
-  unwrapped, so OpenCode read every approval as "the user rejected permission". Fail-safe, and
-  invisible because the fake agent shared the same wrong assumption. Three more: uncommitted work
-  was deleted with the clone, `HOME` inside the workspace got the harness's cache and database
-  committed onto the branch, and the shared state directory was created unenterable. All fixed and
-  covered. Earlier note, kept for the record: **first pass against real OpenCode 1.18.31 on 2026-09-17** (spec §3 "Contract v1"): the
-  mapping holds — classification, the approval card with a real diff, containment, `test.js`
-  untouched — and four defects surfaced that only a real harness could show, the worst being that
-  git's "dubious ownership" check made `release()` strand **every task's work** in its clone. All
-  four fixed. Still to do: `Auto` harness once evidence exists, the adapter owning the harness
-  config file, and runs against Claude Code and Codex. Original item: noevia-owned contract that external harnesses
-  (Codex, Claude Code, DeepSeek Harness, OpenCode, Hermes) adapt to; Harness and Prompt
-  preparation dropdowns beside Model; coding evidence scoped to model × harness × architect;
-  every harness action classified through noevia's approval gate; one writer per workspace
-  first. Evaluate ACP as the adapter protocol. ([spec §3](spec-agent-execution.md))
-- **Research, benchmark designed 2026-09-17 (not run)** — `PromptArchitect` (schema, P0–P3 variants, 18 fixtures, metrics, outbound audit and decision rules in [spec §2](spec-agent-execution.md)): optional stronger model (local or cloud,
-  provider-neutral, official auth only) writes a structured execution prompt for the local
-  model. Modes Direct (default) / Local / Frontier; Auto only after paired fixtures prove a
-  benefit. Outbound context allowlist enforced in code, disclosure shown, original request
-  stays authoritative, no hidden reasoning stored. ([spec §2](spec-agent-execution.md))
-- **Later** — Cowork browser capability through a noevia-owned `BrowserExecutor` on an
-  execution node: isolated profiles, domain allowlists, secrets substituted outside model
-  context, consequential actions through approvals, run as durable jobs. Browser Use is one
-  candidate implementation. ([spec §6](spec-agent-execution.md))
-
 ### E. Tools
 - **Shipped** — Tool calls render as one collapsible list under the thinking block in chat,
   projects and Diary: a line per call with state, name and one-line result; each expands to
@@ -495,7 +278,7 @@ mobile composer and tap targets).
   already in place: `deploy/init-managed.sh` selects `web-data`/`diary-data` only for new
   installs and refuses existing state (tests pass), and the preflight check rejects writable
   `/boot` binds after resolving symlinks, loops, parents and volume driver options (PHP test
-  passed on DaServer in a temp dir). Existing `COWORK_STATE_DIR` binds keep their meaning.
+  passed on the deployment host in a temp dir). Existing `COWORK_STATE_DIR` binds keep their meaning.
 - **Shipped (verified 2026-09-17, synthetic)** — Claude Diary bridge: bridge (3) and server
   connector (3) tests pass; against a disposable sandbox tenant a created credential listed,
   read, created and updated files with versions, got 409 for stale and duplicate creates, 400
@@ -503,16 +286,13 @@ mobile composer and tap targets).
   in-app companion by design: the bridge makes explicit, versioned, Claude-approved Markdown
   edits (it can edit capture files and the index, like the in-app editor) rather than appending
   structured exchanges with xid markers through capture.
-- **Partly verified (2026-09-17)** — Diary corpus in backups: the latest nightly archive
-  (`ab_20260916_151428`, `cowork-diary-1.tar.gz`) contains app-managed Diary storage
-  (`users/<id>/managed-diary.db`) and the per-user corpus folder. Re-check once the real Diary
-  moves to the SMB/dedicated root, since that path is not mounted yet.
-- **Live 2026-09-18 (D7, D23: Google Drive).** Encrypted, content-addressed snapshots written
-  nightly to a folder (`offsite-dir.cjs`) and mirrored to Drive by the host's rclone
-  (`deploy/offsite/`), so the Google credential never enters noevia. First snapshot restored in
-  full with the Diary, all 12 databases passing `integrity_check`. **Google Drive connected
-  2026-09-18:** 124/124 objects on Drive, `rclone check` 0 differences; the key is in the user's
-  password manager.
+- **Backup qualification:** verify that managed Diary storage and corpus data are both
+  included in the selected backup roots. Repeat restore checks when mounts or storage
+  providers change; keep actual archive receipts offline.
+- **Offsite design (D7, D23):** encrypted, content-addressed snapshots can be mirrored
+  to an operator-selected provider without placing that provider credential in noevia.
+  Qualify a full restore and database integrity; keep actual destinations, object inventories
+  and credential custody in local operator notes.
 - **Shipped on branch (D8: guarded empty-only sweep)** — Empty-folder cleanup after project deletion; see Current phase.
 
 ### G. Telemetry and logs
@@ -542,7 +322,7 @@ mobile composer and tap targets).
   where reports are saved (§10).
 
 ### H. Platform
-- **Researched 2026-09-17** — Headscale vs NetBird ([research-remote-access.md](research-remote-access.md)): don't migrate yet; neither changes the data path, the recorded slowness was WAN loss, DaServer's NAT allows direct paths. Measure with `tailscale ping`/`iperf3`/`mtr` from a remote client; if self-hosting is still wanted, Headscale.
+- **Researched 2026-09-17** — Headscale vs NetBird ([research-remote-access.md](research-remote-access.md)): don't migrate yet; neither changes the data path, the recorded slowness was WAN loss, the deployment host's NAT allows direct paths. Measure with `tailscale ping`/`iperf3`/`mtr` from a remote client; if self-hosting is still wanted, Headscale.
 - **Researched 2026-09-17** — AIO-style master container ([research-master-container.md](research-master-container.md)): don't build; keep Compose Manager. Found model-loader's socket-backed API reachable unauthenticated from the Diary container; repository fix adds `MODEL_LOADER_TOKEN` and a `models` network. Applied live 2026-09-17 (657d21b).
 - **Later** — Mac-native app as both client and optional trusted **execution node** (local
   files, terminal, repositories, browser, notifications): server orchestrates, node executes
@@ -584,14 +364,14 @@ deployment's models. Can run alongside the build order.
 **Before browser automation**
 7. `ExecutionNode` and `BrowserExecutor` contracts, browser security/approval model, then a
    Browser Use evaluation on a node. *Idea to explore, not a commitment:* cua's VM-sandboxed computer server (Lume on the Mac,
-   Linux desktops on DaServer) as one possible Cowork computer-use shape; its host desktop
+   Linux desktops on the deployment host) as one possible Cowork computer-use shape; its host desktop
    driver, if ever, only as the highest-trust node capability. Telemetry off.
    ([spec §5](spec-agent-execution.md))
 
 **Other**
 8. Known-good settings per model and hardware.
 9. Wider model evidence: accuracy, reasoning budgets, MTP, multi-GPU. *Idea to explore:* running larger
-   MoE models on DaServer by keeping experts in system memory or mmap'd from disk with llama.cpp's
+   MoE models on the deployment host by keeping experts in system memory or mmap'd from disk with llama.cpp's
    own options (verify flags against the pinned build), measured on this GPU — the idea behind
    flash-moe/Swiftlet, whose Metal-only code doesn't apply here.
 10. Backend portability (llama.cpp vs vLLM).
@@ -649,7 +429,7 @@ Build order from master-prompt.md § Current phase. Checked items are committed 
 - [x] 1. **D1 preflight** — `deploy/preflight/check.php` `modelLoaderBoundary()` blocks a deploy when
   model-loader's `MODEL_LOADER_TOKEN` is unset/short, web lacks the same token, or diary shares a
   network (or host mode) with model-loader; `overlay-release.sh` rolls back if the running diary can
-  resolve `model-loader`. PHP tests run on DaServer in a temp dir; the live resolved config is
+  resolve `model-loader`. PHP tests run on the deployment host in a temp dir; the live resolved config is
   **blocked** by it today, as intended, until the operator steps are applied.
 - [x] 2. **D5** — `server/features.cjs` registry (env `NOEVIA_FEATURE_*` is authoritative and locks the
   toggle; otherwise the admin setting in the auth DB `settings` table; default off), routes in
@@ -684,7 +464,7 @@ Build order from master-prompt.md § Current phase. Checked items are committed 
   the project (`src/components/research/`), `qa/research.cjs`. Deviation: files are named
   `Research <date> <slug>.md` in the project's Text upload folder, because uploads only manage the
   Documents/Images/Text/Other subfolders. The §8 measurement gate (real model) is still unrun —
-  no model is served on DaServer. Fixed on the way: `jobs.recover()` ignored `kinds`; the shared
+  no model is served on the deployment host. Fixed on the way: `jobs.recover()` ignored `kinds`; the shared
   close icon's second stroke was half length (skewed ×).
 - [x] 7. **D7** — `server/offsite-backup.cjs` (AES-256-GCM, HMAC chunk ids, 4 MiB chunks, encrypted
   manifests, dedupe, restore into an empty dir with per-chunk and per-file verification, retention
@@ -701,7 +481,7 @@ Build order from master-prompt.md § Current phase. Checked items are committed 
   `wikipedia_read` with offset paging; only `/content/...` paths from this server; content labelled as
   reference) when `features.kiwix` and `KIWIX_URL` are set. Compose: `deploy/examples/kiwix.override.yml`
   (profile `kiwix`, `ghcr.io/kiwix/kiwix-serve:3.7.0`, read-only, cap_drop ALL, internal network,
-  no ports). Verified 2026-09-17 against a real kiwix-serve 3.7.0 on DaServer with a 26 MB test ZIM
+  no ports). Verified 2026-09-17 against a real kiwix-serve 3.7.0 on the deployment host with a 26 MB test ZIM
   in a temporary container (removed with its image and files). Not deployed.
 - [x] 9. **D4** — Impeccable 4.1.0 (npm shim + its pinned `@impeccable/cli-darwin-arm64` binary) run once
   from a temp dir, removed afterwards; nothing added to the app or image. `detect --json src`: 9 findings.
@@ -898,7 +678,7 @@ and cutover; an off-site provider and budget; a live-credit research measurement
 
 ## Testing rules
 
-- Diary work uses a per-run **copy** of `AI frontend thing/diary-test/`. Never the folder
+- Diary work uses a per-run **copy** of an explicitly selected synthetic fixture corpus. Never the folder
   itself, never the real Diary, never production.
 - Every UI change is checked visually on a local spin-up, repeatedly: 375/768/1440, light
   and dark. Suites complement looking; they don't replace it.
@@ -975,4 +755,3 @@ and cutover; an off-site provider and budget; a live-credit research measurement
   `git checkout`. This is the documented hazard behind the `node_modules`/`dist` symlinks; worth
   knowing that it hits tracked source too, and that a sudden wave of "cannot find module" errors
   means eviction, not a code change.
-

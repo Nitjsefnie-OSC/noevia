@@ -1,299 +1,90 @@
-# Kev-0.8B decision cutover, limited (#1639)
+# Qualifying a decision-backend transition (#1639)
 
-Owner approval (2026-10-14): "accept the Kev RAM and p50 bars, go limited". Kev-0.8B serves **route, tool
-gate, step supervision, chat framing and the load advisor**, with calibration T 0.45. **Sensitivity stays on
-Laya-en**: Kev is not qualified for it (#1647), and Hybrid routing stays off. Laya-en (`cowork-laya-1`,
-`cowork-laya:0.3.5-noevia5`) keeps running unchanged and is the rollback.
+This public guide retains the compatibility and evaluation requirements from the historical
+Kev-0.8B trial. Host paths, installed artifacts, network inventories, container receipts,
+credentials, schedules, and the exact cutover/rollback commands remain in the local operator
+archive. This is neither proof of current deployment state nor authorization to start a model.
 
-Calibration: T=0.45 is applied in core when `COWORK_DECISION_MODEL=kev-0.8b` (noevia-core#108); nothing in
-the deploy repo sets it.
+## Preconditions and compatibility
 
-This page is the procedure. Nothing here has been run. Key names only: secret values are never written in
-this repo, in an issue or in a log.
+Confirm the current core contract and candidate image before changing any endpoint. The
+historical integration needed noevia-core#108; an older image understood only the predecessor
+contract. A reachable backend is not sufficient if the caller and response contracts differ.
+Check the actual current implementation and any retired selectors rather than replaying old
+environment settings against a newer native release.
 
-## 0. Preconditions (all must hold; otherwise stop)
+Verify the exact model artifacts, runtime build, and checksums locally. Do not download or
+pull missing artifacts under the authority of this guide. Record resource limits, required
+startup headroom, network isolation, health behavior, and a compatible predecessor before an
+approved transition. Retain the configured model store; never prune it as cleanup.
 
-1. **Core:** noevia-core#108 is merged and a web image built from it is live (normal release flow). Order
-   matters: the old web image speaks only Laya's contract, so pointing it at Kev makes every decision
-   fail (it falls back, but nothing is decided). With #108 and the new keys empty, the web sends exactly
-   what it sends today.
-2. **Deploy:** this PR is merged, and the four new keys are added to the **live** compose file's `web`
-   environment (the hand-maintained third copy, see step 3); `up.sh`'s preflight warns about missing keys.
-3. **Model on disk:** Kev-0.8B is already on DaServer from the #1639 eval. No download is needed or
-   allowed. The manifest is `/mnt/docker/appdata/cowork/eval/decisions/models/models/manifests/ollaya.dev/library/kev/0.8b`
-   (sha256 of the manifest file `8a0d4094df504ca7329bc999dabbb89c15ad5221f55728acde0ff61c2b3909f2`). It
-   pins the layers: Qwen3.5-0.8B-Base weights `sha256:c2b1e5a1…bab6c` (1.75 GB, HF rev `dc7cdfe2`),
-   the Kev adapter `sha256:9b908623…885a` and head `sha256:f400bd12…20b6` (HF `jaredpalmer/kev-0.8b`
-   rev `9a45d25e`), the tokenizer, the decision graph and the upstream calibration (`temperature` 2.35,
-   applied by Ollaya; core's T 0.45 is fitted on top of the served probabilities, as in the eval).
-   Check before starting that the manifest still hashes to the value above. If it is missing or differs,
-   **stop**: the model is not on DaServer, and this runbook does not download it.
-4. **Image on disk:** `ghcr.io/ollaya-dev/ollaya:0.13.0@sha256:31f749def61165d7bbb15def4e3d799a403461e0b8b777f359a924bb9b845ce6`
-   (local image id `sha256:5d6f3bad7a698504c4547f2dd35df7094e709031e8ac7cb2a9f12d13dd1abbf9`, used by the
-   stopped `noevia-eval-decisions` container). Always run it **by digest**. If it is not on disk, stop and
-   ask the owner before pulling.
-5. **Memory:** Kev's measured peak was VmHWM **4.58 GiB** (4,914,647,040 B) with the cgroup at its 5 GiB
-   cap (page cache included), at 2 and at 4 CPUs. Laya stays up alongside it (6 GiB limit, about 2.2 GiB
-   used). `MemAvailable` must be at least 8 GiB before the start (the eval's gate).
+## Role-specific qualification
 
-## 1. How Kev is served
+The historical trial considered Kev for routing, tool gating, step supervision, chat framing,
+and load advice. Sensitivity classification remained on a separately qualified backend because
+Kev was not qualified for that role (#1647). Backend selection must preserve this distinction;
+a shared endpoint must not silently change privacy routing or fall back to a weaker policy.
 
-One container, **outside** compose (so a compose `up` never touches it), on the internal decision network
-that web and Laya already share:
+Core's historical `kev-0.8b` profile applied calibration T=0.45 to the served probabilities.
+That does not replace the runtime's own calibration or qualify a different artifact/build.
+Record both layers and use the current source contract for supported model identifiers.
 
-| Setting | Value | Why |
-| --- | --- | --- |
-| Name | `cowork-kev` | |
-| Image | `ghcr.io/ollaya-dev/ollaya:0.13.0@sha256:31f749de…5ce6` | the evaluated build, by digest |
-| Network | `cowork_laya` (`internal: true`), alias **`kev`** | no internet egress at all; core accepts `http://kev:<port>` (noevia-core#108) |
-| Published ports | **none** | web reaches it on the internal network |
-| CPU | `--cpus 2`, `OLLAYA_THREADS=2`, `OLLAYA_DEVICE=cpu` | like-for-like with Laya and the 2-CPU latency run |
-| Memory | `--memory 5g --memory-swap 5g` | see the note below |
-| Other caps | `--pids-limit 512 --cap-drop ALL --security-opt no-new-privileges`, uid 1000 (image default) | as evaluated |
-| Model store | `-v /mnt/docker/appdata/cowork/eval/decisions/models:/home/ollaya/.ollaya` | the files the eval measured; do not clean this directory while Kev is live |
-| Offline | `OLLAYA_REGISTRY=http://127.0.0.1:9`, `OLLAYA_HF_ENDPOINT=http://127.0.0.1:9` | Ollaya itself never fetches; the internal network blocks the rest |
-| Residency | `OLLAYA_MAX_LOADED_MODELS=1`, `OLLAYA_KEEP_ALIVE=-1` | one model, kept loaded |
-| Key | `OLLAYA_API_KEY` from `/mnt/docker/appdata/cowork/config/kev.env` (mode 600) | the same value as web's `COWORK_DECISION_API_KEY` |
-| Healthcheck | the image's own: `/usr/local/bin/ollaya-healthcheck`, every 30 s, timeout 5 s, start period 15 s, 3 retries | |
-| Restart | `--restart unless-stopped` | |
+Relevant configuration keys include `COWORK_DECISION_URL`, `COWORK_DECISION_MODEL`,
+`COWORK_DECISION_API_KEY`, `COWORK_SENSITIVITY_DECISION_URL`, and
+`COWORK_SENSITIVITY_DECISION_MODEL`. Check effective saved administrator settings as well as
+environment configuration: a saved override can take precedence. Inspect privately, never
+print credentials, and do not modify account settings merely to make a test pass.
 
-**Memory limit.** The brief says "about 4.6 GiB", but the measured VmHWM is 4.58 GiB. A 4.6 GiB hard
-limit would leave about 20 MiB of headroom, and the cgroup also counts page cache, so it risks an OOM kill
-under load. Use **5g**, which is what the eval ran at with no OOM. If the owner wants 4.6g anyway, run
-the step-4 checks plus 100 synthetic decisions at that limit first, and check `OOMKilled=false`.
+## Candidate and resource checks
 
-## 2. Env keys (web, `/mnt/docker/appdata/cowork/config/.env`)
+Use an isolated candidate and synthetic data first. Qualify request/response behavior for each
+intended purpose, deadline/failure handling, health checks under the selected hardening,
+graceful shutdown, and sensitivity isolation. Run through the same settings resolution and
+decision modules the application uses; a stub that ignores saved settings proves less.
 
-| Key | Value at cutover | Today |
-| --- | --- | --- |
-| `COWORK_DECISION_URL` | `http://kev:11435` | `http://laya:8040` |
-| `COWORK_DECISION_MODEL` | `kev-0.8b` | empty |
-| `COWORK_DECISION_API_KEY` | the Kev key (secret; same as `OLLAYA_API_KEY` in `kev.env`) | empty |
-| `COWORK_SENSITIVITY_DECISION_URL` | `http://laya:8040` | empty |
-| `COWORK_SENSITIVITY_DECISION_MODEL` | `laya` | empty |
+Account for total resident memory and page cache. In the historical limited trial, measured
+VmHWM was 4.58 GiB under a 5 GiB cgroup cap; a 4.6 GiB hard limit would have left almost no
+headroom. These are evidence for that configuration, not universal sizing defaults. Measure
+the candidate alongside the installation's other authorized workloads before selecting limits.
 
-No other key changes. `NOEVIA_FEATURE_*` switches are unchanged; Hybrid routing stays off.
+Before a separately authorized cutover, satisfy the current idle/tune/backup-window gates and
+record only the scoped services and configuration that may change. Keep the predecessor
+available for rollback. Do not broaden access, change unrelated services, or invoke real Diary
+data as part of verification.
 
-The **decision settings saved in Settings** override `COWORK_DECISION_URL`, and the model id belongs to
-`COWORK_DECISION_URL` only. A saved URL survives both the cutover and the rollback, so it is checked with the
-real endpoint (the "Saved-setting check" below) before the cutover and again after the rollback.
+## Baseline and bounded soak
 
-## 3. Procedure
+Capture a baseline before activating the candidate. Keep text-free operational records local;
+publish aggregate metrics and validation limits rather than log rows or real conversations.
+Deduplicate overlapping rotated-log copies and retain exact UTC windows and sample counts.
+Thin baselines must be reported as uncertain rather than treated as reliable comparisons.
 
-**Idle gate** (all, right before each step that starts or recreates something: the Kev container start, the
-web recreate and every rollback recreate; stop and retry later if one fails):
-- no llama activity in 3 minutes; this must print `0`:
-  `docker logs --since 3m cowork-llama-1 2>&1 | grep -ciE "launch_slot|print_timing|prompt eval"`;
-- no auto-tune running (check the native-autotune state first; never recreate web during an owner-run tune);
-- no `up.sh`, backup, release or eval process; `noevia-eval-decisions` is stopped and stays stopped (it mounts the same model store);
-- Laya CPU near 0 and `MemAvailable` >= 8 GiB: `MIN_AVAILABLE_GB=8 /mnt/docker/appdata/cowork/eval/decisions/harness/gate.sh`.
+The historical seven-day limited trial used these acceptance criteria:
 
-**Saved-setting check** (what `GET /api/admin/decision-settings` would report, read without any login or cookie).
-It opens the web container's own database read-only (`better-sqlite3` with `readonly: true`; `cowork.db` in
-`UI_DATA_DIR`, default `/app/server/ui-data`) and passes the same `settingsStore(db)` object that
-`server/index.cjs` hands to `createDecisionSettings` in production. The store object is the production code; the
-only difference is that production opens the database read-write, so this open is the read-only variant of it.
-`createDecisionSettings` only reads the key once when created and writes nothing; the script prints `source` and
-the URL and nothing else:
-```sh
-docker exec -w /app/server cowork-web-1 node -e '
-const path=require("path"),Database=require("better-sqlite3");
-const dir=process.env.UI_DATA_DIR||"/app/server/ui-data";
-const db=new Database(path.join(dir,"cowork.db"),{readonly:true,fileMustExist:true});
-const s=require("/app/server/decision-settings.cjs").createDecisionSettings({store:require("/app/server/features.cjs").settingsStore(db),env:process.env}).get();
-console.log(s.source,s.url);db.close()'
-```
-It must print `deployment <url>`: `http://laya:8040` before the cutover, `http://kev:11435` after it,
-`http://laya:8040` after the rollback. `admin` as the first word means a URL saved in Settings is overriding the env:
-stop, and have the owner **clear it** in Settings (Settings, Decision service; if there is no clear button,
-**re-save** the value this stage needs: `http://kev:11435` for the cutover, `http://laya:8040` for the rollback),
-then run the check again until it prints `deployment`. A failure to open the database (`SQLITE_CANTOPEN`, or the
-module or file not found) means the paths above differ in this image: stop and ask; do not fall back to opening it
-read-write.
+- No restarts/OOM kills and health maintained; candidate memory stayed below its qualified cap.
+- Per-purpose daily failures below 2% and deadlines below 5%; days with fewer than 20 requests
+  were combined before computing rates.
+- Tool-gate implementation faults remained zero. Do not count a retired mismatch event that
+  the current implementation can no longer emit.
+- Sensitivity stayed exclusively on its qualified backend and failed closed when unavailable.
+- Supervision escalation rate stayed between 0.5 and 2 times the baseline; where the baseline
+  contained escalations, at least one per 100 supervision events was required.
+- Weak-escalate fallback increased by no more than five percentage points, and owner-marked
+  benign pauses increased by no more than one per 100 supervision events.
+- New routing/tool/supervision complaints became tracked findings. Resource headroom stayed
+  within the locally qualified bound throughout the run.
 
-**Network checks** (before the Kev start, and again after it):
-```sh
-docker network inspect cowork_laya --format '{{.Internal}}'   # must print true; otherwise stop
-docker exec cowork-web-1 getent hosts kev                       # after the Kev start: must print an address
-```
+Select a soak period and thresholds for the actual configuration before starting; these old
+criteria do not automatically authorize another trial. A breach triggers the agreed rollback,
+not an unbounded tuning session. Remove only temporary monitoring installed for that trial.
 
-**Soak log copy** (install **at the cutover**, for the soak only; there is no pre-cutover cron). The decision log
-keeps only the current 1 MiB plus one rotated file, so during the soak it is copied every 6 h by a cron line
-(`crontab -e` as root on DaServer; the `%` signs are escaped for cron). Install it right after the web recreate in
-"Switch web":
-```sh
-mkdir -p /mnt/docker/appdata/cowork/state/kev-soak
-# kev-soak-log-copy
-0 */6 * * * D=/mnt/docker/appdata/cowork/state; T=$(date -u +\%Y\%m\%dT\%H\%MZ); cp -a $D/web/system-one-decisions.jsonl.1 $D/kev-soak/$T.jsonl.1 2>/dev/null; cp -a $D/web/system-one-decisions.jsonl $D/kev-soak/$T.jsonl 2>/dev/null; true
-```
-At the end of the soak (pass or rollback) remove it: `crontab -l | grep -v 'kev-soak-log-copy' | grep -v 'kev-soak/' | crontab -`
-(this drops the marker comment and the line), then check with `crontab -l`. The copies hold text-free lines only;
-keep them mode 600 and do not open them in a chat or issue.
+## Rollback
 
-**Counting without printing content.** The commands print counts only, never rows. Over a set of log files, count
-the entries inside a time window with this (set `FROM` and `TO` as UTC ISO strings, and `FILES` to the files to
-read; overlapping copies are de-duplicated as identical lines). Before the cutover `FILES` is the two files on disk,
-`/mnt/docker/appdata/cowork/state/web/system-one-decisions.jsonl.1` and `.jsonl`; during the soak it also includes
-`/mnt/docker/appdata/cowork/state/kev-soak/*.jsonl*`:
-```sh
-cat $FILES 2>/dev/null | sort -u | docker exec -i -e FROM="$FROM" -e TO="$TO" cowork-web-1 node -e '
-const [from,to]=[process.env.FROM,process.env.TO].map(String);const c={};
-require("fs").readFileSync(0,"utf8").split("\n").filter(Boolean).forEach(l=>{let e;try{e=JSON.parse(l)}catch{return}
- if(!(e.at>=from&&e.at<to))return; const k=[e.kind,e.action||e.selected||e.source||e.event,e.fellBack||"-",e.cause||"-"].join("|");c[k]=(c[k]||0)+1});
-console.log(JSON.stringify(c,null,1))'
-```
-(`FROM` and `TO` are timestamps, not secrets; the output is counts keyed by kind, action, fallback and cause.)
+Recheck idle gates, restore the recorded predecessor endpoint and only the configuration keys
+changed by this transition, then verify settings resolution and every affected decision role.
+Do not copy an old environment file over unrelated changes made during the soak. Preserve
+candidate files and evidence for diagnosis. An image/backend rollback does not overwrite live
+application databases, private corpora, or model stores.
 
-**Baseline (Laya, from the log files already on disk).** Use only the current and the rotated decision log
-(`FILES` as above), with no cron and no waiting. First find the window they actually cover, as two timestamps and
-no content:
-```sh
-cat /mnt/docker/appdata/cowork/state/web/system-one-decisions.jsonl.1 /mnt/docker/appdata/cowork/state/web/system-one-decisions.jsonl 2>/dev/null \
- | docker exec -i cowork-web-1 node -e 'const a=require("fs").readFileSync(0,"utf8").split("\n").filter(Boolean).map(l=>{try{return JSON.parse(l).at}catch{}}).filter(Boolean).sort();console.log(a[0],a[a.length-1],a.length)'
-```
-Set `FROM` to the first timestamp and `TO` to just after the last one, run the counting command, and record in
-`/mnt/docker/appdata/cowork/state/kev-soak/baseline.txt` the window (`FROM`, `TO`) and:
-- `S` = the number of `supervise` entries; `E` = those with `action` `escalate` and no `fellBack` (the pauses
-  Laya caused); `W` = `supervise` entries with `fellBack` `weak-escalate`;
-- per purpose, requests `N` and failures (`cause` in `http-*`, `network`, `aborted`, `invalid-result`, `parse`, `deadline`);
-- `B` = benign pauses on Laya: the pauses in that window the owner reviews and marks as unneeded (the log is
-  text-free, so only the owner can tell; use 0 if the owner marks none).
-If `S` is under 20, say so in `baseline.txt` and use the whole window anyway; the supervision criteria in section 5 then
-rest on a thin baseline, and the owner decides whether to start anyway or to wait for more Laya traffic.
-
-**Backup (and record the pre-cutover decision URL):**
-```sh
-P=/boot/config/plugins/compose.manager/projects/Cowork
-E=/mnt/docker/appdata/cowork/config/.env
-cp -a $P/docker-compose.yml $P/docker-compose.yml.bak.before-kev
-cp -a $E $E.bak.before-kev   # keeps mode 600; evidence only, never copied back whole
-docker inspect cowork-web-1 cowork-laya-1 --format '{{.Name}} {{.Id}} {{.Image}} {{.State.StartedAt}}' > /mnt/docker/appdata/cowork/state/kev-cutover-before.txt
-# the decision URL is not a secret; no other .env value is read or printed
-sed -n 's/^COWORK_DECISION_URL=//p' $E | tee /mnt/docker/appdata/cowork/state/kev-cutover-decision-url-before.txt   # expect http://laya:8040
-```
-Run the Saved-setting check now (expect `200 deployment http://laya:8040`).
-
-**Start Kev (web untouched).** Run the idle gate first: the 5 GiB container start is the heaviest step.
-```sh
-docker logs --since 3m cowork-llama-1 2>&1 | grep -ciE "launch_slot|print_timing|prompt eval"   # must print 0
-docker network inspect cowork_laya --format '{{.Internal}}'                                      # must print true
-sha256sum /mnt/docker/appdata/cowork/eval/decisions/models/models/manifests/ollaya.dev/library/kev/0.8b   # must be 8a0d4094…09f2
-(umask 077; [ -s /mnt/docker/appdata/cowork/config/kev.env ] || printf 'OLLAYA_API_KEY=%s\n' "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" > /mnt/docker/appdata/cowork/config/kev.env)
-docker run -d --name cowork-kev --restart unless-stopped \
-  --network cowork_laya --network-alias kev \
-  --cpus 2 --memory 5g --memory-swap 5g --pids-limit 512 \
-  --cap-drop ALL --security-opt no-new-privileges \
-  --env-file /mnt/docker/appdata/cowork/config/kev.env \
-  -e OLLAYA_DEVICE=cpu -e OLLAYA_THREADS=2 -e OLLAYA_MAX_LOADED_MODELS=1 -e OLLAYA_KEEP_ALIVE=-1 \
-  -e OLLAYA_REGISTRY=http://127.0.0.1:9 -e OLLAYA_HF_ENDPOINT=http://127.0.0.1:9 \
-  -v /mnt/docker/appdata/cowork/eval/decisions/models:/home/ollaya/.ollaya \
-  ghcr.io/ollaya-dev/ollaya:0.13.0@sha256:31f749def61165d7bbb15def4e3d799a403461e0b8b777f359a924bb9b845ce6
-```
-Wait for `healthy` with a bounded loop (5 minutes at most):
-```sh
-for i in $(seq 1 60); do s=$(docker inspect --format '{{.State.Health.Status}}' cowork-kev 2>/dev/null); [ "$s" = healthy ] && break; sleep 5; done; echo "$s"   # must print healthy
-docker exec cowork-web-1 getent hosts kev                                                                                  # must print an address
-```
-**Verify the image's healthcheck passes with `OLLAYA_API_KEY` set and `--cap-drop ALL`.** That combination has not
-been run with this healthcheck before. If the loop does not print `healthy` (it prints `starting` or
-`unhealthy`), the step **stops**: `docker logs cowork-kev --tail 20` (no secrets are logged), then
-`docker stop cowork-kev`, and do not switch web. Nothing else was changed, so there is nothing more to roll back.
-
-Then load the model once from inside web, which is the only client on that network. The key is read inside the
-container from the env file, so it is never on a command line. The eval's cold load took 5.1 s:
-```sh
-docker exec --env-file /mnt/docker/appdata/cowork/config/kev.env cowork-web-1 node -e '
-fetch("http://kev:11435/api/decide",{method:"POST",headers:{"content-type":"application/json",authorization:"Bearer "+process.env.OLLAYA_API_KEY},
- body:JSON.stringify({model:"ollaya.dev/library/kev:0.8b",keep_alive:-1})}).then(r=>r.json()).then(j=>console.log(j.done_reason,Math.round(j.load_duration/1e6),"ms"))'
-```
-Expect `load`, then check `docker stats --no-stream cowork-kev` (under 5 GiB) and `MemAvailable`.
-
-**Switch web:** edit `.env` per section 2. Add the four new keys to the `web:` `environment:` of
-`$P/docker-compose.yml`, below `COWORK_DECISION_URL`, exactly as in `compose.yaml`
-(`COWORK_DECISION_MODEL: ${COWORK_DECISION_MODEL:-}` and so on). Then, after the idle gate, recreate web only:
-```sh
-docker logs --since 3m cowork-llama-1 2>&1 | grep -ciE "launch_slot|print_timing|prompt eval"   # must print 0
-bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file /mnt/docker/appdata/cowork/config/.env -- -d --no-build --no-deps --wait --wait-timeout 120 web
-```
-Then install the soak log-copy cron line (above); this is the start of the soak.
-
-## 4. Post-checks (synthetic only; one decision per purpose)
-
-First the Saved-setting check (the production settings store, read-only): it must print `200 deployment http://kev:11435`. Then, from inside web,
-the script below runs the shipped code against the live env only (its settings store is a stub, so it cannot see a
-URL saved in Settings; the Saved-setting check does that):
-```sh
-docker exec -w /app/server cowork-web-1 node -e '
-const s=require("/app/server/decision-settings.cjs").createDecisionSettings({store:{get:()=>null,set(){}},env:process.env});
-const b=s.backend(), z=s.sensitivityBackend();
-console.log("shared",b.model,b.wording,"sensitivity",z.model,z.wording);
-const two=(purpose,q,a,c)=>({kind:"choice",purpose,question:q,context:{stateText:"Synthetic check, no user data."},options:[{id:a,label:a},{id:c,label:c}]});
-(async()=>{
- for (const [name,be,req] of [
-  ["route",b,two("model.route","Which configured model role should answer this user message?","fast","smart")],
-  ["tool.gate",b,two("tool.gate","Synthetic: which tool?","web_search","none")],
-  ["chat.frame.kind",b,two("chat.frame.kind","What kind of chat does this first message start?","question","idea")],
-  ["load.advisor",b,two("load.advisor","Which of these does its error text describe?","oom","unknown")],
-  ["routing.sensitivity",z,two("routing.sensitivity","Does this content contain sensitive personal or confidential information?","sensitive","not_sensitive")]]) {
-  const t=Date.now(); const r=await be.decide(req); console.log(name,r.selected,r.metadata.model,Date.now()-t,"ms");
- }
- const t=Date.now(); const v=await b.supervise({goal:"Synthetic check",outputs:[{role:"tool",content:"synthetic result"}]}); console.log("step.supervise",v.action,Date.now()-t,"ms");
-})().catch(e=>{console.error("FAIL",e.reason||e.message);process.exit(1);});'
-```
-Pass criteria:
-- the first line reads `shared kev-0.8b kev sensitivity laya laya`;
-- every purpose answers with one of its options, `metadata.model` is `kev-0.8b` for the five shared
-  purposes and `convaiinnovations/laya` for sensitivity, and each takes under 1.5 s;
-- `cowork-kev` and `cowork-laya-1` are healthy with 0 restarts, `OOMKilled=false`; `docker network inspect cowork_laya --format '{{.Internal}}'` prints `true` and `docker exec cowork-web-1 getent hosts kev` prints an address;
-- of all running containers, only `cowork-kev` (new) and `cowork-web-1` changed id;
-- the web log has no `[system-one] COWORK_DECISION_MODEL names no known decision model` line.
-
-Save the output as `/mnt/docker/appdata/cowork/state/kev-cutover-after.txt`.
-
-## 5. Seven-day soak
-
-The log copy cron line (installed at the cutover, section 3) keeps running. Once a day record
-`docker inspect cowork-kev --format '{{.RestartCount}} {{.State.OOMKilled}}'` and
-`docker stats --no-stream cowork-kev` next to the soak notes. At the end, count each window with the counting
-command (day by day for the failure rates, the whole soak for the pause counts) and compare with
-`baseline.txt`.
-
-Kev stays only if, over all 7 days, **every** line holds:
-- `cowork-kev`: `RestartCount` 0, `OOMKilled` false, `docker stats` memory under 4.75 GiB, healthy;
-- per purpose and day, failures (`cause` `http-*`, `network`, `aborted`, `invalid-result`, `parse`) under 2% of
-  requests, `deadline` under 5%; days with fewer than 20 requests for a purpose are summed with the next day;
-- tool gate: 0 `impl-fault` entries (the tool gate always runs on the Rust port since `TOOL_GATE_IMPL` was retired in noevia-core#190, with the Kev budget; `impl-mismatch` is no longer emitted, so counting it would pass vacuously);
-- sensitivity: 100% of entries decided by Laya, none by Kev; turns stay local when it is unavailable;
-- step supervision escalations: the escalation rate `E/S` over the soak is at least 0.5 times the Laya baseline
-  rate and at most 2 times it, and at least 1 escalation per 100 supervise entries if the baseline had any;
-  `weak-escalate` fallbacks are no more than the baseline rate plus 5 percentage points;
-- benign pauses: the owner-marked unneeded pauses per 100 supervise entries are no higher than the baseline `B`
-  per 100 plus 1 (so a baseline of 0 allows at most 1 per 100);
-- no new owner complaint about routing, tool use or supervision (each one becomes a labelled issue);
-- `MemAvailable` never below 4 GiB while a chat model is loaded (the #697 livelock guard).
-
-Any breach is a rollback, not a tuning session. When the soak ends, remove the cron line (command in section 3)
-
-## 6. Rollback to Laya (exact)
-
-Run the idle gate first, then:
-```sh
-E=/mnt/docker/appdata/cowork/config/.env
-P=/boot/config/plugins/compose.manager/projects/Cowork
-docker logs --since 3m cowork-llama-1 2>&1 | grep -ciE "launch_slot|print_timing|prompt eval"   # must print 0
-# remove the four keys by name, then restore the decision URL recorded before the cutover; nothing else in .env is touched
-sed -i '/^COWORK_SENSITIVITY_DECISION_URL=/d;/^COWORK_SENSITIVITY_DECISION_MODEL=/d;/^COWORK_DECISION_MODEL=/d;/^COWORK_DECISION_API_KEY=/d;/^COWORK_DECISION_URL=/d' $E
-printf 'COWORK_DECISION_URL=%s\n' "$(cat /mnt/docker/appdata/cowork/state/kev-cutover-decision-url-before.txt)" >> $E
-grep -c '^COWORK_DECISION_URL=http://laya:8040$' $E     # must print 1 (the recorded value; use that value if it was not laya)
-bash /mnt/docker/appdata/cowork/tools/preflight/up.sh --env-file $E -- -d --no-build --no-deps --wait --wait-timeout 120 web
-docker stop cowork-kev        # keep the container and files until the cause is understood
-```
-Never copy `.env.bak.before-kev` back over `.env`: any other edit made during the soak would be lost. With the
-keys removed and the URL restored, web sends every decision, sensitivity included, to `http://laya:8040` with
-Laya's wording and contract: byte for byte what it sent before #1639. The new compose lines can stay, because
-they default to empty. To restore the compose file as well, run
-`cp -a $P/docker-compose.yml.bak.before-kev $P/docker-compose.yml` before the `up.sh`.
-
-Check afterwards: run the Saved-setting check (it must print `200 deployment http://laya:8040`; if `source` is `admin`,
-clear or re-save as described there), the post-check script must print `shared laya laya sensitivity laya laya`,
-and every purpose must report `convaiinnovations/laya`. Remove the cron line.
+Use [the generic release guide](deployment.md) with the operator's local recovery procedure.
+No cutover, inference, deployment, or settings change is authorized by this document alone.

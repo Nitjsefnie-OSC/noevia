@@ -11,7 +11,7 @@ features and active work; the changelog and deployment runbook record releases.
 | [master-prompt.md](master-prompt.md) | The one executable brief: rules, testing, deploying, decisions D1–D27 | Handing work to an agent |
 | [roadmap-history.md](roadmap-history.md), [master-prompt-history.md](master-prompt-history.md), [ui-overhaul-master-prompt.md](ui-overhaul-master-prompt.md), [ui-overhaul-phase2-prompt.md](ui-overhaul-phase2-prompt.md) | Archived plans and briefs — the reasoning behind past decisions, not status | Asking *why* something was decided |
 | [session-kickoff.md](session-kickoff.md) | The short prompt to paste when starting a session | Starting a new agent session |
-| [deployment.md](deployment.md) | Live DaServer runbook; `deploy/examples/overlay-release.sh` | Shipping to production |
+| [deployment.md](deployment.md) | Live the deployment host runbook; `deploy/examples/overlay-release.sh` | Shipping to production |
 | [changelog.md](changelog.md) | What was fixed and how it was verified | Checking whether something is done |
 | [design-system.md](design-system.md), [spec-ui-direction.md](spec-ui-direction.md), [ui-reference-review.md](ui-reference-review.md) | Palette, contrast, visual direction, references | Touching UI |
 | [diary.md](diary.md), [dav.md](dav.md), [spec-diary-markdown-workspace.md](spec-diary-markdown-workspace.md), [spec-diary-recovery.md](spec-diary-recovery.md), [spec-diary-shared-editing.md](spec-diary-shared-editing.md), [spec-diary-smb.md](spec-diary-smb.md), [spec-managed-diary.md](spec-managed-diary.md), [spec-storage-appliance.md](spec-storage-appliance.md) | Diary and storage | Touching the Diary or storage |

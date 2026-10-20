@@ -12,7 +12,7 @@ explanations. The README declares MIT. No code, GPU database, model catalogue or
 package was imported, and no calls to its hosted API were added.
 
 noevia's inference machine can be remote from the browser. Browser GPU detection
-would therefore answer the wrong question for a DaServer-backed session. Ranking
+would therefore answer the wrong question for a the deployment host-backed session. Ranking
 by estimated speed or parameter count would also not establish tool reliability,
 vision support, context fit, or response quality for this deployment.
 

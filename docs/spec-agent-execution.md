@@ -528,7 +528,7 @@ Deep research and Cowork build on it next.
 Where work runs. The server orchestrates and holds durable state; nodes perform bounded local
 actions.
 
-- Nodes: DaServer, a future noevia Mac app, later Windows/Linux machines.
+- Nodes: the deployment host, a future noevia Mac app, later Windows/Linux machines.
 - Each advertises explicit capabilities: terminal, filesystem, git, browser, notifications,
   desktop automation, local model runtime, hardware acceleration. None assumed.
 - Pairing and authorization are explicit; no ambient access to a client machine; capabilities
@@ -542,7 +542,7 @@ actions.
     type, scroll, screenshot) over `POST /cmd` / `WS /ws`, PTY endpoints and Playwright exec
     (`libs/python/computer-server/computer_server/main.py`). Runtimes: Lume VMs on Apple Silicon
     (`libs/lume`, Swift, Virtualization framework), Docker/QEMU/XFCE/Kasm Linux desktops
-    (`libs/python/cua-sandbox`). A Linux desktop sandbox could run on DaServer; macOS VMs need
+    (`libs/python/cua-sandbox`). A Linux desktop sandbox could run on the deployment host; macOS VMs need
     the Mac node. A VM boundary looks like the safer shape for Cowork computer use, if built.
   - *Host driver:* `libs/cua-driver` (Rust, MCP over stdio) controls apps on the real desktop
     with **no VM boundary** — the highest-trust capability a node can offer. Its `bounded` mode
@@ -557,7 +557,7 @@ actions.
   Swift/Metal MoE runtime that streams experts from SSD (Qwen3.5/3.6/Next families) with a
   loopback-only OpenAI-compatible server (`Sources/SwiftletServer/main.swift`) and an embeddable
   `SwiftletCore` library. No tools, MCP or permissions. Candidate for the node's optional
-  `local model runtime` capability; Metal-only, irrelevant to DaServer. README numbers
+  `local model runtime` capability; Metal-only, irrelevant to the deployment host. README numbers
   (e.g. 35B 4-bit in ~2.6 GB on M5) are unverified.
 
 
@@ -748,7 +748,7 @@ and its agent loop wrapped by this classifier.
 | Sandboxed computer use (VM guest command server) | cua `computer-server`, `cua-sandbox`, `libs/lume` | Idea to explore with R7 |
 | Host desktop driver with bounded manifest + embedder authorization | cua `libs/cua-driver` | Idea, later if ever; highest-trust capability |
 | SSD expert-streaming MoE runtime on the Mac | Swiftlet | Idea for the Mac node |
-| SSD expert streaming on DaServer | danveloper/flash-moe (`3601d41`) | Reject as software: Metal-only, no license, one model, stale. Idea only — see roadmap research 9 |
+| SSD expert streaming on the deployment host | danveloper/flash-moe (`3601d41`) | Reject as software: Metal-only, no license, one model, stale. Idea only — see roadmap research 9 |
 
 ### Other harnesses: pinned configuration — 2026-09-22
 

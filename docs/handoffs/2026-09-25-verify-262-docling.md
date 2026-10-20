@@ -1,5 +1,11 @@
 # Verify #262 on the next authorized project open — Docling re-read of the tax folder
 
+> Hostnames and network addresses in this document are illustrative examples, not live targets.
+
+> Historical software/planning record. Installation-specific access, accounts, paths,
+> inventories, and recovery receipts are retained in a verified local archive excluded from
+> Git. This record is not current authorization or proof of any live deployment.
+
 Read-only validation only. **Do not open, name, quote, or reproduce the
 contents of any tax-folder document anywhere in this session, in chat, in a
 filed issue, or in this ledger.** Everything below is checked through file
@@ -24,10 +30,12 @@ PR — do not patch anything in place during this check.
 
 ## 1. Confirm what is actually running
 
+
 ```sh
 docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}' | grep -E 'cowork-(web|docling)'
 docker inspect cowork-web-1 --format '{{.Config.Env}}' | tr ',' '\n' | grep DOCLING_BASE_URL
 ```
+
 
 `DOCLING_BASE_URL` must be set and reachable — if it is empty, the project is
 running the pdf.js fallback and there is nothing Docling-specific to verify
@@ -62,9 +70,11 @@ check.
 names, or credentials") — do not expect to see per-file log lines there. What
 IS worth checking:
 
+
 ```sh
 docker logs --since 10m cowork-docling-1
 ```
+
 
 - Clean: no crash/traceback lines, process still up (`docker ps` shows no
   restart since before the sync).
@@ -78,9 +88,11 @@ a per-file extraction outcome; that is intentional, matching the "never log
 document contents or names" posture the whole pipeline shares with OCR). What
 DOES appear if something goes wrong:
 
+
 ```sh
 docker logs --since 10m cowork-web-1 | grep -E '\[documents\]|\[uploads\]|\[noevia\] unhandled promise rejection'
 ```
+
 
 - `[documents] indexing <projectId>/<fileName> failed:` — RAG indexing
   failed after extraction; the file name appears (path, not content) — treat
@@ -105,7 +117,7 @@ places:
   admin, from a machine that can reach the host,
 
   ```sh
-  curl -s -b <session-cookie-jar> https://noevia.daserver.work/api/workspace \
+  curl -s -b <session-cookie-jar> https://noevia.example.com/api/workspace \
     | jq --arg id "<the tax project id>" \
          '.projects[] | select(.id == $id)
           | .files[] | {name, state: .document.state, stale: .document.stale,
@@ -123,9 +135,11 @@ places:
 
 **The 400 signature to search for and confirm is ABSENT:**
 
+
 ```
 noevia sent this document in a form the extractor refused; it will be read again after the next update.
 ```
+
 
 That exact string (from `apps/web/server/docling.cjs`) is what a file's
 `document.error` reads when the worker answers HTTP 400 — the failure mode

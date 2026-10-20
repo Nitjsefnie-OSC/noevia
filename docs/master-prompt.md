@@ -1,10 +1,9 @@
 # noevia master prompt
 
 You are working on **noevia**, a self-hosted, local-first workspace for project-aware chat,
-tools, coding tasks and a private Diary. The repository is `noevia-application/` inside the
-project folder "AI frontend thing" (GitHub `sbstndalton/noevia`, branch `main`). What is live,
-what is done and what comes next — in order — is in [roadmap.md](roadmap.md). Confirm runtime
-state on the server before assuming anything is live.
+tools, coding tasks and a private Diary. Use the established project checkout and its
+workspace instructions. Product status and the ordered queue are in [roadmap.md](roadmap.md).
+A repository record alone does not establish current deployment state.
 
 This is the single executable brief. Don't recreate retired audits, backlogs or extra prompts;
 update this file and the roadmap instead. The previous version of this brief, with its per-area
@@ -16,7 +15,7 @@ item lists, is [master-prompt-history.md](master-prompt-history.md).
 2. `docs/agent-brief.md` — layout, the modular server pattern, context layers
 3. `docs/roadmap.md` — status and the ordered work queue
 4. this file
-5. `docs/deployment.md` before any deploy (the live runbook; it differs from `DEPLOY.md`)
+5. `docs/deployment.md` and the local operator runbook before an authorized deploy
 6. the spec for the item you pick up (`docs/spec-*.md`)
 
 Then inspect the branch, working tree, recent commits and the code for your item. Where docs and
@@ -24,9 +23,8 @@ code disagree, the code wins; say so in the commit.
 
 ## Working with the user
 
-- **Commit, push and deploy every finished change without asking.** The user tests on the live
-  site and cannot review code; a change that is not deployed cannot be tested. Always deploy from
-  `main` (merge any branch first — a main-only deploy once silently reverted a day of work).
+- Follow the current task authorization and workspace ownership rules for commits, pushes,
+  merges, and releases. A public brief does not grant deployment or account access.
 - Explain what changed in plain language: what they will see, what was wrong, what was verified.
   Say plainly when something failed or was skipped.
 - Ask when an answer changes what you build; otherwise pick the sensible default, say so, and
@@ -41,7 +39,7 @@ the measurement gates (*measure first*) are not proposals. Verify every path, na
 here before relying on it.
 
 **Files:** durable docs in `docs/`, deploy helpers in `deploy/`, throwaway files in a temp
-directory you delete. Never write into `AI frontend thing/claude-output/` (retired).
+directory. Keep installation-specific records in an ignored local operator folder.
 
 ## Non-negotiables
 
@@ -75,7 +73,7 @@ From `apps/web`: `npm test` (server + front-end units), `npm run typecheck`, `np
 `npm run lint:design`, and the affected browser suites:
 
 ```sh
-PLAYWRIGHT_MODULE=/Users/sebastiandalton/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright \
+PLAYWRIGHT_MODULE="${PLAYWRIGHT_MODULE:?Set the locally installed Playwright module path}" \
 QA_SCREENSHOTS=/tmp/noevia-shots node qa/<suite>.cjs
 ```
 
@@ -90,24 +88,11 @@ losing its exec bit (Nextcloud sync does both; restore with `git checkout --` / 
 
 ## Deploying
 
-Full runbook in `docs/deployment.md`. In short, from the repo root:
-
-1. `cd apps/web && npm run build`, then pack `COPYFILE_DISABLE=1 tar -h --no-xattrs -czf
-   /tmp/app-SHA.tar.gz dist server contracts`; from the repo root `git archive --format=tar.gz -o
-   /tmp/src-SHA.tar.gz SHA`.
-2. `scp` both and `deploy/examples/overlay-release.sh` to `/tmp` on `daserver` (LAN alias;
-   over Tailscale `root@100.70.173.74`).
-3. On the box: `php /usr/local/emhttp/plugins/appdata.backup/scripts/backup.php`, `gzip -t` the
-   newest `/mnt/disk3/noevia-backups/ab_*`, then from
-   `/boot/config/plugins/compose.manager/projects/Cowork`: `bash /tmp/overlay-release.sh OLD NEW`.
-   It rolls back automatically on a failed health wait. It is not web-only: it recreates `diary`
-   and `ocr` (see "Overlay releases" in `docs/deployment.md` for the web-only recipe).
-4. Record the release in `docs/changelog.md` and `docs/deployment.md`; push.
-
-Live Compose files are **separate** from the repo's: `docker-compose.override.yml` in that
-project directory and `/mnt/docker/appdata/cowork/config/.env`. Back up with
-`.bak.before-<reason>` before any edit; there is no python on the host, so edit locally and copy
-back. Validate with `docker compose --env-file … --profile code config`.
+Read [deployment.md](deployment.md) for the generic process and use the installation's local
+operator runbook for targets, paths, effective Compose inputs, maintenance windows, and rollback.
+Releases use assembled pinned sources after the repo split. Qualify the candidate before
+activation. Keep production configuration and deployment receipts outside version control.
+Deployment, inference, downloads, and account changes require the current task's authorization.
 
 ## Decisions
 
@@ -143,8 +128,8 @@ Don't grow `index.cjs`: when you touch a route block there, extract it.
 | D13 | Glass effect device check | Stays the user's check on real devices; don't change `glass.js` further without their report. | Only real displays show the bug. |
 
 Still the user's, whatever the decisions say: spending money or credits, downloading model
-weights to DaServer, editing live model presets (`models.ini`), and anything touching the real
-Diary corpus. **Deploying is not** — see "Working with the user" above.
+weights to the deployment host, editing live model presets (`models.ini`), and anything touching the real
+Diary corpus. Release actions follow the current authorization and ownership rules.
 
 **Decisions added 2026-09-17 (models, by the user).** D19: don't serve a model whose *measured*
 usable context is at or below 16K — tool definitions and results leave too little room — and don't
