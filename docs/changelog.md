@@ -8,6 +8,8 @@ prior to this cleanup can still contain the earlier text.
 
 ## Unreleased
 
+Chat-context routes (GET and POST `/api/chats/{id}/context`) are permanently Rust-owned (#1071, #1264). The web supervisor now requires the `rust-project-writes` front feature, no longer reads or forwards `NOEVIA_RUST_PROJECT_WRITES` (set to any value it only logs the retired-switch warning), and the release assembler refuses a noevia-rs that still gates chat context on that switch or a core whose `OWNED_ROUTES` omits either context method.
+
 ## Release 9375ce98e35abb1cef148c75835ad62b65de2448 - 2026-10-19 (native-service completion; #1318, #1071, #2027)
 
 Core 1896db0 makes role-context, streamed JSON validation, presets, and relevant tool decisions unconditionally Rust-owned, and adds the bounded Rust workspace-claim helper called by Node while the authenticated account transaction is held (#2027). Services 2545ebc retires Diary's tenant selector while keeping its restart guard and nonce cache.

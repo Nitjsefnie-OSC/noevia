@@ -42,6 +42,9 @@ approvals, and endpoint validation whichever execution path is configured.
 At a native-image boundary, review the exact release contract before removing retired selector
 keys. Keep the old image, its configuration, and its selector values together for rollback.
 Do not copy historical selector lists into a newer release without checking current support.
+`NOEVIA_RUST_PROJECT_WRITES` is retired: chat-context routes are always native, so do not set it for
+a current image; the supervisor warns and ignores it. Set it only to roll back to an older image that
+still reads it.
 
 Native model-manager startup requires its configured roots and publisher lists to validate.
 For an image transition requiring a publisher-data seed, use

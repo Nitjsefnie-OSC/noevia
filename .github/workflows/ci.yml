@@ -127,6 +127,12 @@ jobs:
       # #2005: bash -x must not print the remote auth key (remote-services.sh).
       - run: bash deploy/tools/test-remote-services-xtrace.sh
         if: env.RUN_JOB == 'true'
+      # The pinned core's jobs.cjs loads dav-parse.wasm, which the test builds at core's pinned
+      # noevia-rs ref; that needs cargo with the wasm target, at the toolchain the other jobs use.
+      - uses: dtolnay/rust-toolchain@70dec6087f2cb6bab9fbac4da23160afbe848e91 # 1.99.0
+        if: env.RUN_JOB == 'true'
+        with:
+          targets: wasm32-unknown-unknown
       # #1391: an unreadable Coding job directory makes the release idle gate refuse (pinned core jobs.cjs).
       - run: bash deploy/tools/test-release-idle-jobs.sh
         if: env.RUN_JOB == 'true'

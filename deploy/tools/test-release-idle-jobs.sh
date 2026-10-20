@@ -26,6 +26,19 @@ if [[ -z "$core" ]]; then
   git init -q "$core" && git -C "$core" fetch -q --depth 1 https://github.com/sbstndalton/noevia-core "$ref" && git -C "$core" checkout -q FETCH_HEAD \
     || { echo "FAIL could not fetch noevia-core $ref"; exit 1; }
 fi
+# Since noevia-core's completeness-report loads the Rust/WebAssembly module when jobs.cjs is required,
+# a fetched core needs server/wasm/dav-parse.wasm. Build it exactly as core CI and build/web.Dockerfile
+# do: the noevia-rs tarball pinned in server/dav-parse.lock, checksum-verified, built with
+# tools/build-dav-parse-wasm.sh (needs cargo with the wasm32-unknown-unknown target), module checksum
+# verified. A NOEVIA_CORE_DIR checkout that already has the module is used as is.
+wasm="$core/server/wasm/dav-parse.wasm"
+dplock="$core/server/dav-parse.lock"
+if [[ ! -f "$wasm" && -f "$dplock" ]]; then
+  rsref="$(sed -n 's/^NOEVIA_RS_REF=//p' "$dplock")"; rssum="$(sed -n 's/^NOEVIA_RS_SHA256=//p' "$dplock")"; wsum="$(sed -n 's/^DAV_PARSE_WASM_SHA256=//p' "$dplock")"
+  [[ "$rsref" =~ ^[0-9a-f]{40}$ && "$rssum" =~ ^[0-9a-f]{64}$ && "$wsum" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL core server/dav-parse.lock has no usable pins"; exit 1; }
+  command -v cargo >/dev/null || { echo "FAIL cargo (with the wasm32-unknown-unknown target) is needed to build dav-parse.wasm"; exit 1; }
+  curl -fsSL --proto '=https' "https://codeload.github.com/sbstndalton/noevia-rs/tar.gz/$rsref" -o "$work/rs.tgz"     && echo "$rssum  $work/rs.tgz" | sha256sum -c - >/dev/null     && mkdir -p "$work/rs" && tar -xzf "$work/rs.tgz" --strip-components=1 -C "$work/rs"     && "$work/rs/tools/build-dav-parse-wasm.sh" "$wasm" >/dev/null 2>"$work/wasm-build.log"     && echo "$wsum  $wasm" | sha256sum -c - >/dev/null     || { echo "FAIL could not build dav-parse.wasm at noevia-rs $rsref"; tail -5 "$work/wasm-build.log" 2>/dev/null; exit 1; }
+fi
 jobs="$core/server/jobs.cjs"
 [[ -f "$jobs" ]] || { echo "FAIL no $jobs"; exit 1; }
 run() { node "$gate" --state-root "$1" --jobs-module "$jobs" "${@:2}"; }
