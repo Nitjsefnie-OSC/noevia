@@ -25,6 +25,7 @@ cat <<'JSON'
  "NOEVIA_FEATURE_DEEP_RESEARCH=false",
  "NOEVIA_FEATURE_=SECRET-empty-suffix-ok-or-not",
  "LAYA_LOAD_ADVISOR=on",
+ "DECISION_LOAD_ADVISOR=on",
  "MODEL_AUTOCONFIG=rust",
  "GGUF_PARSER=rust",
  "COWORK_CODE_NET_ADDR=10.0.0.5:9000",
@@ -44,17 +45,23 @@ out="$(bash "$script" cowork-web-1 2>&1)"; rc=$?
 check "values mode exits 0" '[ $rc -eq 0 ]'
 check "no secret in values mode" '! printf "%s" "$out" | grep -qi "SECRET"'
 check "no non-allow-listed key name in values mode" '! printf "%s" "$out" | grep -Eq "TOKEN|API_KEY|S3_SECRET|PATH|lowercase|X_IMPL_EXTRA_NOT"'
-check "allow-listed values printed" 'printf "%s" "$out" | grep -qx "STREAM_GUARD_IMPL=wasm" && printf "%s" "$out" | grep -qx "COWORK_VERSION=abc123" && printf "%s" "$out" | grep -qx "NOEVIA_FEATURE_DEEP_RESEARCH=false" && printf "%s" "$out" | grep -qx "COWORK_CODE_NET_ADDR=10.0.0.5:9000"'
-check "exactly the 10 allow-listed entries (incl. generic *_IMPL)" '[ "$(printf "%s\n" "$out" | grep -c .)" -eq 10 ]'
+check "allow-listed values printed" 'printf "%s" "$out" | grep -qx "STREAM_GUARD_IMPL=wasm" && printf "%s" "$out" | grep -qx "COWORK_VERSION=abc123" && printf "%s" "$out" | grep -qx "NOEVIA_FEATURE_DEEP_RESEARCH=false" && printf "%s" "$out" | grep -qx "COWORK_CODE_NET_ADDR=10.0.0.5:9000" && printf "%s" "$out" | grep -qx "DECISION_LOAD_ADVISOR=on" && printf "%s" "$out" | grep -qx "LAYA_LOAD_ADVISOR=on"'
+check "exactly the 11 allow-listed entries (incl. generic *_IMPL and both advisor names)" '[ "$(printf "%s\n" "$out" | grep -c .)" -eq 11 ]'
 
 keys="$(bash "$script" --keys cowork-web-1 2>&1)"; rc=$?
 check "--keys exits 0" '[ $rc -eq 0 ]'
 check "--keys prints no value and no =" '! printf "%s" "$keys" | grep -q "=" && ! printf "%s" "$keys" | grep -Eqi "SECRET|wasm|abc123"'
-check "--keys lists names" 'printf "%s" "$keys" | grep -qx STREAM_GUARD_IMPL && printf "%s" "$keys" | grep -qx COWORK_VERSION'
+check "--keys lists names" 'printf "%s" "$keys" | grep -qx STREAM_GUARD_IMPL && printf "%s" "$keys" | grep -qx COWORK_VERSION && printf "%s" "$keys" | grep -qx DECISION_LOAD_ADVISOR'
 check "--keys omits secret key names" '! printf "%s" "$keys" | grep -Eq "TOKEN|API_KEY|SECRET"'
 
 one="$(bash "$script" cowork-web-1 GGUF_PARSER 2>&1)"
 check "explicit allowed key prints just it" '[ "$one" = "GGUF_PARSER=rust" ]'
+one_decision="$(bash "$script" cowork-web-1 DECISION_LOAD_ADVISOR 2>&1)"; rc=$?
+check "new DECISION_LOAD_ADVISOR name prints just it" '[ $rc -eq 0 ] && [ "$one_decision" = "DECISION_LOAD_ADVISOR=on" ]'
+one_laya="$(bash "$script" cowork-web-1 LAYA_LOAD_ADVISOR 2>&1)"; rc=$?
+check "old LAYA_LOAD_ADVISOR alias still prints just it" '[ $rc -eq 0 ] && [ "$one_laya" = "LAYA_LOAD_ADVISOR=on" ]'
+bash "$script" cowork-web-1 DECISION_LOAD >/dev/null 2>&1; rc=$?
+check "near-miss advisor name refused (exit 2)" '[ $rc -eq 2 ]'
 ref="$(bash "$script" cowork-web-1 MODEL_LOADER_TOKEN 2>&1)"; rc=$?
 check "explicit secret key refused (exit 2)" '[ $rc -eq 2 ]'
 check "refusal leaks no value" '! printf "%s" "$ref" | grep -qi "SECRET"'
