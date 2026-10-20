@@ -185,10 +185,9 @@ evicted the 9B mid-run (single model slot), so only questions 1–8 are clean. T
 (Facts are counted over all 12 questions; the failed 4 contributed none to any variant.)
 B and C miss the ≥ 0.95 citation-validity bar, B covers no more facts than A, and C is worse than
 B at four times the time. The pipeline's one clear win is adversarial resistance (0 vs 2).
-**Decision:** not adopted. `NOEVIA_FEATURE_DEEP_RESEARCH` set to `"false"` in the live override
-(copy `.bak.before-deep-research-off`), web recreated. Before a re-run: find why a third of cited
-sentences fail the §5 check on a 9B (claim extraction vs. citation format), and run the gate with
-nothing else using the engine.
+**Decision:** not adopted. Before a re-run, investigate citation-validation failures
+(claim extraction versus citation format) and repeat the gate on an isolated evaluation
+profile. Installation settings and operational receipts are retained offline.
 
 ## 9. Build order
 

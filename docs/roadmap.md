@@ -1,79 +1,13 @@
 # noevia roadmap
 
-The one planning document: what is live, what is done, and what comes next **in order**. The
-executable brief is [master-prompt.md](master-prompt.md); every release is in
-[changelog.md](changelog.md) and [deployment.md](deployment.md); designs are in the `spec-*.md`
-files; outside sources are in [sources.md](sources.md). The reasoning behind earlier decisions,
-session logs and superseded plans are in [roadmap-history.md](roadmap-history.md) — read it for
-*why*, not for status.
-
 Status words: **Done** = deployed and verified · **Next** = to build, in the order listed ·
 **Needs the user** = waiting on a decision, a device, or a maintenance window.
 
 ## Where things stand — 2026-10-06 (overnight: Rust start, repo split, bug rounds 3–7)
 
-- **Release references:** use `release/versions.lock`, software change notes, and exact-head CI.
-  Private installed-service inventories and recovery receipts belong in the local operator runbook.
-- **Repos:** [sbstndalton/noevia-rs](https://github.com/sbstndalton/noevia-rs) (Rust workspace:
-  `crates/gguf` + `gguf-meta`, `crates/egress` + `egress-proxy`, both differential-tested against the
-  JS/Python they replace, dark) and [sbstndalton/noevia-macos](https://github.com/sbstndalton/noevia-macos)
-  (the macOS client, history kept). `noevia` is the integration repo: `release/versions.lock` pins
-  `NOEVIA_RS_REF`, `NOEVIA_WEB_REF`, `NOEVIA_CORE_REF` (`self` until web/core are extracted);
-  `deploy/tools/assemble-release.sh` + `build/web.Dockerfile` build an identical image from pinned refs (dry run in CI).
-- **Fixed overnight (all with tests, reviewed, deployed):** research/Drive/export/diary-job/sweep
-  bugs (#891–#895); uncapped reads everywhere (#902, #903, #918, #920 with a guard test); model-manager
-  NaN 500 and stale stats (#901, #904); per-user preferences cache (#905); OCR deadline (#914);
-  project-bound chat grants (#917); sign-in limits and full credential revocation on recovery
-  (#927, #928, #933); SSRF ranges and egress proxy caps found by the Rust port (#930, #932);
-  ChatGPT reconnect race (#934); project delete flow (#942) and benchmarks UI (#943); assembly CI compares file hashes (#938). Docling dependencies and models pinned to the live freeze (#890).
-- **Flags:** unchanged (`chatFraming` on; the rest off).
-
 ## Where things stand — 2026-10-05 (after the repo sweep, superseded)
 
-- **Live:** **`cowork-web:8e96d876`**, **`cowork-diary:f6885a55`** (the 8e96d876 Diary overlay — only a log line, #885 — did not deploy because the appdata backup it runs first failed on an unrelated container; re-run `deploy/examples/diary-overlay.sh` when convenient), **`cowork-model-loader:8e96d876`**,
-  **`cowork-code-sandbox:pi-0.87.0-f6885a55`** (code-sandbox and code-verify) and
-  **`cowork-docling:f6885a55`**. The sweep shipped four releases on 2026-10-05: `c6702509`, `023ddcb5`,
-  `f6885a55` and `8e96d876`. The web rollback chain, newest first: `f6885a55`, `023ddcb5`, `c6702509`,
-  `29732472`, `3e7bbed8`. Every release in [changelog.md](changelog.md) has a per-service rollback recipe.
-- **Live override changes (release `f6885a55`):** web has `COWORK_CODE_NET_ADDR` (the code sandbox
-  gets 403 from web's UI and DAV listeners; #853), and docling has `init: true` (#882). Backups of the
-  previous override are `*.bak.before-f6885a55`.
-- **Flags on:** **`chatFraming`**. **Flags off** (owner's call, in this order): the per-user vault
-  mirror, `framingReasoner`, `brainContext`; independent of that order: `provenancePolicy`,
-  `routingModes`. The sweep changed no flag.
-- **Deploy note:** `deploy/examples/overlay-release.sh` is NOT web-only (it recreates Diary, OCR,
-  docling and code-sandbox). For web-only releases use the "Overlay releases" recipe in
-  [deployment.md](deployment.md). Docling: build `FROM` the previous image with only the app files
-  replaced until #890 pins torch.
-
 ### 2026-10-05: Full repo sweep
-
-Brief: [handoffs/2026-10-05-repo-sweep.md](handoffs/2026-10-05-repo-sweep.md). Two review rounds over
-every area (web server, client, Diary, model-manager, Laya, OCR, Docling, code-sandbox, deploy, tools,
-experiments), one issue per finding before each fix, a Fable review on every PR, a post-deploy live
-test.
-
-- **83 issues filed (#781–#890), 82 closed** by 28 PRs (#820–#889; +14,290 / −22,318 lines).
-- **Security and data safety:** malformed-cookie lockout, passkey-option flood, file-delete guard,
-  MCP `$ref` bomb, MCP DNS rebinding, MCP same-name tool routing (calls now route by server; the
-  approval card shows "via <server>"), sandbox→web reachability, verifier git-config injection,
-  code-workspace symlinked pin dirs, approval-card sent state, drafts across accounts, last-passkey
-  lockout, backup Drive sign-in ownership, Drive tokens across key rotation.
-- **Diary (owner's journal):** real pre-stream statuses, escaped headings/labels inside entries (and
-  the preview that renders them), lock-free tenant delete, backup integrity (version-checked uploads),
-  reindex without holding the write lock, stale-reindex guard, S3 size cap.
-- **Model manager / tuning:** nested-model and HF-cache deletes, verified download resume,
-  comment-preserving `models.ini` writes, hostile GGUF metadata, implausible `block_count`, calibration
-  restore after restart, folder sync paused during tuning, benchmark sweeps inside the inference
-  budget (gate held, re-adopted after a web restart, orphan bench containers reaped).
-- **Removed (owner-approved #806–#809):** the model manager's HTML UI, the Diary sidecar's own UI and
-  chat endpoints, superseded experiments (tool-routing, acp-spike, backend-portability,
-  direct-llamacpp, persona-kv, system-one decisions/rag, model-loader scripts), the dormant
-  durable-chat seam, the speed-only autotuner, dead exports and the expired `astraReview` env alias.
-- **CI:** deploy, OCR (with real engines), Laya and code-sandbox tests now run; a flaky Diary test
-  was fixed.
-- **Live test** of `c6702509` found #848 and #849 (both fixed). Not yet checked live: the #810 project
-  picker (auto-accept is on) and an approval card on a real write.
 
 ### 2026-10-02 … 10-05: Chat framing, provenance, routing modes
 
@@ -111,30 +45,6 @@ web-only.
   is plausible; B and C are low.
 
 ### Status snapshot — 2026-09-24 (superseded)
-
-- **Source:** current `main` is **`958022b`**. The web package's `0.1.0` is metadata, not the
-  application release number; deploy images use their source commit as `COWORK_VERSION`.
-- **Historical software snapshot:** release `958022b`; this does not establish any current
-  installation origin, deployed image, or account state.
-- **Not yet deployed:** Diary still runs `cowork-diary:5004b50` and the model-manager and
-  code-sandbox images are unchanged, so the Diary/sidecar fixes merged on 2026-09-24
-  (#77, #79, #84, #87, #93, #94, #99) are in `main` only.
-- **Stack (ten containers):** web, diary, ocr, llama (native llama.cpp Vulkan), embed (CPU
-  embeddings), kiwix, model-loader, **code-sandbox**, **docling**, and CPU-only **Laya**.
-  Sidecar image tags are pinned in `.env` (`DOCLING_VERSION`, `CODE_SANDBOX_VERSION`), not
-  tied to the app release.
-- **Features on:** previews, Diary MCP append, tool router, Kiwix, off-site backup, **Code mode**
-  (harness: **pi 0.87.0** since 2026-09-22; OpenCode one `.env` change away),
-  **System-One routing** and **Step supervision**. The two experiments share the saved Laya endpoint.
-  **Off:** deep research.
-- **Tests:** `apps/web` `npm test` 1487/1487 at `958022b`; Diary pytest 353 passed, 3 skipped
-  (at the #99 merge); model-manager pytest 72; all required CI checks green on every merged PR (five always run; the offline-contract check runs only when its paths change). Browser QA
-  records below describe their own dated runs.
-- **Deploy:** full releases use `deploy/examples/overlay-release.sh OLD NEW` after a verified
-  appdata backup; it recreates Diary and OCR (it is not web-only). Web-only releases: `git archive <sha>` →
-  scp → build `cowork-web:<sha>` → `tools/preflight/up.sh … web` run from the Compose project
-  folder; tags are commit SHAs; rollback is the previous release symlink plus the `.env` backup.
-  Runbook: [deployment.md](deployment.md).
 
 ### 2026-09-24 — Overnight hardening (web releases `7b6942c` … `958022b`)
 
@@ -328,43 +238,12 @@ measurement (#264, closed; only the owner's flag flip remains, see Needs the use
 portability (#265/#19 closed; PR #20 merged 09-23), and the modular-platform workstreams (#266–#272
 closed; contracts in [spec-service-boundaries.md](spec-service-boundaries.md)).
 
-1. **DAV client interoperability, remaining clients ([#263](https://github.com/sbstndalton/noevia/issues/263)).** rclone 18/18 and Obsidian sync 17/17 pass
-   (docs/dav.md). Still to run: Finder (needs the user), Windows Explorer/WinSCP, iOS Files, Obsidian
-   WebDAV sync — needs an admin-created local-storage test account (2026-10-01 comment). DAV sharing
-   is off live (`COWORK_DAV_PORT=0`); turning it on is the owner's call.
-2. **Other harnesses.** pi 0.87.0 is live (`pi-0.87.0-f6885a55`); Claude Code, Qwen Code and DeepSeek
-   Harness are pinned and proven with their real CLIs; Codex refused on measurement. Next, with the
-   owner's go: install the next measured harness in the sandbox image and run the `scratch` fixture.
-3. **Laya concurrency ([#780](https://github.com/sbstndalton/noevia/issues/780))**, then raise `NOEVIA_ROUTER_CHUNKS` and let hybrid routing re-check tool
-   results with Laya.
-4. **Later:** the [whole-Diary graph](https://github.com/sbstndalton/noevia/issues/275) (design done, narrow recommendation); the
-   [browser executor](https://github.com/sbstndalton/noevia/issues/274) is wired behind `browserExecutor` (off) — what remains is a node to run it
-   on; the native [Mac client](https://github.com/sbstndalton/noevia/issues/273) ([sbstndalton/noevia-macos](https://github.com/sbstndalton/noevia-macos), milestone 05).
-5. **Agent council ([#2021](https://github.com/sbstndalton/noevia/issues/2021)).** Owner idea (2026-10-18), modelled on the issue-close run: a
-   coordinated multi-agent mode for the agentic service. It has a planner, engineers in their own worktrees, an independent reviewer that
-   reads the saved diff, and a second-opinion agent on a different model or provider. They share a mailbox and an ownership record (one writer per resource, explicit
-   handoff, a scheduled check). Every finding is either fixed or filed. All roles route through the configured service assignments. Next: a design note.
-
 ### GitHub milestone map
 
 The [milestones](https://github.com/sbstndalton/noevia/milestones) group open enhancement issues
 and future architecture work. They have no due dates; the numbered **Next** list above remains the
 execution priority. Triaged bugs retain their separate priority. A milestone means planned work,
 not a shipped release.
-
-| Milestone | Roadmap scope | Existing issues |
-| --- | --- | --- |
-| [01 · Interface foundations](https://github.com/sbstndalton/noevia/milestone/1) | Composer, Chat/Cowork, projects, task progress, visual system, themes | #236, #239, #245, #247, #249, #255–#257 |
-| [02 · Settings, tools, and trust](https://github.com/sbstndalton/noevia/milestone/2) | Settings organization, tool/Skill discovery, connectors, usage | #226–#232, #237–#238, #258–#260 |
-| [03 · Model quality and guidance](https://github.com/sbstndalton/noevia/milestone/3) | Model tuning and guidance, then the evidence workstream above | #190, #194, #204, #266 |
-| [04 · Modular platform contracts](https://github.com/sbstndalton/noevia/milestone/4) | Boundary map, versioned APIs, policy, data and rollback contracts | #267 |
-| [05 · Independent services and native client](https://github.com/sbstndalton/noevia/milestone/5) | Qualified extraction, MCP management, Diary comparison, portable Skills, then macOS | #268–#273 |
-| [Current validation and experiments](https://github.com/sbstndalton/noevia/milestone/6) | Live System-One/Docling checks, DAV clients, Deep Research and Skill selection evidence | #261–#265 |
-| [Later product capabilities](https://github.com/sbstndalton/noevia/milestone/7) | Browser jobs, whole-Diary graph design, agent council | #274–#275, #2021 |
-
-**Needs the user** below remains a decision and access checklist. In particular, harness installation,
-live DAV sharing, Deep Research enablement, credentials and device checks are not authorized by an
-issue or milestone assignment.
 
 ## Needs the user — in order
 
@@ -377,17 +256,4 @@ issue or milestone assignment.
 6. Decide whether to enable optional DAV sharing, browser execution, or research features after
    their permission, privacy, and resource contracts qualify.
 
-Installation-specific credential follow-ups, flags, source inventories, model residency, and
-service incidents belong in the local operator runbook. Historical task lists are not current
-authorization and must not be replayed against a live system.
-
 ## Lessons worth keeping
-
-- Test with the real shape of the input: the Docling bug passed a synthetic check because it used
-  a bare filename, not a storage path.
-- `state/web/` is the live web state; `ui-data/` on the host is abandoned.
-- Sidecars are tagged by what they contain; tying them to `COWORK_VERSION` breaks the next deploy.
-- The live Compose files are separate from the repo's; edit them locally and copy them back (no
-  python on the host), with a `.bak.before-<reason>` first.
-- Measure before porting: the only slow Node path was a quadratic loop, fixed in JavaScript in
-  twenty lines. A tsc `--checkJs` pass catches free identifiers when a block moves modules.
