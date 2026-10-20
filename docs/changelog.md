@@ -174,9 +174,9 @@ Never copy a `.env.bak.*` file back wholesale.
 ## Diary overlay d3474b3c and Kev cutover (limited) — 2026-10-15 00:01Z / 00:04Z / 00:12Z (Diary + new cowork-kev + web env; #1759, #1766, #1639)
 
 What changed for you: the Diary now splits a chunk that the embedding server refuses as too long, instead of leaving it without a vector (#1759, #1766).
-The 12 long Diary chunks still need one re-index pass before EmbeddingGemma 2 covers all 53.
-Route, tool gate, step supervision, chat framing and the load advisor are now decided by Kev-0.8B.
-Sensitivity stays on Laya.
+The 12 long Diary chunks still need one re-index pass before the next embedding model covers all 53.
+Route, tool gate, step supervision, chat framing and the load advisor are now decided by the decision model.
+Sensitivity stays on the sensitivity model.
 
 ### Diary overlay
 
@@ -213,17 +213,17 @@ Vision descriptions now use only the default provider, a missing sensitivity key
 ## EmbeddingGemma 2 switch: preparation — 2026-10-14 17:59Z (embed memory limit live; model not switched yet)
 
 What changed for you: nothing visible.
-Search still uses nomic-embed-text-v1.
-The embedding service can now hold nomic and EmbeddingGemma 2 together, which the owner-approved switch (#1636) needs.
+Search still uses the current embedding model.
+The embedding service can now hold the current and the next embedding model together, which the owner-approved switch (#1636) needs.
 The switch itself is not done yet.
 
 Then send one synthetic embedding to `http://embed:8080/v1/embeddings` from web to load nomic at once (the model manager's watcher also re-warms it within about 30 s).
 
-## Release d37a16e5 — 2026-10-14 16:45Z / 17:37Z / 17:42Z (whole stack: web + model manager + Docling)
+## Release d37a16e5 — 2026-10-14 16:45Z / 17:37Z / 17:42Z (whole stack: web + model manager + document extraction)
 
-What changed for you: decision prompts now use the wording tuned for Kev-0.8B, follow the configured decision model, and keep the Code route label (#1639, #1739, #1740).
-Multimodal RAG (#1726) is shipped in web, the model manager and Docling but stays off (`NOEVIA_MULTIMODAL_RAG` is not set).
-Docling can now return a document's figures and mark OCR-read pages, but only when it is asked to.
+What changed for you: decision prompts now use the wording tuned for the decision model, follow the configured decision model, and keep the Code route label (#1639, #1739, #1740).
+Multimodal RAG (#1726) is shipped in web, the model manager and document extraction but stays off (`NOEVIA_MULTIMODAL_RAG` is not set).
+Document extraction can now return a document's figures and mark OCR-read pages, but only when it is asked to.
 
 ## llama.cpp image b11610 on embed and the chat engine — 2026-10-14 14:22Z / 14:32Z (live)
 
@@ -240,19 +240,19 @@ What changed for you: the New chat button works again (#1716). After the embeddi
 What changed for you: nothing visible.
 The Diary now checks every web request's tenant signature twice, once in Python and once in the Rust `tenant-assertion` leaf.
 
-## Laya cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (Laya only)
+## Sensitivity service cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (sensitivity service only)
 
 What changed for you: nothing visible.
-Laya now runs the image with the late-answer guards (#1074) and the native front (#1326).
+The sensitivity service now runs the image with the late-answer guards (#1074) and the native front (#1326).
 
 Then check: image `cowork-laya:0.3.5-noevia4`, healthy, restarts 0, a synthetic `/v1/decisions` returns `selected` in the options.
 
-## Docling native mode on — 2026-10-14 13:42Z (`NOEVIA_DOCLING_IMPL=rust`)
+## Document extraction native mode on — 2026-10-14 13:42Z (`NOEVIA_DOCLING_IMPL=rust`)
 
 What changed for you: nothing visible.
 Document extraction now goes through the native `noevia-docling` server (#1322), with the same results: the synthetic PDF reads correctly and Markdown still gets the 415 "unsupported" answer.
 
-## Docling cutover 785643f4 — 2026-10-14 13:30Z (native mode off)
+## Document extraction cutover 785643f4 — 2026-10-14 13:30Z (native mode off)
 
 What changed for you: Markdown files no longer go to Docling. They now get a clear "unsupported" answer (415) instead of the misleading "processing limits" error (#1711). PDF and other document extraction works as before. Native Docling stays off: `NOEVIA_DOCLING_IMPL` is not set, so the service runs `python server.py` (#1322, owner switch).
 
@@ -276,7 +276,7 @@ Behind the scenes:
 ## Docling cutover attempt fbb960dd — 2026-10-14 10:45Z (rolled back; no live change)
 
 What changed for you: nothing.
-Docling stays on `cowork-docling:f6885a55`.
+Document extraction stays on `cowork-docling:f6885a55`.
 The same check also fails on the existing image, so this is filed as #1711.
 
 ## Release fbb960dd — 2026-10-14 (tool-call follow-ups, Models page prune, embedding warm-up; web + model manager)
@@ -395,7 +395,7 @@ What changed for you: in Hybrid, when the privacy check cannot give an answer, t
 
 ## Release ac500b45 — 2026-10-09 (retire five always-Rust security switches; web and core, #1071 batch 2)
 
-## Release 5c92fb14 — 2026-10-09 (live-tester UI fixes, Diary files throttle pass-through, Laya autoconfig answer, estimate diagnostics; web and model manager)
+## Release 5c92fb14 — 2026-10-09 (live-tester UI fixes, Diary files throttle pass-through, sensitivity-model autoconfig answer, estimate diagnostics; web and model manager)
 
 ## Release e58351d4 — 2026-10-09 (model manager: autoconfig spec, files, present and baseline behind MODEL_AUTOCONFIG, dark; deterministic current_diff order; model-manager only)
 
@@ -443,9 +443,9 @@ A preset whose `ctx-size` (or `c`), `ubatch-size` or `batch-size` is set but is 
 
 ## Release 866f3db6 — 2026-10-08 (low/high context profiles, Long tune profile; core#24 web#15; #1079; web and core)
 
-## Release 3e1e36df — 2026-10-08 (prompt-framing Rust slice dark, Laya served-elsewhere hardening, card size fallback; core#25 core#26 web#16; web and core)
+## Release 3e1e36df — 2026-10-08 (prompt-framing Rust slice dark, sensitivity-service served-elsewhere hardening, card size fallback; core#25 core#26 web#16; web and core)
 
-## Release 673768f5 — 2026-10-08 (Models page size/shape from the loader, Laya "Runs in its own service"; #1084, part of #1083; web and core)
+## Release 673768f5 — 2026-10-08 (Models page size/shape from the loader, sensitivity model "Runs in its own service"; #1084, part of #1083; web and core)
 
 ## Rust toggles, batch A — 2026-10-08 (config only, no release; #1071 groundwork)
 
@@ -453,7 +453,7 @@ Owner standing order 2026-10-08: enable the Rust switches proven in `rust-toggle
 
 **Evidence.** Before: autotune and calibration jobs `passed`, no coding task, sandboxes idle, no model-loader download. Web: healthy, 0 restarts; the startup line `dav-parse.wasm verified for DAV_PARSE_IMPL, S3_PARSE_IMPL, UPLOAD_SNIFF_IMPL, MCP_FRAME_IMPL, ...`; no FATAL; `/api/ready` 200 locally and on noevia.example.com; each flag reads `wasm` in the container. MCP discovery on real servers under `MCP_FRAME_IMPL=wasm`: noevia 10 and Nextcloud 181 tools; Tavily logged one `fetch failed` at startup (outbound-only, as on a previous first start) while a direct list from the container gave 5 tools under both `wasm` and `js`, so the full set is 196. Model-loader: healthy, 0 restarts, `GGUF_PARSER=rust`, `/api/v1/health`, `/models` and `/sections` 200, no `gguf-meta failed` or error lines, `gguf-meta` returns a summary for a real model header, `models.ini` sha256 identical before and after. No model was run, loaded or tuned. A real storage listing, upload and a tool call need a signed-in session and were not exercised (differential-only so far; `S3_PARSE_IMPL` has no S3 backend to observe).
 
-## Release 8273a712 — 2026-10-08 (route fallback cause, Laya keeps its worker and stays warm #1070; core, web, Laya)
+## Release 8273a712 — 2026-10-08 (route fallback cause, the sensitivity service keeps its worker and stays warm #1070; core, web, sensitivity service)
 
 ## Release 9035443e — 2026-10-08 (autotune waits for outside clients, coding tasks hold the inference gate #1062 #1067 #1068 #1069; core)
 
@@ -461,13 +461,13 @@ Owner standing order 2026-10-08: enable the Rust switches proven in `rust-toggle
 
 ## Flags enabled — 2026-10-07 (owner approved; configuration only, no image change)
 
-**What each flag does.** `AUTOTUNE_PLAN_IMPL=wasm`: the Rust planner orders autotune runs. `LAYA_LOAD_ADVISOR=on`: Laya advises on a guessed load failure only on a tie. `PRESET_RELOAD_IMPL=wasm`: a models.ini reload can go ahead while models are loaded. `MODEL_FILES_IMPL=rust`: Hugging Face tree listings go through `model-files tree` and fail closed (502) on bad input. None of these runs until the matching action (autotune, load failure, reload, repository listing) happens; nothing was triggered.
+**What each flag does.** `AUTOTUNE_PLAN_IMPL=wasm`: the Rust planner orders autotune runs. `LAYA_LOAD_ADVISOR=on`: the sensitivity model advises on a guessed load failure only on a tie. `PRESET_RELOAD_IMPL=wasm`: a models.ini reload can go ahead while models are loaded. `MODEL_FILES_IMPL=rust`: Hugging Face tree listings go through `model-files tree` and fail closed (502) on bad input. None of these runs until the matching action (autotune, load failure, reload, repository listing) happens; nothing was triggered.
 
 ## Release f33a1b68 — 2026-10-07 (Library tab apply note #1036; web)
 
 ## Release 247d4c1a — 2026-10-07 (autotune engine-failure text replaced by fixed sentences #1049; web)
 
-## Release 94599ba8 — 2026-10-07 (Laya load advisor #1004, dark; #1046 #1047 #1048; web)
+## Release 94599ba8 — 2026-10-07 (sensitivity-model load advisor #1004, dark; #1046 #1047 #1048; web)
 
 ## Release f48b9666 — 2026-10-07 (models.ini reload while models are loaded #1012, sleeping counts as loaded; web)
 
@@ -481,7 +481,7 @@ Owner standing order 2026-10-08: enable the Rust switches proven in `rust-toggle
 
 ## Release b34055c6 — 2026-10-07 (web: chat-template capability check, `CHAT_TEMPLATE_CAPS_IMPL`, #1002; real provider error reasons)
 
-**Gemma 4 template check (no model loaded, no chat sent).** `/props?model=gemma-4-12b-it-qat-q4_0&autoload=false` answers 400 "model is not loaded" while the model is unloaded (the router has no template to return without loading it), so the template was read from the GGUF header instead: 18,681 bytes present, wasm `templateCaps` gives `known: true`, `tools: true`, `toolCalls: true`, `sendTools: true`. Chat will send tools to it.
+**Chat model template check (no model loaded, no chat sent).** `/props?model=<chat model id>&autoload=false` answers 400 "model is not loaded" while the model is unloaded (the router has no template to return without loading it), so the template was read from the GGUF header instead: 18,681 bytes present, wasm `templateCaps` gives `known: true`, `tools: true`, `toolCalls: true`, `sendTools: true`. Chat will send tools to it.
 
 ## Release 8a8a7e83 — 2026-10-07 (web, plus code-verify recreate: MCP response framing in Rust/WASM behind dark `MCP_FRAME_IMPL`, #980; exact upload classify under `UPLOAD_SNIFF_IMPL=wasm`, #989)
 
@@ -505,7 +505,7 @@ Owner standing order 2026-10-08: enable the Rust switches proven in `rust-toggle
 
 ## Release 3a48d1e6 — 2026-10-07 (web only: first release after the repo split; Glass menus, phone-preview settings, click after closing Settings)
 
-## Release Laya f42f65f1 — 2026-10-07 (Laya only: concurrent serving, default still one model copy)
+## Release sensitivity service f42f65f1 — 2026-10-07 (sensitivity service only: concurrent serving, default still one model copy)
 
 ## Release 7baecb40 — 2026-10-07 (web only: UI redo, self-hosted fonts, dark Rust egress grant contract)
 
@@ -563,7 +563,7 @@ PRs: #888 #889. Issues: #841 #843 #845 #876 #884 #885 #886 #887 (#885 is closed 
 
 **Order and results.**
 
-## Release f6885a55 — 2026-10-05 (repo sweep release 3: web, Diary, model-manager, Code sandbox and Docling)
+## Release f6885a55 — 2026-10-05 (repo sweep release 3: web, Diary, model-manager, Code sandbox and document extraction)
 
 **Order and results.**
 

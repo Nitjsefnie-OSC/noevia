@@ -27,7 +27,7 @@ runtime claims. Keep deployment and rollback receipts in local notes excluded fr
 
 After that, test → adjust → deploy → verify System-One routing and step supervision using a small,
 bounded set of synthetic, non-personal Fast/Smart/Code cases and the existing local answering
-model. Inspect actual Laya decisions and change only what evidence supports. Use the configured decision backend; do not install or download models without authorization. Preserve fallbacks, manual model choices, approval gates and execution budgets.
+model. Inspect actual decisions and change only what evidence supports. Use the configured decision backend; do not install or download models without authorization. Preserve fallbacks, manual model choices, approval gates and execution budgets.
 This is not authority for benchmarks, paid APIs/search, Diary or personal sources, training,
 model downloads, rented compute, engine changes or heavy workloads.
 
