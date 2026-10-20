@@ -178,11 +178,15 @@ fi
 # 'literal' strings, trailing comments, multi-line arrays, quoted keys, [[ route ]] headers) rather
 # than one literal spelling; comments never count. Any route that still carries a `switch` is
 # refused further down (#2096).
+# It fails closed: a line it cannot classify (a quoted [["route"]] header, a top-level route = [ {...} ]
+# array, a dotted key inside a route, a """ string, an unterminated value, ...) is an error, never a
+# route that reads as unswitched. A leading BOM is skipped. The caller checks it once before any use.
 #
 # One tab-separated record per [[route]] table: path, owner, switch, methods. An absent or empty
 # field is "-", except that a present-but-empty switch is "?" (still switched: fail closed).
 routes_toml() {
-  awk '
+  LC_ALL=C awk '
+    function die(msg) { printf "line %d: %s\n", NR, msg > "/dev/stderr"; bad = 1; exit 2 }
     function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
     function orDash(s) { return s == "" ? "-" : s }
     function flush() {
@@ -190,45 +194,93 @@ routes_toml() {
       path = ""; owner = ""; sw = ""; methods = ""; hasSw = 0; seen = 0
     }
     function setkey(key, val) {
+      if (key == "path" || key == "owner" || key == "switch" || key == "methods") {
+        if (index(val, "\\")) die("an escape sequence in " key " is not read")
+      }
       if (key == "path") path = val
       else if (key == "owner") owner = val
       else if (key == "switch") { hasSw = 1; sw = val }
       else if (key == "methods") methods = val
     }
+    function tailok(t) { t = trim(t); if (t != "" && substr(t, 1, 1) != "#") die("unexpected text after the value: " t) }
     function scalar(rest,   q, e) {
       q = substr(rest, 1, 1)
-      if (q == "\"" || q == "\047") { rest = substr(rest, 2); e = index(rest, q); return e ? substr(rest, 1, e - 1) : rest }
+      if (q == "\"" || q == "\047") {
+        rest = substr(rest, 2); e = index(rest, q)
+        if (!e) die("unterminated string")
+        tailok(substr(rest, e + 1))
+        return substr(rest, 1, e - 1)
+      }
       sub(/[ \t]*#.*$/, "", rest)
       return trim(rest)
     }
-    function endarr() { sub(/\].*/, "", abuf); gsub(/["\047]/, "", abuf); setkey(arrkey, trim(abuf)); arr = 0 }
+    # One line of an array value: quotes are honoured (a # or ] inside them is text), the rest of
+    # the line after a # outside them is a comment. Sets arr = 0 when the array closes.
+    function scan(s,   i, c, q) {
+      if (index(s, "\"\"\"") || index(s, "\047\047\047")) die("multi-line strings are not read")
+      q = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") {
+          if (c == "\\") die("an escape sequence in an array is not read")
+          if (c == q) q = ""; else abuf = abuf c
+          continue
+        }
+        if (c == "\"" || c == "\047") { q = c; continue }
+        if (c == "#") break
+        if (c == "[") { depth++; continue }
+        if (c == "]") {
+          if (--depth == 0) { tailok(substr(s, i + 1)); arr = 0; return }
+          continue
+        }
+        abuf = abuf c
+      }
+      if (q != "") die("unterminated string in an array")
+      abuf = abuf " "
+    }
+    NR == 1 && substr($0, 1, 3) == sprintf("%c%c%c", 239, 187, 191) { $0 = substr($0, 4) }
     {
       line = $0; sub(/\r$/, "", line); line = trim(line)
-      if (arr) {
-        chunk = line; sub(/#.*/, "", chunk); abuf = abuf " " chunk
-        if (index(chunk, "]")) endarr()
-        next
-      }
+      if (arr) { scan(line); if (!arr && inroute) setkey(arrkey, trim(abuf)); next }
       if (line == "" || line ~ /^#/) next
       if (line ~ /^\[/) {
-        flush()
-        inroute = (line ~ /^\[\[[ \t]*route[ \t]*\]\]/)
-        if (inroute) seen = 1
+        flush(); hdr = 1
+        if (!match(line, /^\[\[?[ \t]*[A-Za-z0-9_-]+([ \t]*\.[ \t]*[A-Za-z0-9_-]+)*[ \t]*\]\]?/)) die("table header is not a plain bare name, so it cannot be classified: " line)
+        head = substr(line, 1, RLENGTH); tailok(substr(line, RLENGTH + 1))
+        opens = 0; while (substr(head, opens + 1, 1) == "[") opens++
+        closes = 0; while (substr(head, length(head) - closes, 1) == "]") closes++
+        name = head; gsub(/[\[\] \t]/, "", name)
+        if (opens != closes) die("unbalanced table header: " line)
+        if (name == "route") { if (opens != 2) die("route must be an array of tables, [[route]]: " line); inroute = 1; seen = 1 }
+        else if (name ~ /^route\./) die("a sub-table of route is not read: " line)
+        else inroute = 0
         next
       }
-      if (!inroute) next
-      if (!match(line, /^("[A-Za-z0-9_-]+"|\047[A-Za-z0-9_-]+\047|[A-Za-z0-9_-]+)[ \t]*=/)) next
-      key = substr(line, 1, RLENGTH - 1); sub(/[ \t]+$/, "", key); gsub(/["\047]/, "", key)
-      rest = trim(substr(line, RLENGTH + 1))
+      if (inroute) {
+        if (!match(line, /^("[A-Za-z0-9_-]+"|\047[A-Za-z0-9_-]+\047|[A-Za-z0-9_-]+)[ \t]*=/)) die("cannot classify this line inside a [[route]] table (dotted keys and inline tables are not read): " line)
+        key = substr(line, 1, RLENGTH - 1); sub(/[ \t]+$/, "", key); gsub(/["\047]/, "", key)
+        rest = trim(substr(line, RLENGTH + 1))
+      } else {
+        eq = index(line, "=")
+        if (!eq) next
+        key = substr(line, 1, eq - 1); gsub(/[ \t"\047]/, "", key)
+        if (!hdr && (key == "route" || key ~ /^route\./)) die("a top-level route key (an inline route array) is not read; use [[route]] tables: " line)
+        rest = trim(substr(line, eq + 1))
+      }
+      if (substr(rest, 1, 3) == "\"\"\"" || substr(rest, 1, 3) == "\047\047\047") die("multi-line strings are not read")
       if (substr(rest, 1, 1) == "[") {
-        arrkey = key; arr = 1
-        chunk = substr(rest, 2); sub(/#.*/, "", chunk); abuf = chunk
-        if (index(chunk, "]")) endarr()
+        arrkey = key; arr = 1; depth = 1; abuf = ""
+        scan(substr(rest, 2))
+        if (!arr && inroute) setkey(key, trim(abuf))
         next
       }
-      setkey(key, scalar(rest))
+      if (inroute) setkey(key, scalar(rest))
     }
-    END { flush() }
+    END {
+      if (bad) exit 2
+      if (arr) { printf "line %d: unterminated array\n", NR > "/dev/stderr"; exit 2 }
+      flush()
+    }
   ' "$1"
 }
 project_routes_rs() {
@@ -257,6 +309,8 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   # The supervisor no longer forwards a context switch. An older switched front
   # paired with permanent core refusal would leave these routes unavailable.
   routes_file="$tree/rs/contracts/http/routes.toml"
+  routes_err="$(routes_toml "$routes_file" 2>&1 >/dev/null)" \
+    || die "noevia-rs at $rs_ref: routes.toml cannot be read safely, so the switch checks would not be trustworthy (#2096): $routes_err"
   route_switches="$(switched_routes "$routes_file")"
   if printf '%s\n' "$route_switches" | grep -q '^NOEVIA_RUST_PROJECT_WRITES '; then
     die "noevia-rs at $rs_ref still gates chat context on NOEVIA_RUST_PROJECT_WRITES; pin permanent GET/POST context ownership (sbstndalton/noevia#1071)"

@@ -521,6 +521,56 @@ try_routes multiline-crlf < "$work/t.toml"
 check "#2096: multi-line methods in CRLF TOML are compared per method" 'refused "PUT /api/projects/{}/assets"'
 check "#2096: ...and POST, which the core lists, is not named" '! grep -q "POST /api/projects" "$work/err"'
 
+# #2096 review: the reader fails closed. Anything it cannot classify is an error naming the line,
+# never a switch that quietly reads as absent.
+unreadable() { refused "routes.toml cannot be read safely.*line"; }
+bom="$(printf '\357\273\277')"
+proj='path = "/api/projects/{id}/assets"\nowner = "rust"\nmethods = ["POST"]\n'
+auth='[[route]]\npath = "/api/auth/session"\nowner = "rust"\nmethods = ["GET"]\n\n'
+
+printf "${bom}[[route]]\n${proj}switch = \"NOEVIA_RUST_PROJECTS\"\n" > "$work/t.toml"
+auth_route=0 try_routes bom-switched < "$work/t.toml"
+check "#2096: a switch after a leading BOM is still found and refused" 'refused "still gates the project routes on NOEVIA_RUST_PROJECTS"'
+printf "${bom}${auth}[[route]]\n${proj}" > "$work/t.toml"
+auth_route=0 try_routes bom-clean < "$work/t.toml"
+check "#2096: ...and a clean file with a BOM assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$tsha.tar.gz" ]'
+
+printf '[["route"]]\npath = "/api/projects/{id}/assets"\nowner = "rust"\nswitch = "NOEVIA_RUST_PROJECTS"\nmethods = ["POST"]\n' > "$work/t.toml"
+try_routes quoted-header < "$work/t.toml"
+check "#2096: a quoted [[\"route\"]] header is an error, not skipped" 'unreadable'
+
+printf "route = [ { path = \"/api/projects/{id}/assets\", owner = \"rust\", switch = \"NOEVIA_RUST_PROJECTS\" } ]\n\n${auth}" > "$work/t.toml"
+auth_route=0 try_routes inline-route < "$work/t.toml"
+check "#2096: a top-level route = [ {...} ] inline array is an error" 'unreadable'
+
+printf "[[route]]\n${proj}switch.x = \"NOEVIA_RUST_PROJECTS\"\n" > "$work/t.toml"
+try_routes dotted-key < "$work/t.toml"
+check "#2096: a dotted key inside a route is an error" 'unreadable'
+
+printf "[[route]]\n${proj}this is not toml\n" > "$work/t.toml"
+try_routes unclassified < "$work/t.toml"
+check "#2096: any other unclassifiable line in a route is an error" 'unreadable'
+
+printf "[[route.sub]]\nswitch = \"X\"\n" > "$work/t.toml"
+try_routes route-subtable < "$work/t.toml"
+check "#2096: a sub-table of route is an error" 'unreadable'
+
+printf 'path = "/api/projects/{id}/assets"\n[[route]]\npath = "/api/usage"\nmethods = ["GET",\n' > "$work/t.toml"
+try_routes unterminated-array < "$work/t.toml"
+check "#2096: an unterminated array is an error" 'unreadable'
+
+printf "[[route]]\npath = \"/api/projects/{id}/assets\"\nowner = \"rust\"\nmethods = [\n  \"POST#note\", \"PUT\", # PUT is listed\n]\n" > "$work/t.toml"
+try_routes hash-in-array < "$work/t.toml"
+check "#2096: a # inside a quoted array element is text, so PUT after it is still compared" 'refused "PUT /api/projects/{}/assets"'
+
+printf "[[route]]\npath = \"/api/projects/{id}/assets\"\nowner = \"\"\"rust\"\"\"\nswitch = \"NOEVIA_RUST_PROJECTS\"\n" > "$work/t.toml"
+try_routes triple-in-route < "$work/t.toml"
+check "#2096: a \"\"\" multi-line string in a route is refused explicitly" 'unreadable && grep -q "multi-line strings are not read" "$work/err"'
+
+printf "[meta]\nnote = '''\n[[route]]\nswitch = \"X\"\n'''\n\n[[route]]\npath = \"/api/projects/{id}/assets\"\nowner = \"rust\"\nmethods = [\"POST\"]\n" > "$work/t.toml"
+try_routes triple-in-meta < "$work/t.toml"
+check "#2096: ...and in another table, where it could hide a header" 'unreadable && grep -q "multi-line strings are not read" "$work/err"'
+
 g rm -q apps/web/server/rust-auth.cjs apps/web/server/rust-projects.cjs && g commit -qm core-plain-2096
 
 # A failing final tar must not leave out.partial (or a final tarball) behind. The shim writes a
