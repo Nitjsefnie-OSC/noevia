@@ -1,7 +1,6 @@
 # Session kickoff prompt
 
-Paste the block below into a new agent session, working in the project folder
-"AI frontend thing". It is deliberately short: `docs/master-prompt.md` is the real brief, and
+Paste the block below into a new agent session, working in the configured repository checkout. It is deliberately short: `docs/master-prompt.md` is the real brief, and
 this only points at it, fixes the starting state and sets the working rules for the session.
 
 Keep it in sync when the live release or the current phase changes.
@@ -9,8 +8,8 @@ Keep it in sync when the live release or the current phase changes.
 ---
 
 ```text
-You're continuing work on noevia, the self-hosted workspace in `noevia-application/` inside the
-project folder "AI frontend thing" (GitHub `sbstndalton/noevia`). This kickoff is for the user's
+You're continuing work on noevia, the self-hosted workspace in the configured
+repository checkout (GitHub `sbstndalton/noevia`). This kickoff is for the user's
 intended Opus 5 successor; do not claim that model identity if it is not actually available. Read
 `docs/master-prompt.md` fully and follow it: the read-first list, "Working with the user", the
 non-negotiables, testing, deploying and decisions D1–D27. Also read `docs/roadmap.md`,

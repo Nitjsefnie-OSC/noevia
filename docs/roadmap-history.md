@@ -286,16 +286,13 @@ mobile composer and tap targets).
   in-app companion by design: the bridge makes explicit, versioned, Claude-approved Markdown
   edits (it can edit capture files and the index, like the in-app editor) rather than appending
   structured exchanges with xid markers through capture.
-- **Partly verified (2026-09-17)** — Diary corpus in backups: the latest nightly archive
-  (`ab_20260916_151428`, `cowork-diary-1.tar.gz`) contains app-managed Diary storage
-  (`users/<id>/managed-diary.db`) and the per-user corpus folder. Re-check once the real Diary
-  moves to the SMB/dedicated root, since that path is not mounted yet.
-- **Live 2026-09-18 (D7, D23: Google Drive).** Encrypted, content-addressed snapshots written
-  nightly to a folder (`offsite-dir.cjs`) and mirrored to Drive by the host's rclone
-  (`deploy/offsite/`), so the Google credential never enters noevia. First snapshot restored in
-  full with the Diary, all 12 databases passing `integrity_check`. **Google Drive connected
-  2026-09-18:** 124/124 objects on Drive, `rclone check` 0 differences; the key is in the user's
-  password manager.
+- **Backup qualification:** verify that managed Diary storage and corpus data are both
+  included in the selected backup roots. Repeat restore checks when mounts or storage
+  providers change; keep actual archive receipts offline.
+- **Offsite design (D7, D23):** encrypted, content-addressed snapshots can be mirrored
+  to an operator-selected provider without placing that provider credential in noevia.
+  Qualify a full restore and database integrity; keep actual destinations, object inventories
+  and credential custody in local operator notes.
 - **Shipped on branch (D8: guarded empty-only sweep)** — Empty-folder cleanup after project deletion; see Current phase.
 
 ### G. Telemetry and logs
@@ -681,7 +678,7 @@ and cutover; an off-site provider and budget; a live-credit research measurement
 
 ## Testing rules
 
-- Diary work uses a per-run **copy** of `AI frontend thing/diary-test/`. Never the folder
+- Diary work uses a per-run **copy** of an explicitly selected synthetic fixture corpus. Never the folder
   itself, never the real Diary, never production.
 - Every UI change is checked visually on a local spin-up, repeatedly: 375/768/1440, light
   and dark. Suites complement looking; they don't replace it.

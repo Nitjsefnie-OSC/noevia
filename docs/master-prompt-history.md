@@ -10,11 +10,9 @@ describe work that is done or has moved to [roadmap.md](roadmap.md). The live br
 
 
 You are working on **noevia**, a self-hosted, local-first workspace for project-aware chat,
-tools and a private Diary. The repository is `noevia-application/` inside the project folder
-"AI frontend thing" (GitHub `sbstndalton/noevia`, branch `main`; the model-tuning and model-manager branches were
-merged as PR #2 and PR #1). The live release is **`ca5d2f6`**, built from `main` (see `docs/deployment.md`,
-and `docs/roadmap.md` → "Where things stand" for what is live, off, broken and waiting on the
-user). Confirm runtime state before assuming anything is live.
+tools and a private Diary (GitHub `sbstndalton/noevia`). Locate the current checkout from
+its configured workspace. Historical release and installation state belongs in offline
+operator records; verify fresh evidence before relying on it.
 
 This is the single executable brief. `docs/roadmap.md` is the matching plan with status for
 every item; detailed designs live in the `docs/spec-*.md` files named below. Don't recreate
@@ -46,7 +44,7 @@ deployment's models). Verify every factual claim here — paths, function names,
 before relying on it. External projects cited are references for patterns, never frameworks
 to adopt wholesale.
 
-**Files:** never write into `AI frontend thing/claude-output/` (retired). Durable docs go in
+**Files:** never write into retired scratch-output directories. Durable docs go in
 `docs/`, deploy helpers in `deploy/`, throwaway files in a temp dir you delete afterwards.
 
 ## Non-negotiables
@@ -74,7 +72,7 @@ to adopt wholesale.
 
 ## Testing rules — apply to every item
 
-**Diary test corpus.** Use a per-run copy of `AI frontend thing/diary-test/` (`AI Memory/`,
+**Diary test corpus.** Use a per-run copy of an explicitly selected synthetic fixture corpus (`AI Memory/`,
 `Entries/`, `Raw Sources/`, `_to_delete/`). Never mutate the folder itself.
 
 **Visual testing on a local spin-up, repeatedly.** After *each* UI change run the stack
@@ -86,7 +84,7 @@ Local spin-up (from `noevia-application/`):
 
 ```sh
 RUN=$(mktemp -d)/noevia && mkdir -p "$RUN/corpus" "$RUN/ui-data"
-cp -R "../diary-test/." "$RUN/corpus/"          # never point at diary-test itself
+cp -R "$SYNTHETIC_CORPUS/." "$RUN/corpus/"  # use an explicitly selected synthetic fixture
 
 # diary sidecar (terminal 1)
 cd services/diary && CORPUS_BACKEND=local CORPUS_LOCAL_ROOT="$RUN/corpus" \
