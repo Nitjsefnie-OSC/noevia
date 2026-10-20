@@ -41,7 +41,7 @@ Rules:
   Specialised class-A purposes can have their own entry point, but they still sit behind the
   same validation, deadline and fallback.
 - **Mixing is allowed.** Several class-A components plus one small class-B model is a legitimate
-  end state (13.6).
+  end state (13.4).
 
 ## 13.2 What was verified about Laya (direct investigation, 2026-09-21)
 

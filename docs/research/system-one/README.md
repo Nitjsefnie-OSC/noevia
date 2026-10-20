@@ -118,8 +118,8 @@ The live reranker is a class-A component. It is not the generic System One, and 
 
 | # | Question | Answer now | How it gets settled |
 |---|---|---|---|
-| 23 | One generic System-One model for all bounded decisions, or a hybrid (specialised discriminative models for narrow tasks such as RAG reranking, plus a tiny generic decision model for orchestration)? | Hybrid, unless one class-B backend matches the reranker **on the RAG set** at lower total residency | Doc 13 §13.5, including the RAG suite run through the winning class-B backend |
-| 24 | Is the 4B option-logit approach better at system level once residency pressure and swap costs are counted? | Probably not as a *dedicated* model on the deployment host; possibly yes as readout on the *already-loaded* System Two | Doc 13 §13.5 system-level run: Q4 and S2L vs Laya L1/L2 and Q06/Q17 |
+| 23 | One generic System-One model for all bounded decisions, or a hybrid (specialised discriminative models for narrow tasks such as RAG reranking, plus a tiny generic decision model for orchestration)? | Hybrid, unless one class-B backend matches the reranker **on the RAG set** at lower total residency | Doc 13 §13.5: compare held-out RAG quality and total residency across candidate backends |
+| 24 | Is the 4B option-logit approach better at system level once residency pressure and swap costs are counted? | Unresolved: compare a dedicated model with readout on an already-loaded System Two, including queue and swap costs | Doc 13 §§13.3–13.5: per-profile memory, latency and quality qualification |
 
 ## 3. Prototype order, and one change to it
 
