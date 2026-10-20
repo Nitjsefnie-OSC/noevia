@@ -173,41 +173,133 @@ fi
 # chats dropped by Node's whole-field merge (sbstndalton/noevia#1409), so that pairing is refused
 # here; likewise a front that saves the free-chat list (GET/POST /api/freechats) over a core from
 # before noevia-core#76, whose own free-list writers would overwrite free-chats.json whole. Placeholder names ({id}, {projectId}) are compared as one.
-# Includes the permanent context slice (#1264); switched routes are rejected below.
-project_routes_rs() {
-  awk '
-    function flush(  n, i, m) {
-      if (owner == "rust" && sw == "" && (path ~ /^\/api\/(projects\/|freechats$)/ || path ~ /^\/api\/chats\/[^/]+\/context$/)) {
-        if (methods == "") print "ALL " path
-        n = split(methods, m, /[^A-Z]+/)
-        for (i = 1; i <= n; i++) if (m[i] != "") print m[i] " " path
-      }
-      path = ""; owner = ""; sw = ""; methods = ""
+# Includes the permanent context slice (#1264). routes.toml is read by routes_toml below, which
+# understands the TOML that matters here (indented keys, spaces or tabs around "=", "basic" or
+# 'literal' strings, trailing comments, multi-line arrays, quoted keys, [[ route ]] headers) rather
+# than one literal spelling; comments never count. Any route that still carries a `switch` is
+# refused further down (#2096).
+# It fails closed: a line it cannot classify (a quoted [["route"]] header, a top-level route = [ {...} ]
+# array, a dotted key inside a route, a """ string, an unterminated value, ...) is an error, never a
+# route that reads as unswitched. A leading BOM is skipped. The caller checks it once before any use.
+#
+# One tab-separated record per [[route]] table: path, owner, switch, methods. An absent or empty
+# field is "-", except that a present-but-empty switch is "?" (still switched: fail closed).
+routes_toml() {
+  LC_ALL=C awk '
+    function die(msg) { printf "line %d: %s\n", NR, msg > "/dev/stderr"; bad = 1; exit 2 }
+    function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+    function orDash(s) { return s == "" ? "-" : s }
+    function flush() {
+      if (seen) print orDash(path) "\t" orDash(owner) "\t" (hasSw ? (sw == "" ? "?" : sw) : "-") "\t" orDash(methods)
+      path = ""; owner = ""; sw = ""; methods = ""; hasSw = 0; seen = 0
     }
-    function value(line) { sub(/^[a-z_]+ *= */, "", line); gsub(/"/, "", line); return line }
-    /^\[\[route\]\]/ { flush(); next }
-    /^path *=/ { path = value($0) }
-    /^owner *=/ { owner = value($0) }
-    /^switch *=/ { sw = value($0) }
-    /^methods *=/ { methods = value($0) }
-    END { flush() }
-  ' "$1" | sed 's/{[^}]*}/{}/g' | sort -u
+    function setkey(key, val) {
+      if (key == "path" || key == "owner" || key == "switch" || key == "methods") {
+        if (index(val, "\\")) die("an escape sequence in " key " is not read")
+      }
+      if (key == "path") path = val
+      else if (key == "owner") owner = val
+      else if (key == "switch") { hasSw = 1; sw = val }
+      else if (key == "methods") methods = val
+    }
+    function tailok(t) { t = trim(t); if (t != "" && substr(t, 1, 1) != "#") die("unexpected text after the value: " t) }
+    function scalar(rest,   q, e) {
+      q = substr(rest, 1, 1)
+      if (q == "\"" || q == "\047") {
+        rest = substr(rest, 2); e = index(rest, q)
+        if (!e) die("unterminated string")
+        tailok(substr(rest, e + 1))
+        return substr(rest, 1, e - 1)
+      }
+      sub(/[ \t]*#.*$/, "", rest)
+      return trim(rest)
+    }
+    # One line of an array value: quotes are honoured (a # or ] inside them is text), the rest of
+    # the line after a # outside them is a comment. Sets arr = 0 when the array closes.
+    function scan(s,   i, c, q) {
+      if (index(s, "\"\"\"") || index(s, "\047\047\047")) die("multi-line strings are not read")
+      q = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (q != "") {
+          if (c == "\\") die("an escape sequence in an array is not read")
+          if (c == q) q = ""; else abuf = abuf c
+          continue
+        }
+        if (c == "\"" || c == "\047") { q = c; continue }
+        if (c == "#") break
+        if (c == "[") { depth++; continue }
+        if (c == "]") {
+          if (--depth == 0) { tailok(substr(s, i + 1)); arr = 0; return }
+          continue
+        }
+        abuf = abuf c
+      }
+      if (q != "") die("unterminated string in an array")
+      abuf = abuf " "
+    }
+    NR == 1 && substr($0, 1, 3) == sprintf("%c%c%c", 239, 187, 191) { $0 = substr($0, 4) }
+    {
+      line = $0; sub(/\r$/, "", line); line = trim(line)
+      if (arr) { scan(line); if (!arr && inroute) setkey(arrkey, trim(abuf)); next }
+      if (line == "" || line ~ /^#/) next
+      if (line ~ /^\[/) {
+        flush(); hdr = 1
+        if (!match(line, /^\[\[?[ \t]*[A-Za-z0-9_-]+([ \t]*\.[ \t]*[A-Za-z0-9_-]+)*[ \t]*\]\]?/)) die("table header is not a plain bare name, so it cannot be classified: " line)
+        head = substr(line, 1, RLENGTH); tailok(substr(line, RLENGTH + 1))
+        opens = 0; while (substr(head, opens + 1, 1) == "[") opens++
+        closes = 0; while (substr(head, length(head) - closes, 1) == "]") closes++
+        name = head; gsub(/[\[\] \t]/, "", name)
+        if (opens != closes) die("unbalanced table header: " line)
+        if (name == "route") { if (opens != 2) die("route must be an array of tables, [[route]]: " line); inroute = 1; seen = 1 }
+        else if (name ~ /^route\./) die("a sub-table of route is not read: " line)
+        else inroute = 0
+        next
+      }
+      if (inroute) {
+        if (!match(line, /^("[A-Za-z0-9_-]+"|\047[A-Za-z0-9_-]+\047|[A-Za-z0-9_-]+)[ \t]*=/)) die("cannot classify this line inside a [[route]] table (dotted keys and inline tables are not read): " line)
+        key = substr(line, 1, RLENGTH - 1); sub(/[ \t]+$/, "", key); gsub(/["\047]/, "", key)
+        rest = trim(substr(line, RLENGTH + 1))
+      } else {
+        eq = index(line, "=")
+        if (!eq) next
+        key = substr(line, 1, eq - 1); gsub(/[ \t"\047]/, "", key)
+        if (!hdr && (key == "route" || key ~ /^route\./)) die("a top-level route key (an inline route array) is not read; use [[route]] tables: " line)
+        rest = trim(substr(line, eq + 1))
+      }
+      if (substr(rest, 1, 3) == "\"\"\"" || substr(rest, 1, 3) == "\047\047\047") die("multi-line strings are not read")
+      if (substr(rest, 1, 1) == "[") {
+        arrkey = key; arr = 1; depth = 1; abuf = ""
+        scan(substr(rest, 2))
+        if (!arr && inroute) setkey(key, trim(abuf))
+        next
+      }
+      if (inroute) setkey(key, scalar(rest))
+    }
+    END {
+      if (bad) exit 2
+      if (arr) { printf "line %d: unterminated array\n", NR > "/dev/stderr"; exit 2 }
+      flush()
+    }
+  ' "$1"
+}
+project_routes_rs() {
+  routes_toml "$1" | awk -F'\t' '
+    $2 == "rust" && $3 == "-" && ($1 ~ /^\/api\/(projects\/|freechats$)/ || $1 ~ /^\/api\/chats\/[^/]+\/context$/) {
+      if ($4 == "-") { print "ALL " $1; next }
+      n = split($4, m, /[^A-Z]+/)
+      for (i = 1; i <= n; i++) if (m[i] != "") print m[i] " " $1
+    }
+  ' | sed 's/{[^}]*}/{}/g' | sort -u
 }
 # Whether routes.toml gives GET /api/auth/session to Rust with no switch (sign-in is the front's
 # permanently, sbstndalton/noevia#1071).
 rust_auth_unswitched() {
-  awk '
-    function flush() {
-      if (path == "/api/auth/session" && owner == "rust" && sw == "") found = 1
-      path = ""; owner = ""; sw = ""
-    }
-    function value(line) { sub(/^[a-z_]+ *= */, "", line); gsub(/"/, "", line); return line }
-    /^\[\[route\]\]/ { flush(); next }
-    /^path *=/ { path = value($0) }
-    /^owner *=/ { owner = value($0) }
-    /^switch *=/ { sw = value($0) }
-    END { flush(); exit(found ? 0 : 1) }
-  ' "$1"
+  routes_toml "$1" | awk -F'\t' '$1 == "/api/auth/session" && $2 == "rust" && $3 == "-" { found = 1 } END { exit(found ? 0 : 1) }'
+}
+# "<switch> <path>" for every route that carries a switch.
+switched_routes() {
+  routes_toml "$1" | awk -F'\t' '$3 != "-" { print $3 " " $1 }'
 }
 project_routes_core() {
   [ -f "$1" ] || return 0
@@ -216,7 +308,11 @@ project_routes_core() {
 if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   # The supervisor no longer forwards a context switch. An older switched front
   # paired with permanent core refusal would leave these routes unavailable.
-  if grep -q '^switch *= *"NOEVIA_RUST_PROJECT_WRITES"' "$tree/rs/contracts/http/routes.toml"; then
+  routes_file="$tree/rs/contracts/http/routes.toml"
+  routes_err="$(routes_toml "$routes_file" 2>&1 >/dev/null)" \
+    || die "noevia-rs at $rs_ref: routes.toml cannot be read safely, so the switch checks would not be trustworthy (#2096): $routes_err"
+  route_switches="$(switched_routes "$routes_file")"
+  if printf '%s\n' "$route_switches" | grep -q '^NOEVIA_RUST_PROJECT_WRITES '; then
     die "noevia-rs at $rs_ref still gates chat context on NOEVIA_RUST_PROJECT_WRITES; pin permanent GET/POST context ownership (sbstndalton/noevia#1071)"
   fi
   # sbstndalton/noevia#1071: the project routes are the front's with no switch. The web supervisor
@@ -224,7 +320,7 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   # noevia-rs retirement) would leave them to a Node that refuses them; and a front that owns them
   # with no switch needs a core whose refusal is unconditional (rust-projects.cjs refuseOwnedRoute)
   # and that always writes through the project store.
-  if grep -q '^switch *= *"NOEVIA_RUST_PROJECTS"' "$tree/rs/contracts/http/routes.toml"; then
+  if printf '%s\n' "$route_switches" | grep -q '^NOEVIA_RUST_PROJECTS '; then
     die "noevia-rs at $rs_ref still gates the project routes on NOEVIA_RUST_PROJECTS, which this web supervisor no longer passes; pin a noevia-rs that owns them with no switch (sbstndalton/noevia#1071)"
   fi
   if ! grep -q '^function refuseOwnedRoute' "$tree/core/server/rust-projects.cjs" 2>/dev/null; then
@@ -244,6 +340,12 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   if rust_auth_unswitched "$tree/rs/contracts/http/routes.toml" \
      && ! grep -q '^function refuseOwned' "$tree/core/server/rust-auth.cjs" 2>/dev/null; then
     die "noevia-rs at $rs_ref owns sign-in with no switch, but noevia-core at $(lock_value NOEVIA_CORE_REF) still gates its rust-auth guard on NOEVIA_RUST_AUTH (pin a core with an unconditional server/rust-auth.cjs, sbstndalton/noevia#1071)"
+  fi
+  # #2096: no other switch is accepted either. routes.toml carries none since #1071 (it says so),
+  # this supervisor passes none, and a switched route is excluded from the ownership comparison
+  # above, so one that slipped in would be silently unchecked: refuse it, fail closed.
+  if [ -n "$route_switches" ]; then
+    die "noevia-rs at $rs_ref has switched routes in routes.toml ($(printf '%s' "$route_switches" | tr '\n' ';')); deployment ownership switches are retired and this web supervisor passes none (sbstndalton/noevia#1071, #2096)"
   fi
 fi
 
