@@ -240,10 +240,10 @@ What changed for you: the New chat button works again (#1716). After the embeddi
 What changed for you: nothing visible.
 The Diary now checks every web request's tenant signature twice, once in Python and once in the Rust `tenant-assertion` leaf.
 
-## Sensitivity service cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (sensitivity service only)
+## Decision service cutover 0.3.5-noevia5 — 2026-10-14 15:01Z (decision service only)
 
 What changed for you: nothing visible.
-The sensitivity service now runs the image with the late-answer guards (#1074) and the native front (#1326).
+The decision service now runs the image with the late-answer guards (#1074) and the native front (#1326).
 
 Then check: image `cowork-laya:0.3.5-noevia4`, healthy, restarts 0, a synthetic `/v1/decisions` returns `selected` in the options.
 
@@ -395,7 +395,7 @@ What changed for you: in Hybrid, when the privacy check cannot give an answer, t
 
 ## Release ac500b45 — 2026-10-09 (retire five always-Rust security switches; web and core, #1071 batch 2)
 
-## Release 5c92fb14 — 2026-10-09 (live-tester UI fixes, Diary files throttle pass-through, sensitivity-model autoconfig answer, estimate diagnostics; web and model manager)
+## Release 5c92fb14 — 2026-10-09 (live-tester UI fixes, Diary files throttle pass-through, Laya autoconfig answer, estimate diagnostics; web and model manager)
 
 ## Release e58351d4 — 2026-10-09 (model manager: autoconfig spec, files, present and baseline behind MODEL_AUTOCONFIG, dark; deterministic current_diff order; model-manager only)
 
@@ -443,9 +443,9 @@ A preset whose `ctx-size` (or `c`), `ubatch-size` or `batch-size` is set but is 
 
 ## Release 866f3db6 — 2026-10-08 (low/high context profiles, Long tune profile; core#24 web#15; #1079; web and core)
 
-## Release 3e1e36df — 2026-10-08 (prompt-framing Rust slice dark, sensitivity-service served-elsewhere hardening, card size fallback; core#25 core#26 web#16; web and core)
+## Release 3e1e36df — 2026-10-08 (prompt-framing Rust slice dark, Laya served-elsewhere hardening, card size fallback; core#25 core#26 web#16; web and core)
 
-## Release 673768f5 — 2026-10-08 (Models page size/shape from the loader, sensitivity model "Runs in its own service"; #1084, part of #1083; web and core)
+## Release 673768f5 — 2026-10-08 (Models page size/shape from the loader, Laya "Runs in its own service"; #1084, part of #1083; web and core)
 
 ## Rust toggles, batch A — 2026-10-08 (config only, no release; #1071 groundwork)
 
@@ -453,7 +453,7 @@ Owner standing order 2026-10-08: enable the Rust switches proven in `rust-toggle
 
 **Evidence.** Before: autotune and calibration jobs `passed`, no coding task, sandboxes idle, no model-loader download. Web: healthy, 0 restarts; the startup line `dav-parse.wasm verified for DAV_PARSE_IMPL, S3_PARSE_IMPL, UPLOAD_SNIFF_IMPL, MCP_FRAME_IMPL, ...`; no FATAL; `/api/ready` 200 locally and on noevia.example.com; each flag reads `wasm` in the container. MCP discovery on real servers under `MCP_FRAME_IMPL=wasm`: noevia 10 and Nextcloud 181 tools; Tavily logged one `fetch failed` at startup (outbound-only, as on a previous first start) while a direct list from the container gave 5 tools under both `wasm` and `js`, so the full set is 196. Model-loader: healthy, 0 restarts, `GGUF_PARSER=rust`, `/api/v1/health`, `/models` and `/sections` 200, no `gguf-meta failed` or error lines, `gguf-meta` returns a summary for a real model header, `models.ini` sha256 identical before and after. No model was run, loaded or tuned. A real storage listing, upload and a tool call need a signed-in session and were not exercised (differential-only so far; `S3_PARSE_IMPL` has no S3 backend to observe).
 
-## Release 8273a712 — 2026-10-08 (route fallback cause, the sensitivity service keeps its worker and stays warm #1070; core, web, sensitivity service)
+## Release 8273a712 — 2026-10-08 (route fallback cause, Laya keeps its worker and stays warm #1070; core, web, Laya)
 
 ## Release 9035443e — 2026-10-08 (autotune waits for outside clients, coding tasks hold the inference gate #1062 #1067 #1068 #1069; core)
 
@@ -461,13 +461,13 @@ Owner standing order 2026-10-08: enable the Rust switches proven in `rust-toggle
 
 ## Flags enabled — 2026-10-07 (owner approved; configuration only, no image change)
 
-**What each flag does.** `AUTOTUNE_PLAN_IMPL=wasm`: the Rust planner orders autotune runs. `LAYA_LOAD_ADVISOR=on`: the sensitivity model advises on a guessed load failure only on a tie. `PRESET_RELOAD_IMPL=wasm`: a models.ini reload can go ahead while models are loaded. `MODEL_FILES_IMPL=rust`: Hugging Face tree listings go through `model-files tree` and fail closed (502) on bad input. None of these runs until the matching action (autotune, load failure, reload, repository listing) happens; nothing was triggered.
+**What each flag does.** `AUTOTUNE_PLAN_IMPL=wasm`: the Rust planner orders autotune runs. `LAYA_LOAD_ADVISOR=on`: Laya advises on a guessed load failure only on a tie. `PRESET_RELOAD_IMPL=wasm`: a models.ini reload can go ahead while models are loaded. `MODEL_FILES_IMPL=rust`: Hugging Face tree listings go through `model-files tree` and fail closed (502) on bad input. None of these runs until the matching action (autotune, load failure, reload, repository listing) happens; nothing was triggered.
 
 ## Release f33a1b68 — 2026-10-07 (Library tab apply note #1036; web)
 
 ## Release 247d4c1a — 2026-10-07 (autotune engine-failure text replaced by fixed sentences #1049; web)
 
-## Release 94599ba8 — 2026-10-07 (sensitivity-model load advisor #1004, dark; #1046 #1047 #1048; web)
+## Release 94599ba8 — 2026-10-07 (Laya load advisor #1004, dark; #1046 #1047 #1048; web)
 
 ## Release f48b9666 — 2026-10-07 (models.ini reload while models are loaded #1012, sleeping counts as loaded; web)
 
@@ -481,7 +481,7 @@ Owner standing order 2026-10-08: enable the Rust switches proven in `rust-toggle
 
 ## Release b34055c6 — 2026-10-07 (web: chat-template capability check, `CHAT_TEMPLATE_CAPS_IMPL`, #1002; real provider error reasons)
 
-**Chat model template check (no model loaded, no chat sent).** `/props?model=<chat model id>&autoload=false` answers 400 "model is not loaded" while the model is unloaded (the router has no template to return without loading it), so the template was read from the GGUF header instead: 18,681 bytes present, wasm `templateCaps` gives `known: true`, `tools: true`, `toolCalls: true`, `sendTools: true`. Chat will send tools to it.
+**Gemma 4 template check (no model loaded, no chat sent).** `/props?model=gemma-4-12b-it-qat-q4_0&autoload=false` answers 400 "model is not loaded" while the model is unloaded (the router has no template to return without loading it), so the template was read from the GGUF header instead: 18,681 bytes present, wasm `templateCaps` gives `known: true`, `tools: true`, `toolCalls: true`, `sendTools: true`. Chat will send tools to it.
 
 ## Release 8a8a7e83 — 2026-10-07 (web, plus code-verify recreate: MCP response framing in Rust/WASM behind dark `MCP_FRAME_IMPL`, #980; exact upload classify under `UPLOAD_SNIFF_IMPL=wasm`, #989)
 
@@ -505,7 +505,7 @@ Owner standing order 2026-10-08: enable the Rust switches proven in `rust-toggle
 
 ## Release 3a48d1e6 — 2026-10-07 (web only: first release after the repo split; Glass menus, phone-preview settings, click after closing Settings)
 
-## Release sensitivity service f42f65f1 — 2026-10-07 (sensitivity service only: concurrent serving, default still one model copy)
+## Release Laya f42f65f1 — 2026-10-07 (Laya only: concurrent serving, default still one model copy)
 
 ## Release 7baecb40 — 2026-10-07 (web only: UI redo, self-hosted fonts, dark Rust egress grant contract)
 
@@ -563,7 +563,7 @@ PRs: #888 #889. Issues: #841 #843 #845 #876 #884 #885 #886 #887 (#885 is closed 
 
 **Order and results.**
 
-## Release f6885a55 — 2026-10-05 (repo sweep release 3: web, Diary, model-manager, Code sandbox and document extraction)
+## Release f6885a55 — 2026-10-05 (repo sweep release 3: web, Diary, model-manager, Code sandbox and Docling)
 
 **Order and results.**
 
