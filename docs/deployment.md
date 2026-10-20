@@ -72,6 +72,17 @@ runtime contracts permit it. Read `deploy/examples/overlay-release.sh` and
 scope. An overlay is not automatically web-only. Qualify the resulting image before activating
 it, and do not use an overlay to bypass required native binaries or changed dependencies.
 
+### Docling app-only overlay
+
+Use this flow only when the docling service's Python app files changed and its native binary, dependency locks and downloaded models did not. The overlay starts from the docling image that is currently running and replaces exactly the app files that the production image copies into `/app/`. The whole overlay is these two lines:
+
+```Dockerfile
+FROM <running-docling-image>
+COPY server.py extract.py isolation.py isolated_worker.py selftest.py synthetic_pdfs.py /app/
+```
+
+The file list must match the final `COPY <files> ./` in the production stage of the docling `Dockerfile` in the noevia-services repository. A services test, `test_overlay_docs_list_exactly_the_files_the_dockerfile_copies_to_app` in `docling/test_requirements_pinned.py`, enforces that this line lists the same files, so a change to that Dockerfile line must update this one in the same change. Qualify the resulting image before activating it, as for any overlay.
+
 ## The deploy
 
 The operator's local runbook supplies the SSH target, application origin, release root,
