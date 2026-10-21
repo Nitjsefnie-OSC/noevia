@@ -74,5 +74,41 @@ check "no args is usage (2)" '[ $rc -eq 2 ]'
 bash "$script" --keys '$(id)' >/dev/null 2>&1; rc=$?
 check "bad container name refused" '[ $rc -eq 2 ]'
 
+# #2101: generated from the allow-list in flags.sh, so a newly allowed name is covered automatically.
+# A literal name must be accepted exactly; NAME_X, X_NAME, NAMEX, XNAME, lowercase and a leading or
+# trailing newline must be refused. A wildcard entry is covered by one sample instance and only refused on
+# the side its regex anchors: *_IMPL is open at the start (X_STREAM_GUARD_IMPL is an allowed *_IMPL name),
+# NOEVIA_FEATURE_* is open at the end (NOEVIA_FEATURE_X_Y is an allowed NOEVIA_FEATURE_ name).
+try() { # try accept|refuse <argument>
+  local want="$1" arg="$2" out rc ok=0
+  if [ "$want" = accept ]; then
+    out="$(bash "$script" cowork-web-1 "$arg" 2>&1)"; rc=$?
+    [ $rc -eq 0 ] && [ "$(printf '%s\n' "$out" | grep -c .)" -eq 1 ] && [[ $out == "$arg="?* ]] && ok=1
+  else
+    # Container "missing" makes docker inspect exit 1, so exit 2 proves the name was refused before docker ran.
+    out="$(bash "$script" missing "$arg" 2>&1)"; rc=$?
+    [ $rc -eq 2 ] && printf '%s' "$out" | grep -q 'refusing key not on the allow-list' && ok=1
+  fi
+  if [ $ok -eq 1 ]; then passes=$((passes+1)); echo "ok - $want $(printf '%q' "$arg")"
+  else fails=$((fails+1)); echo "FAIL - $want $(printf '%q' "$arg")"; fi
+}
+cover() { # cover <sample> <anchored refusals...>: exact sample accepted; each refusal, lowercase and newline-bounded form refused
+  local n="$1" v; shift
+  try accept "$n"
+  for v in "$@" "${n,,}" "$n"$'\n' $'\n'"$n"; do try refuse "$v"; done
+}
+allow_body="$(sed -n -E 's/^allow=.\^?\((.*)\)\$?.$/\1/p' "$script")"
+if [ -z "$allow_body" ]; then fails=$((fails+1)); echo "FAIL - allow-list not found in flags.sh"; fi
+IFS='|' read -r -a allow_alts <<< "$allow_body"
+echo "covering ${#allow_alts[@]} allow-list entries from flags.sh"
+for alt in "${allow_alts[@]}"; do
+  case "$alt" in
+    '[A-Z0-9_]+_IMPL') s=STREAM_GUARD_IMPL; cover "$s" "${s}_X" "${s}X" ;;
+    'NOEVIA_FEATURE_[A-Z0-9_]+') s=NOEVIA_FEATURE_DEEP_RESEARCH; cover "$s" "X_${s}" "X${s}" ;;
+    *'['*) fails=$((fails+1)); echo "FAIL - no sample instance for new wildcard allow-list entry: $alt" ;;
+    *) cover "$alt" "${alt}_X" "X_${alt}" "${alt}X" "X${alt}" ;;
+  esac
+done
+
 echo "$passes passed, $fails failed"
 [ $fails -eq 0 ]
