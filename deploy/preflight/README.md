@@ -35,22 +35,35 @@ change anything:
 
 ```sh
 bash "${PREFLIGHT_INSTALL_DIR:?Select the installed helper}/diary-models-check.sh" \
-  --env-file "${COMPOSE_ENV_FILE:?Select the environment file the cutover deploys}"
+  --env-file "${COMPOSE_ENV_FILE:?Select the environment file the cutover deploys}" \
+  --project-dir "${COMPOSE_PROJECT_DIR:?Select the Compose project}"
 ```
 
-It reads `DIARY_CHAT_MODEL`, `DIARY_AUX_MODEL` (unset means the chat id, as in Compose), the optional
-`LLM_CHAT_FALLBACK_MODEL` / `LLM_AUX_FALLBACK_MODEL`, and `INFERENCE_BASE_URL` / `INFERENCE_API_KEY`
-(plus `AUX_INFERENCE_BASE_URL` / `AUX_INFERENCE_API_KEY` for a separate aux router) from that file, then
-makes one read-only `GET <router>/models`. Never a slot query, completion or load, so it cannot wake a
-model; a sleeping model counts as served. An id that names an embedding or reranking section is not a chat
-model. The cutover is refused when an effective id is not served: the configured id, else the matching
-explicit fallback key, else refusal (the Diary's implicit "follow the chat model" substitute for aux is not
-accepted, because nobody named it). It also fails closed on a missing key, an unreachable router, any
-answer other than HTTP 200 (redirects are not followed) or a body that is not a model list. Messages name
-keys only: no model id, address or credential is printed, and the credential is sent through a curl config
-pipe, not on the command line. Needs `curl` and `jq` on the host. Set the ids in the operator's private
-environment file; the repository carries no model ids. Compose maps the two fallback keys into the Diary
-container, so a fallback in the environment file is the one the Diary will use.
+It checks what the Diary container will actually receive, not what the environment file says. It runs
+`docker compose --env-file <file> config --format json` in the Compose project (the same project files and
+environment file the deploy uses) and reads the `diary` service's resolved environment: `LLM_CHAT_MODEL`,
+`LLM_AUX_MODEL` (unset or `default` means the chat id, as in the Diary), `LLM_BASE_URL`, `LLM_API_KEY`, the
+optional `LLM_AUX_BASE_URL` / `LLM_AUX_API_KEY`, and the explicit `LLM_CHAT_FALLBACK_MODEL` /
+`LLM_AUX_FALLBACK_MODEL`. A fallback counts only when the deployed Compose files map it into the Diary
+service; a value that sits in the environment file but is not mapped is not seen by the Diary and is
+ignored, so the check refuses. The shipped Compose files map the two fallback keys. An operator's own
+project files must do the same. The environment file itself is never parsed by the check (Compose
+interpolates it).
+
+It then makes one read-only `GET <router>/models`. Never a slot query, completion or load, so it cannot
+wake a model; a sleeping model counts as served. An id that names an embedding or reranking section is not
+a chat model. The cutover is refused when an effective id is not served: the configured id, else the
+matching explicit fallback, else refusal.
+
+**This check is stricter than the Diary.** It does not accept the Diary's implicit last-resort substitute
+for the aux role (follow whatever the chat role resolved to), because nobody named it. It also refuses a
+missing router address, where Compose would fill in a default that only means something inside a container.
+It fails closed on a Compose configuration that does not resolve, a missing `diary` service, a missing
+model key, an unreachable router, any answer other than HTTP 200 (redirects are not followed) or a body
+that is not a model list. Messages name keys only: no model id, address or credential is printed, the
+resolved configuration (which holds tokens) stays in a private temporary file, and the credential is sent
+through a curl config pipe, not on the command line. Needs `docker`, `curl` and `jq` on the host. Set the
+ids in the operator's private environment file; the repository carries no model ids.
 
 ## Implementation defaults
 

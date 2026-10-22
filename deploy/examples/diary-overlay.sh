@@ -25,14 +25,15 @@ for f in up.sh diary-image-guard.sh check.php diary-models-check.sh; do
   [ -f "$base/tools/preflight/$f" ] || { echo "$base/tools/preflight/$f is missing; install the whole deploy/preflight directory with deploy/preflight/install.sh; not deploying" >&2; exit 1; }
 done
 # END preflight-installed
-# BEGIN diary-models-check (deploy/tests/test_diary_models_check_2105.py)
-# #2105: the diary refuses every answer when its configured chat or aux model id is not served by the chat router
-# (services#2099). Read the router's model list (one read-only GET, nothing is woken) against the .env this
-# cutover deploys, and refuse here, before anything is built, stopped or changed. Fails closed.
-bash "$base/tools/preflight/diary-models-check.sh" --env-file "$config" \
-  || { echo "the diary model settings in $config name models the chat router does not serve; not deploying (#2105)" >&2; exit 1; }
-# END diary-models-check
 cd /boot/config/plugins/compose.manager/projects/Cowork
+# BEGIN diary-models-check (deploy/tests/test_diary_models_check_2105.py)
+# #2105: the diary refuses every answer when the chat or aux model id it receives is not served by the chat router
+# (services#2099). Resolve the Compose project this cutover deploys with the same .env, read the diary service's
+# environment, and compare it with the router's model list (one read-only GET, nothing is woken). Refuse here, before
+# anything is built, stopped or changed. Fails closed.
+bash "$base/tools/preflight/diary-models-check.sh" --env-file "$config" \
+  || { echo "the diary model settings the cutover would deploy name models the chat router does not serve (or could not be checked); not deploying (#2105)" >&2; exit 1; }
+# END diary-models-check
 OLD=$(sed -n 's/^DIARY_VERSION=//p' "$config")
 [ -n "$OLD" ] || { echo "DIARY_VERSION is not set in $config; see docs/deployment.md 'Migrating an existing .env'"; exit 1; }
 [ "$OLD" != "$V" ] || { echo "DIARY_VERSION is already $V"; exit 1; }

@@ -63,11 +63,12 @@ done
 (cd "$manager" && docker compose --env-file "$config" --profile code config -q) \
   || { echo "compose config fails with $config; set the missing *_VERSION keys first" >&2; exit 1; }
 # BEGIN diary-models-check (deploy/tests/test_diary_models_check_2105.py)
-# #2105: the diary refuses every answer when its configured chat or aux model id is not served by the chat router
-# (services#2099). Read the router's model list (one read-only GET, nothing is woken) against the .env this
-# cutover deploys, and refuse here, before anything is built, stopped or changed. Fails closed.
-bash "$base/tools/preflight/diary-models-check.sh" --env-file "$config" \
-  || { echo "the diary model settings in $config name models the chat router does not serve; not deploying (#2105)" >&2; exit 1; }
+# #2105: the diary refuses every answer when the chat or aux model id it receives is not served by the chat router
+# (services#2099). Resolve the Compose project this cutover deploys with the same .env, read the diary service's
+# environment, and compare it with the router's model list (one read-only GET, nothing is woken). Refuse here, before
+# anything is built, stopped or changed. Fails closed.
+bash "$base/tools/preflight/diary-models-check.sh" --env-file "$config" --project-dir "$manager" \
+  || { echo "the diary model settings the cutover would deploy name models the chat router does not serve (or could not be checked); not deploying (#2105)" >&2; exit 1; }
 # END diary-models-check
 
 # The engine and the model loader are optional (a deployment without llama.cpp has neither).
