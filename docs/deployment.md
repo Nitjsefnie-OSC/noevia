@@ -85,6 +85,24 @@ runtime contracts permit it. Read `deploy/examples/overlay-release.sh` and
 scope. An overlay is not automatically web-only. Qualify the resulting image before activating
 it, and do not use an overlay to bypass required native binaries or changed dependencies.
 
+### Diary overlay
+
+`deploy/examples/diary-overlay.sh` starts from the Diary image that is currently running and replaces
+whole the directories that the Diary image's `Dockerfile` copies into `/app`, so a change to the system
+prompt, `config.yaml` or a helper script ships together with the agent code (#2112):
+
+Diary overlay directories: `agent/`, `config/`, `scripts/`
+
+Before anything is built, stopped or changed the script reads the release's own Diary `Dockerfile` and
+refuses when its `COPY <dir>/ ./<dir>/` lines name a different set of directories (it names the one it
+would leave out). After the build it compares each directory in the candidate with the release tree (file
+names and sha256) and refuses on any difference, so a file the release dropped does not survive. A change to
+`requirements.txt` or to any other part of the `Dockerfile` (apart from the noevia-rs pin, whose binaries the
+script builds) needs a rebuild, not this overlay. A test
+(`OverlayDirsInSync` in `deploy/tests/test_overlay_scripts.py`) keeps this line, the script's list and the
+fixture `Dockerfile` the same; with `NOEVIA_SERVICES_DIR` set to a noevia-services checkout it compares the
+real `diary/Dockerfile` too.
+
 ### Document extraction app-only overlay
 
 Use this flow only when the document extraction service's Python app files changed and its native binary, dependency locks and downloaded models did not. The overlay starts from the document extraction image that is currently running and replaces exactly the app files that the production image copies into `/app/`. The whole overlay is these two lines:

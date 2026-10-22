@@ -23,6 +23,19 @@ RCLONE = ROOT / 'deploy/offsite/rclone-sync.sh'
 BAD_SHAS = ['', 'ABCDEF1', 'abc12', 'abc123g', '../../etc', 'abc1234;touch x', 'abc1234 x', '$(id)', 'a' * 41]
 
 
+# Shaped like the release's Diary Dockerfile: dependencies first, then the three directories that land in /app.
+DIARY_DOCKERFILE = """FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+COPY --from=tenant-assertion /src/target/release/tenant-assertion /usr/local/bin/tenant-assertion
+COPY agent/ ./agent/
+COPY config/ ./config/
+COPY scripts/ ./scripts/
+CMD ["uvicorn", "agent.app:app"]
+"""
+OVERLAY_TAIL = 'RUN rm -rf ./agent ./config ./scripts\nCOPY agent/ ./agent/\nCOPY config/ ./config/\nCOPY scripts/ ./scripts/\n'
+
+
 def run(script, *args, **env):
     return subprocess.run(['bash', str(script), *args], env=dict(os.environ, **env),
                           capture_output=True, text=True, timeout=30)
@@ -208,11 +221,24 @@ case "$*" in
   "inspect cowork-diary-1 --format diary"*) echo "diary healthy restarts=0" ;;
   "exec cowork-diary-1 python -c"*) exit 1 ;;
   "run --rm --entrypoint python"*) echo "candidate imports ok" ;;
+  "build -q -t cowork-diary:@NEW@-candidate "*)
+    # Emulate the build of the generated overlay Dockerfile on top of the running image's /app (#2112): `RUN rm -rf`
+    # removes, `COPY <dir>/ ./<dir>/` copies from the build context. Anything else is the running image's.
+    ctx="${!#}"; cp "$ctx/Dockerfile" "$CALL_LOG.dockerfile"
+    rm -rf "$CAND_APP"; cp -R "$RUNNING_APP" "$CAND_APP"
+    while IFS= read -r line; do
+      case "$line" in
+        "RUN rm -rf "*) for t in ${line#RUN rm -rf }; do rm -rf "$CAND_APP/${t#./}"; done ;;
+        "COPY --from"*) ;;
+        "COPY "*) src="${line#COPY }"; src="${src%% *}"; mkdir -p "$CAND_APP/$src"; cp -R "$ctx/$src/." "$CAND_APP/$src/" ;;
+      esac
+    done < "$ctx/Dockerfile" ;;
   "run --rm --network none --entrypoint sh cowork-diary:@NEW@-candidate -c"*)
-    # The candidate's /app/agent: the release's files, plus a stale one when the test asks (#1624).
-    (cd "@AGENT_DIR@" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum)
-    [ -z "${STALE_AGENT_FILE:-}" ] || echo "$(printf x | sha256sum | cut -d' ' -f1)  ./$STALE_AGENT_FILE"
-    [ -z "${MISSING_AGENT_LISTING:-}" ] || exit 1 ;;
+    # The candidate's /app/<dir> as the emulated build left it, plus a stale file when the test asks (#1624).
+    all="$*"; dir="${all#*cd /app/}"; dir="${dir%% *}"
+    [ "${MISSING_LISTING_DIR:-}" != "$dir" ] || exit 1
+    (cd "$CAND_APP/$dir" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum)
+    case "${STALE_FILE:-}" in "$dir/"*) echo "$(printf x | sha256sum | cut -d' ' -f1)  ./${STALE_FILE#$dir/}" ;; esac ;;
   "compose "*" config --format json") echo "{}" ;;
   "compose "*" up "*) [ -z "${FAIL_UP:-}" ] || exit 1 ;;
 esac
@@ -253,8 +279,20 @@ exec "@REAL_SED@" "$@"
         self.config.write_text(f'COWORK_VERSION=0000000\nDIARY_VERSION={self.OLD}\nDIARY_AUTH_TOKEN=synthetic-token\n')
         (self.base / 'state/diary/users/u1/managed-diary.db').write_bytes(b'synthetic diary state')
         (self.base / 'state/web/cowork.db').write_bytes(b'synthetic web state')
-        (self.base / f'releases/{self.NEW}/services/diary/agent/app.py').write_text('x = 1\n')
-        (self.base / f'releases/{self.NEW}/services/diary/Dockerfile').write_text('FROM python:3.12-slim\n')
+        # The release tree: what the Diary Dockerfile copies into /app (agent/, config/, scripts/).
+        self.release = self.base / f'releases/{self.NEW}/services/diary'
+        for rel, text in {'agent/app.py': 'x = 1\n', 'config/config.yaml': 'prompt: new\n',
+                          'config/prompts/system.md': 'new system prompt\n', 'scripts/tool.py': 'y = 2\n'}.items():
+            (self.release / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.release / rel).write_text(text)
+        self.dockerfile(DIARY_DOCKERFILE)
+        # The running image's /app: older agent code (with a file the release dropped), config and prompt.
+        self.running_app = self.temp / 'running-app'
+        self.cand_app = self.temp / 'candidate-app'
+        for rel, text in {'agent/app.py': 'x = 0\n', 'agent/static/old.js': 'gone\n', 'config/config.yaml': 'prompt: old\n',
+                          'config/prompts/system.md': 'old system prompt\n', 'scripts/tool.py': 'y = 2\n'}.items():
+            (self.running_app / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.running_app / rel).write_text(text)
         (self.manager / 'compose.yaml').write_text('services: {}\n')
         # up.sh sources diary-image-guard.sh from its own directory and fails closed without it (#1148),
         # so the installed preflight directory is staged whole, with the installer the runbook names (#1597).
@@ -282,6 +320,9 @@ exec "@REAL_SED@" "$@"
         self.script = self.temp / 'diary-overlay.sh'
         self.script.write_text(text)
 
+    def dockerfile(self, text):
+        (self.release / 'Dockerfile').write_text(text)
+
     def stub(self, name, body, subst):
         for token, value in subst.items():
             body = body.replace(token, value)
@@ -291,7 +332,10 @@ exec "@REAL_SED@" "$@"
 
     def overlay(self, backups=None, env=None):
         environ = dict(os.environ, PATH=f'{self.bin}:{os.environ["PATH"]}', CALL_LOG=str(self.log),
-                       BACKUP_ROOT=str(backups or self.backups), COWORK_PROJECT_DIR=str(self.manager))
+                       BACKUP_ROOT=str(backups or self.backups), COWORK_PROJECT_DIR=str(self.manager),
+                       RUNNING_APP=str(self.running_app), CAND_APP=str(self.cand_app))
+        for name in ('STALE_FILE', 'MISSING_LISTING_DIR'):
+            environ.pop(name, None)
         environ.pop('INJECT_GZIP_FAILURE', None)
         environ.update(env or {})
         return subprocess.run(['bash', str(self.script), self.NEW], env=environ, capture_output=True, text=True, timeout=60)
@@ -346,7 +390,7 @@ exec "@REAL_SED@" "$@"
 
     def test_a_stale_agent_file_in_the_candidate_stops_before_anything_is_stopped_or_tagged(self):
         # #1624: COPY never deletes, so an old static/ file would survive; the overlay must refuse it.
-        result = self.overlay(env={'STALE_AGENT_FILE': 'static/app.js'})
+        result = self.overlay(env={'STALE_FILE': 'agent/static/app.js'})
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('differs from releases', result.stderr)
         self.assertIn('static/app.js', result.stderr)
@@ -356,18 +400,77 @@ exec "@REAL_SED@" "$@"
         self.assertEqual(list(self.backups.iterdir()), [])
 
     def test_an_unlistable_candidate_stops_before_anything_is_stopped(self):
-        result = self.overlay(env={'MISSING_AGENT_LISTING': '1'})
+        result = self.overlay(env={'MISSING_LISTING_DIR': 'agent'})
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('could not list /app/agent', result.stderr)
         self.assertFalse([c for c in self.calls() if c.startswith('docker stop')])
 
-    def test_the_candidate_agent_listing_is_checked_and_reported(self):
+    def test_the_candidate_listing_of_every_overlaid_directory_is_checked_and_reported(self):
         result = self.overlay()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('candidate agent/ matches the release (1 files)', result.stdout)
+        self.assertIn('candidate config/ matches the release (2 files)', result.stdout)
+        self.assertIn('candidate scripts/ matches the release (1 files)', result.stdout)
         listing = [c for c in self.calls() if '--entrypoint sh cowork-diary:abc1234-candidate' in c]
-        self.assertEqual(len(listing), 1, self.calls())
-        self.assertIn('cd /app/agent', listing[0])
+        self.assertEqual(len(listing), 3, self.calls())
+        for line, name in zip(listing, ('agent', 'config', 'scripts')):
+            self.assertIn(f'cd /app/{name} ', line)
+
+    def test_config_prompt_and_scripts_changes_ship_with_the_agent_code(self):
+        # #2112: the release changed the system prompt and config.yaml; an agent-only overlay left the old ones in.
+        result = self.overlay()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.dockerfile_text()), 'FROM cowork-diary:rollback-before-diary-overlay\n' + OVERLAY_TAIL)
+        app = self.cand_app
+        self.assertEqual((app / 'config/config.yaml').read_text(), 'prompt: new\n')
+        self.assertEqual((app / 'config/prompts/system.md').read_text(), 'new system prompt\n')
+        self.assertEqual((app / 'agent/app.py').read_text(), 'x = 1\n')
+        self.assertFalse((app / 'agent/static/old.js').exists(), 'a file the release dropped does not survive')
+        self.assertEqual((app / 'scripts/tool.py').read_text(), 'y = 2\n')
+
+    def test_a_config_directory_that_differs_in_the_candidate_stops_before_anything_is_stopped(self):
+        for stale in ('config/prompts/old.md', 'scripts/old.py'):
+            with self.subTest(stale=stale):
+                result = self.overlay(env={'STALE_FILE': stale})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f'candidate /app/{stale.split("/")[0]} differs from releases', result.stderr)
+                self.assertIn(stale.split('/', 1)[1].rsplit('/', 1)[-1], result.stderr)
+                self.assertFalse([c for c in self.calls() if c.startswith(('docker stop', 'docker compose', 'docker tag cowork-diary:abc'))])
+                self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
+                self.log.unlink(missing_ok=True)
+
+    def test_a_release_without_one_of_the_directories_refuses_before_anything_is_built(self):
+        shutil.rmtree(self.release / 'config')
+        result = self.overlay()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f'no releases/{self.NEW}/services/diary/config', result.stdout)
+        self.assertFalse([c for c in self.calls() if c.startswith(('docker build', 'docker stop', 'docker tag'))])
+
+    def test_a_dockerfile_that_copies_another_directory_into_app_refuses_naming_it(self):
+        self.dockerfile(DIARY_DOCKERFILE + 'COPY gate/ ./gate/\n')
+        result = self.overlay()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('the Dockerfile copies gate/ but this overlay would leave it out', result.stderr)
+        self.assertIn('update overlay_dirs', result.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith(('docker build', 'docker stop', 'docker tag', 'docker compose'))], self.calls())
+        self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
+
+    def test_a_dockerfile_that_no_longer_copies_a_listed_directory_refuses_naming_it(self):
+        self.dockerfile(DIARY_DOCKERFILE.replace('COPY scripts/ ./scripts/\n', ''))
+        result = self.overlay()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('this overlay ships scripts/ but the Dockerfile does not copy it', result.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith(('docker build', 'docker stop', 'docker tag'))])
+
+    def test_a_missing_release_dockerfile_refuses(self):
+        (self.release / 'Dockerfile').unlink()
+        result = self.overlay()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('to check the overlay directories against', result.stderr)
+        self.assertFalse([c for c in self.calls() if c.startswith(('docker build', 'docker stop', 'docker tag'))])
+
+    def dockerfile_text(self):
+        return pathlib.Path(f'{self.log}.dockerfile').read_text()
 
     def test_a_failed_archive_restarts_diary_on_the_old_image_and_leaves_the_env_alone(self):
         result = self.overlay(env={'INJECT_GZIP_FAILURE': '1'})
@@ -535,10 +638,10 @@ class RsStage(unittest.TestCase):
     REF = 'a' * 40
     SUM = 'b' * 64
 
-    def block(self):
+    def block(self, name='rs-stage'):
         lines = DIARY.read_text().splitlines()
-        start = next(i for i, l in enumerate(lines) if l.startswith('# BEGIN rs-stage'))
-        end = next(i for i, l in enumerate(lines) if l.startswith('# END rs-stage'))
+        start = next(i for i, l in enumerate(lines) if l.startswith(f'# BEGIN {name}'))
+        end = next(i for i, l in enumerate(lines) if l.startswith(f'# END {name}'))
         return '\n'.join(lines[start + 1:end])
 
     def stage(self, dockerfile):
@@ -547,7 +650,7 @@ class RsStage(unittest.TestCase):
         if dockerfile is not None:
             (temp / 'releases/abc1234/services/diary/Dockerfile').write_text(dockerfile)
         (temp / 'ctx').mkdir()
-        script = 'set -euo pipefail\nbase=$1; V=abc1234; ctx=$1/ctx\n' + self.block() + '\necho "STAGE $rs_stage"'
+        script = 'set -euo pipefail\nbase=$1; V=abc1234; ctx=$1/ctx\n' + self.block('overlay-dirs') + '\n' + self.block() + '\necho "STAGE $rs_stage"'
         result = subprocess.run(['bash', '-c', script, 'x', str(temp)], capture_output=True, text=True, timeout=30)
         out = (temp / 'ctx/Dockerfile').read_text() if (temp / 'ctx/Dockerfile').exists() else None
         return result, out
@@ -568,19 +671,19 @@ class RsStage(unittest.TestCase):
         self.assertIn('if [ -d bins/workspace-restore-verify ]; then', df)
         self.assertIn('cargo build --release --locked -p workspace-restore-verify-cli', df)
         self.assertIn('./target/release/workspace-restore-verify self-test | grep -qx ok', df)
-        # agent/ is replaced whole, so files the release dropped do not survive (#1624).
-        self.assertTrue(df.rstrip().endswith('RUN rm -rf ./agent\nCOPY agent/ ./agent/'))
+        # agent/, config/ and scripts/ are replaced whole, so files the release dropped do not survive (#1624, #2112).
+        self.assertTrue(df.rstrip().endswith(OVERLAY_TAIL.rstrip()), df)
         # Only the pins are taken from the release's Dockerfile; never its text, and no pip.
         self.assertNotIn('pip', df)
         self.assertEqual(df.count('FROM cowork-diary:rollback-before-diary-overlay'), 1)
 
-    def test_an_unpinned_release_keeps_the_agent_only_overlay(self):
+    def test_an_unpinned_release_overlays_only_the_directories_copied_into_app(self):
         for dockerfile in ('FROM python:3.12-slim\nCOPY agent/ ./agent/\n', None):
             with self.subTest(dockerfile=dockerfile):
                 result, df = self.stage(dockerfile)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn('STAGE 0', result.stdout)
-                self.assertEqual(df, 'FROM cowork-diary:rollback-before-diary-overlay\nRUN rm -rf ./agent\nCOPY agent/ ./agent/\n')
+                self.assertEqual(df, 'FROM cowork-diary:rollback-before-diary-overlay\n' + OVERLAY_TAIL)
 
     def test_a_malformed_pin_stops_before_any_build(self):
         for ref, digest in [('a' * 39, self.SUM), (self.REF, 'B' * 64), (self.REF + ';id', self.SUM), (self.REF, ''),
@@ -590,6 +693,36 @@ class RsStage(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('not a 40-hex ref', result.stderr)
                 self.assertIsNone(df)
+
+
+class OverlayDirsInSync(unittest.TestCase):
+    """#2112: the directory list of diary-overlay.sh, its documentation and the Diary Dockerfile stay one list."""
+
+    def script_dirs(self):
+        found = re.findall(r'(?m)^overlay_dirs="([a-z_ ]+)"$', DIARY.read_text())
+        self.assertEqual(len(found), 1, found)
+        return set(found[0].split())
+
+    @staticmethod
+    def dockerfile_dirs(text):
+        return set(re.findall(r'(?m)^COPY ([a-z_][a-z0-9_]*)/ \./\1/\s*$', text))
+
+    def test_the_list_is_exactly_agent_config_and_scripts(self):
+        self.assertEqual(self.script_dirs(), {'agent', 'config', 'scripts'})
+
+    def test_the_fixture_dockerfile_copies_the_same_directories(self):
+        self.assertEqual(self.dockerfile_dirs(DIARY_DOCKERFILE), self.script_dirs())
+
+    def test_the_deployment_guide_lists_the_same_directories(self):
+        docs = (ROOT / 'docs/deployment.md').read_text()
+        line = re.search(r'(?m)^Diary overlay directories: (.+)$', docs)
+        self.assertIsNotNone(line, 'docs/deployment.md has no "Diary overlay directories:" line')
+        self.assertEqual(set(re.findall(r'`([a-z_]+)/`', line.group(1))), self.script_dirs())
+
+    @unittest.skipUnless(os.environ.get('NOEVIA_SERVICES_DIR'), 'set NOEVIA_SERVICES_DIR to a noevia-services checkout to compare with its real Dockerfile')
+    def test_the_list_matches_the_services_diary_dockerfile(self):
+        text = (pathlib.Path(os.environ['NOEVIA_SERVICES_DIR']) / 'diary/Dockerfile').read_text()
+        self.assertEqual(self.dockerfile_dirs(text), self.script_dirs())
 
 
 if __name__ == '__main__':
