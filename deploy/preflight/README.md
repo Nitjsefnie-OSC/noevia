@@ -66,6 +66,17 @@ wake a model; a sleeping model counts as served. An id that names an embedding o
 a chat model. The cutover is refused when an effective id is not served: the configured id, else the
 matching explicit fallback, else refusal.
 
+**Router addresses that are Compose service names (#2111).** The Diary may reach its router by the name of
+another service in the same Compose project, which the Docker host cannot resolve. When the host's `curl`
+reports that the name does not resolve (exit 6), the same single GET is made from inside the running `diary`
+container instead (`docker compose ps -q diary`, then `docker exec -i`), with the Diary image's own `python`
+and the name resolved by the Diary's network. The request is the same read-only GET: no redirects, a 10 s
+timeout, a 4 MiB cap. The address and the credential are sent on the exec's standard input, never on a
+command line. Nothing is started, built or created. Only an address the host cannot resolve takes this
+path; any other failure (connection refused, timeout, a non-200 answer, a body that is not a model list)
+refuses as before. If no `diary` container is running there is nothing to resolve the name with, so the check
+refuses and says so: start the Diary, or use an address the host can reach.
+
 **This check is stricter than the Diary.** It does not accept the Diary's implicit last-resort substitute
 for the aux role (follow whatever the chat role resolved to), because nobody named it. It also refuses a
 missing router address, where Compose would fill in a default that only means something inside a container.
@@ -73,7 +84,8 @@ It fails closed on a Compose configuration that does not resolve, a missing `dia
 model key, an unreachable router, any answer other than HTTP 200 (redirects are not followed) or a body
 that is not a model list. Messages name keys only: no model id, address or credential is printed, the
 resolved configuration (which holds tokens) stays in a private temporary file, and the credential is sent
-through a curl config pipe, not on the command line. Needs `docker`, `curl` and `jq` on the host. Set the
+through a curl config pipe (or the exec's standard input), not on the command line. Needs `docker`, `curl`
+and `jq` on the host. Set the
 ids in the operator's private environment file; the repository carries no model ids.
 
 ## Implementation defaults
