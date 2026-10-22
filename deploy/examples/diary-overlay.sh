@@ -21,10 +21,17 @@ V=${1:?source release sha (becomes DIARY_VERSION)}; base=/mnt/docker/appdata/cow
 # BEGIN preflight-installed (deploy/tests/test_overlay_scripts.py runs this block)
 # #1597: up.sh fails closed unless the rest of deploy/preflight is installed beside it. Check the installed
 # copy before anything is built, stopped or changed, so a partial install cannot strand a service.
-for f in up.sh diary-image-guard.sh check.php; do
+for f in up.sh diary-image-guard.sh check.php diary-models-check.sh; do
   [ -f "$base/tools/preflight/$f" ] || { echo "$base/tools/preflight/$f is missing; install the whole deploy/preflight directory with deploy/preflight/install.sh; not deploying" >&2; exit 1; }
 done
 # END preflight-installed
+# BEGIN diary-models-check (deploy/tests/test_diary_models_check_2105.py)
+# #2105: the diary refuses every answer when its configured chat or aux model id is not served by the chat router
+# (services#2099). Read the router's model list (one read-only GET, nothing is woken) against the .env this
+# cutover deploys, and refuse here, before anything is built, stopped or changed. Fails closed.
+bash "$base/tools/preflight/diary-models-check.sh" --env-file "$config" \
+  || { echo "the diary model settings in $config name models the chat router does not serve; not deploying (#2105)" >&2; exit 1; }
+# END diary-models-check
 cd /boot/config/plugins/compose.manager/projects/Cowork
 OLD=$(sed -n 's/^DIARY_VERSION=//p' "$config")
 [ -n "$OLD" ] || { echo "DIARY_VERSION is not set in $config; see docs/deployment.md 'Migrating an existing .env'"; exit 1; }

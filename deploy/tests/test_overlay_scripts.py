@@ -261,6 +261,12 @@ exec "@REAL_SED@" "$@"
         installed = subprocess.run(['bash', str(ROOT / 'deploy/preflight/install.sh'), str(self.base / 'tools/preflight')],
                                    capture_output=True, text=True, timeout=30)
         self.assertEqual(installed.returncode, 0, installed.stderr)
+        # #2105: the installed model check is a stub here (test_diary_models_check_2105.py runs the real one);
+        # it records the .env it was given in its own log, so the docker call log stays unchanged.
+        models_check = self.base / 'tools/preflight/diary-models-check.sh'
+        models_check.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALL_LOG.modelcheck"\n'
+                                '[ -z "${FAIL_MODELS_CHECK:-}" ] || { echo "REFUSED stub" >&2; exit 1; }\nexit 0\n')
+        models_check.chmod(0o755)
         subst = {'@NEW@': self.NEW, '@OLD@': self.OLD, '@OLD_ID@': self.OLD_ID,
                  '@AGENT_DIR@': str(self.base / f'releases/{self.NEW}/services/diary/agent'),
                  '@REAL_GZIP@': shutil.which('gzip') or '/usr/bin/gzip', '@REAL_SED@': shutil.which('sed') or '/usr/bin/sed'}
@@ -389,7 +395,7 @@ exec "@REAL_SED@" "$@"
     def test_a_partial_preflight_install_refuses_before_anything_is_built_stopped_or_tagged(self):
         # #1597: only up.sh refreshed by hand. up.sh would exit 2 after Diary was stopped, and the
         # rollback up.sh would exit 2 again; the overlay must refuse up front instead.
-        for missing in ['diary-image-guard.sh', 'check.php', 'up.sh']:
+        for missing in ['diary-image-guard.sh', 'check.php', 'up.sh', 'diary-models-check.sh']:
             with self.subTest(missing=missing):
                 self.log.unlink(missing_ok=True)
                 installed = self.base / 'tools/preflight'
@@ -406,6 +412,23 @@ exec "@REAL_SED@" "$@"
                 self.assertEqual(self.calls(), [], 'nothing, not even a docker inspect, ran before the refusal')
                 self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
 
+    def test_a_refusing_model_check_stops_the_overlay_before_anything_is_built_stopped_or_tagged(self):
+        # #2105: the .env names models the router does not serve; nothing may run, not even a docker inspect.
+        self.log.unlink(missing_ok=True)
+        result = self.overlay(env={'FAIL_MODELS_CHECK': '1'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('REFUSED stub', result.stderr)
+        self.assertIn('not deploying', result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(list(self.backups.iterdir()), [])
+        self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
+        self.assertEqual((self.log.parent / (self.log.name + '.modelcheck')).read_text().strip(), f'--env-file {self.config}')
+
+    def test_a_passing_model_check_is_given_the_env_file_this_overlay_deploys(self):
+        result = self.overlay()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.log.parent / (self.log.name + '.modelcheck')).read_text().strip(), f'--env-file {self.config}')
+
     def test_only_up_sh_staged_refuses_before_docker_stop(self):
         for name in ['diary-image-guard.sh', 'check.php', 'web-env-keys.txt']:
             (self.base / 'tools/preflight' / name).unlink()
@@ -417,7 +440,7 @@ exec "@REAL_SED@" "$@"
     def test_the_installer_refuses_a_partial_source_and_verifies_a_full_one(self):
         src = self.temp / 'src'
         src.mkdir()
-        for name in ['up.sh', 'diary-image-guard.sh']:
+        for name in ['up.sh', 'diary-image-guard.sh', 'diary-models-check.sh']:
             shutil.copy(ROOT / 'deploy/preflight' / name, src / name)
         shutil.copy(ROOT / 'deploy/preflight/install.sh', src / 'install.sh')
         dest = self.temp / 'dest'
@@ -425,10 +448,16 @@ exec "@REAL_SED@" "$@"
         self.assertNotEqual(partial.returncode, 0)
         self.assertIn('check.php is missing', partial.stderr)
         self.assertFalse(dest.exists(), 'nothing is installed from a partial source')
+        (src / 'diary-models-check.sh').unlink()
         shutil.copy(ROOT / 'deploy/preflight/check.php', src / 'check.php')
+        no_models_check = subprocess.run(['bash', str(src / 'install.sh'), str(dest)], capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(no_models_check.returncode, 0)
+        self.assertIn('diary-models-check.sh is missing', no_models_check.stderr)
+        self.assertFalse(dest.exists(), 'nothing is installed without the diary model check (#2105)')
+        shutil.copy(ROOT / 'deploy/preflight/diary-models-check.sh', src / 'diary-models-check.sh')
         full = subprocess.run(['bash', str(src / 'install.sh'), str(dest)], capture_output=True, text=True, timeout=30)
         self.assertEqual(full.returncode, 0, full.stderr)
-        self.assertEqual(sorted(p.name for p in dest.iterdir()), ['check.php', 'diary-image-guard.sh', 'up.sh'])
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), ['check.php', 'diary-image-guard.sh', 'diary-models-check.sh', 'up.sh'])
 
     def test_a_failed_rollback_up_still_starts_the_unchanged_diary_container(self):
         # The recreate fails and so does the rollback's up.sh; Diary must not be left stopped.
@@ -479,16 +508,17 @@ class InstalledPreflightBlock(unittest.TestCase):
         body = 'set -euo pipefail\nbase=$1\n' + '\n'.join(lines[start + 1:end]) + '\necho BLOCK_PASSED'
         return subprocess.run(['bash', '-c', body, 'x', str(temp)], capture_output=True, text=True, timeout=30)
 
-    def test_each_script_needs_up_sh_the_guard_and_check_php(self):
+    def test_each_script_needs_up_sh_the_guard_check_php_and_the_model_check(self):
         for script in (DIARY, OVERLAY):
-            for present in (['up.sh'], ['up.sh', 'diary-image-guard.sh'], ['up.sh', 'check.php'], []):
+            for present in (['up.sh'], ['up.sh', 'diary-image-guard.sh'], ['up.sh', 'check.php'], [],
+                            ['up.sh', 'diary-image-guard.sh', 'check.php']):
                 with self.subTest(script=script.name, present=present):
                     result = self.run_block(script, present)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertNotIn('BLOCK_PASSED', result.stdout)
                     self.assertIn('not deploying', result.stderr)
             with self.subTest(script=script.name, present='all'):
-                result = self.run_block(script, ['up.sh', 'diary-image-guard.sh', 'check.php'])
+                result = self.run_block(script, ['up.sh', 'diary-image-guard.sh', 'check.php', 'diary-models-check.sh'])
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn('BLOCK_PASSED', result.stdout)
 

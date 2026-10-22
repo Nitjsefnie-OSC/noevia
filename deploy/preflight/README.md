@@ -26,6 +26,32 @@ bash "${PREFLIGHT_INSTALL_DIR:?Select the installed helper}/up.sh" \
   -d --no-build --wait --wait-timeout 120
 ```
 
+## Diary model settings (#2105)
+
+The Diary refuses to answer when its configured chat or aux model id is not served by the chat
+router and no explicit fallback is set. `diary-models-check.sh` is installed beside `up.sh` and run by
+`deploy/examples/overlay-release.sh` and `deploy/examples/diary-overlay.sh` before they build, stop or
+change anything:
+
+```sh
+bash "${PREFLIGHT_INSTALL_DIR:?Select the installed helper}/diary-models-check.sh" \
+  --env-file "${COMPOSE_ENV_FILE:?Select the environment file the cutover deploys}"
+```
+
+It reads `DIARY_CHAT_MODEL`, `DIARY_AUX_MODEL` (unset means the chat id, as in Compose), the optional
+`LLM_CHAT_FALLBACK_MODEL` / `LLM_AUX_FALLBACK_MODEL`, and `INFERENCE_BASE_URL` / `INFERENCE_API_KEY`
+(plus `AUX_INFERENCE_BASE_URL` / `AUX_INFERENCE_API_KEY` for a separate aux router) from that file, then
+makes one read-only `GET <router>/models`. Never a slot query, completion or load, so it cannot wake a
+model; a sleeping model counts as served. An id that names an embedding or reranking section is not a chat
+model. The cutover is refused when an effective id is not served: the configured id, else the matching
+explicit fallback key, else refusal (the Diary's implicit "follow the chat model" substitute for aux is not
+accepted, because nobody named it). It also fails closed on a missing key, an unreachable router, any
+answer other than HTTP 200 (redirects are not followed) or a body that is not a model list. Messages name
+keys only: no model id, address or credential is printed, and the credential is sent through a curl config
+pipe, not on the command line. Needs `curl` and `jq` on the host. Set the ids in the operator's private
+environment file; the repository carries no model ids. Compose maps the two fallback keys into the Diary
+container, so a fallback in the environment file is the one the Diary will use.
+
 ## Implementation defaults
 
 `install.sh` accepts a destination argument and defaults to
