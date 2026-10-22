@@ -112,10 +112,10 @@ Use this flow only when the document extraction service's Python app files chang
 
 ```Dockerfile
 FROM <running-document-extraction-image>
-COPY server.py extract.py isolation.py isolated_worker.py selftest.py synthetic_pdfs.py /app/
+COPY extract.py isolated_worker.py selftest.py synthetic_pdfs.py /app/
 ```
 
-The file list must match the final `COPY <files> ./` in the production stage of the document extraction service's `Dockerfile` in the noevia-services repository. A services test, `test_overlay_docs_list_exactly_the_files_the_dockerfile_copies_to_app` in `docling/test_requirements_pinned.py`, enforces that this line lists the same files, so a change to that Dockerfile line must update this one in the same change. Qualify the resulting image before activating it, as for any overlay.
+The file list must match the final `COPY <files> ./` in the production stage of the document extraction service's `Dockerfile` in the noevia-services repository. Since #1071 the Python HTTP server (`server.py`) and its supervisor (`isolation.py`) are no longer in that list: the native server in the image is the only owner. An overlay does not delete files, so an image overlaid from one that still carries them keeps two unused files; nothing starts them. The native binary itself changes only with a rebuild, not with this overlay. A services test, `test_overlay_docs_list_exactly_the_files_the_dockerfile_copies_to_app` in `docling/test_requirements_pinned.py`, enforces that this line lists the same files, so a change to that Dockerfile line must update this one in the same change. Qualify the resulting image before activating it, as for any overlay.
 
 ## The deploy
 

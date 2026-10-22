@@ -1,40 +1,42 @@
-"""The Docling native switch reaches the container from .env and defaults to python (#1690).
+"""The retired document extraction selector reaches no container (#1071).
 
-The image sets NOEVIA_DOCLING_IMPL=python, so without a compose passthrough the owner's
-NOEVIA_DOCLING_IMPL=rust in .env never takes effect. Only key names and the default expression are
-read here; no .env value is ever read.
+NOEVIA_DOCLING_IMPL chose between the native server and the Python HTTP server. The Python server is
+deleted and the image fixes the selector to the native value itself, so no compose copy passes it:
+a leftover NOEVIA_DOCLING_IMPL=python in an older .env must not reach the container. Only key names
+are read here; no .env value is ever read.
 """
 import pathlib
 import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+COMPOSE_COPIES = ['compose.docling.yaml', 'compose.yaml', 'deploy/examples/unraid-compose-manager.yml']
 KEY = 'NOEVIA_DOCLING_IMPL'
 
 
-def docling_environment(text):
-    """The `environment:` lines of the docling service (two-space service keys, six-space env keys)."""
-    lines = text.split('\n')
-    start = lines.index('  docling:')
-    body, in_env = [], False
-    for line in lines[start + 1:]:
-        if re.match(r'^ {2}\S', line):
-            break
-        if re.match(r'^ {4}environment:\s*$', line):
-            in_env = True
-            continue
-        if in_env and re.match(r'^ {4}\S', line):
-            break
-        if in_env:
-            body.append(line)
-    return body
+def problems_for(text):
+    """Every line that passes the retired key, in mapping or list form."""
+    return [line for line in text.splitlines()
+            if re.match(r'^\s+(?:-\s*)?["\']?' + KEY + r'\s*[:=]', line)]
 
 
-class DoclingImplPassthroughTests(unittest.TestCase):
-    def test_compose_docling_passes_the_switch_with_python_default(self):
-        env = docling_environment((ROOT / 'compose.docling.yaml').read_text(encoding='utf-8'))
-        lines = [line.strip() for line in env if re.match(rf'^ {{6}}{KEY}:', line)]
-        self.assertEqual(lines, [f'{KEY}: ${{{KEY}:-python}}'])
+class RetiredDoclingSelectorTests(unittest.TestCase):
+    def test_no_compose_copy_passes_the_retired_key(self):
+        for name in COMPOSE_COPIES:
+            with self.subTest(copy=name):
+                self.assertEqual(problems_for((ROOT / name).read_text(encoding='utf-8')), [])
+
+    def test_mapping_and_list_forms_are_refused(self):
+        for line in ['      NOEVIA_DOCLING_IMPL: ${NOEVIA_DOCLING_IMPL:-python}',
+                     '      NOEVIA_DOCLING_IMPL: rust',
+                     '      - NOEVIA_DOCLING_IMPL=python',
+                     '      - "NOEVIA_DOCLING_IMPL=rust"']:
+            self.assertEqual(problems_for('  docling:\n    environment:\n' + line), [line])
+
+    def test_the_docling_service_keeps_its_other_settings(self):
+        text = (ROOT / 'compose.docling.yaml').read_text(encoding='utf-8')
+        for key in ('HF_HUB_OFFLINE:', 'DOCLING_ARTIFACTS_PATH:', 'DOCLING_RANGED_MAX_BYTES:'):
+            self.assertIn(key, text)
 
 
 if __name__ == '__main__':
