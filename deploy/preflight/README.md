@@ -14,6 +14,17 @@ Install the whole directory, never `up.sh` alone: `up.sh` refuses to start anyth
 bash deploy/preflight/install.sh "${PREFLIGHT_INSTALL_DIR:?Select the install directory}"
 ```
 
+**Locally extended `up.sh` (#2113).** An installation may add its own steps around `docker compose up`
+in the installed `up.sh`. `install.sh` never deletes them silently. It replaces an installed `up.sh`
+only when that file is byte-identical to the new one or to a released version (the sha256 list in
+`up.sh.released-sha256`, which is appended whenever `up.sh` changes; a test fails until it is). Any other
+installed `up.sh` counts as locally edited: the install stops before it copies anything, prints
+`diff <installed up.sh> <new up.sh>` to see the difference, and changes nothing (exit 1). To replace it
+anyway, run `install.sh --replace-local-up-sh "${PREFLIGHT_INSTALL_DIR}"`: the edited file is first kept
+beside it as `up.sh.local-<UTC time>.bak` (and the install stops if that copy cannot be made), then the
+whole directory is installed. Merge the kept local steps into the new `up.sh` by hand if they are still
+needed. A first install, or an installed `up.sh` that is already current or an older release, needs no flag.
+
 ```sh
 # From the repository root, using its Compose file and .env. --build is refused (it would rebuild
 # and retag cowork-diary:*, #1148); build a named non-diary service first if needed.
