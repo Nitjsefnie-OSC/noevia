@@ -2,18 +2,19 @@
 # Installs the whole preflight directory into the live tools folder and verifies the copy (#1597).
 # up.sh fails closed unless diary-image-guard.sh sits beside it, and it pipes the resolved Compose
 # config through check.php, so refreshing up.sh alone leaves every guarded deploy (and a Diary
-# overlay) unable to start anything. Run on the Docker host from a checkout or an unpacked release:
+# overlay) unable to start anything. Both overlay scripts also run diary-models-check.sh (#2105)
+# before they change anything. Run on the Docker host from a checkout or an unpacked release:
 #   bash deploy/preflight/install.sh [DEST]     # DEST defaults to /mnt/docker/appdata/cowork/tools/preflight
 # Required files must all exist in the source; web-env-keys.txt is advisory and copied when present.
 set -euo pipefail
 src="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 dest="${1:-/mnt/docker/appdata/cowork/tools/preflight}"
-required=(up.sh diary-image-guard.sh check.php)
+required=(up.sh diary-image-guard.sh check.php diary-models-check.sh)
 optional=(web-env-keys.txt)
 for f in "${required[@]}"; do
   [[ -f "$src/$f" ]] || { echo "error: $src/$f is missing; not installing a partial preflight" >&2; exit 1; }
 done
-for f in up.sh diary-image-guard.sh; do
+for f in up.sh diary-image-guard.sh diary-models-check.sh; do
   bash -n "$src/$f" || { echo "error: $src/$f does not parse; not installing" >&2; exit 1; }
 done
 mkdir -p "$dest"

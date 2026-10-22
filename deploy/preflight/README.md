@@ -26,6 +26,45 @@ bash "${PREFLIGHT_INSTALL_DIR:?Select the installed helper}/up.sh" \
   -d --no-build --wait --wait-timeout 120
 ```
 
+## Diary model settings (#2105)
+
+The Diary refuses to answer when its configured chat or aux model id is not served by the chat
+router and no explicit fallback is set. `diary-models-check.sh` is installed beside `up.sh` and run by
+`deploy/examples/overlay-release.sh` and `deploy/examples/diary-overlay.sh` before they build, stop or
+change anything:
+
+```sh
+bash "${PREFLIGHT_INSTALL_DIR:?Select the installed helper}/diary-models-check.sh" \
+  --env-file "${COMPOSE_ENV_FILE:?Select the environment file the cutover deploys}" \
+  --project-dir "${COMPOSE_PROJECT_DIR:?Select the Compose project}"
+```
+
+It checks what the Diary container will actually receive, not what the environment file says. It runs
+`docker compose --env-file <file> config --format json` in the Compose project (the same project files and
+environment file the deploy uses) and reads the `diary` service's resolved environment: `LLM_CHAT_MODEL`,
+`LLM_AUX_MODEL` (unset or `default` means the chat id, as in the Diary), `LLM_BASE_URL`, `LLM_API_KEY`, the
+optional `LLM_AUX_BASE_URL` / `LLM_AUX_API_KEY`, and the explicit `LLM_CHAT_FALLBACK_MODEL` /
+`LLM_AUX_FALLBACK_MODEL`. A fallback counts only when the deployed Compose files map it into the Diary
+service; a value that sits in the environment file but is not mapped is not seen by the Diary and is
+ignored, so the check refuses. The shipped Compose files map the two fallback keys. An operator's own
+project files must do the same. The environment file itself is never parsed by the check (Compose
+interpolates it).
+
+It then makes one read-only `GET <router>/models`. Never a slot query, completion or load, so it cannot
+wake a model; a sleeping model counts as served. An id that names an embedding or reranking section is not
+a chat model. The cutover is refused when an effective id is not served: the configured id, else the
+matching explicit fallback, else refusal.
+
+**This check is stricter than the Diary.** It does not accept the Diary's implicit last-resort substitute
+for the aux role (follow whatever the chat role resolved to), because nobody named it. It also refuses a
+missing router address, where Compose would fill in a default that only means something inside a container.
+It fails closed on a Compose configuration that does not resolve, a missing `diary` service, a missing
+model key, an unreachable router, any answer other than HTTP 200 (redirects are not followed) or a body
+that is not a model list. Messages name keys only: no model id, address or credential is printed, the
+resolved configuration (which holds tokens) stays in a private temporary file, and the credential is sent
+through a curl config pipe, not on the command line. Needs `docker`, `curl` and `jq` on the host. Set the
+ids in the operator's private environment file; the repository carries no model ids.
+
 ## Implementation defaults
 
 `install.sh` accepts a destination argument and defaults to

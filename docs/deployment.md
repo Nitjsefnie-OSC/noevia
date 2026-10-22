@@ -57,6 +57,19 @@ Filesystem ownership guards remain enforced. Inspect the actual candidate mounts
 than recursively changing permissions or weakening validation. Retain the exact timezone,
 trusted-set, startup, writer-lease, shutdown, and process-ownership requirements of the release.
 
+## Diary model settings gate (#2105)
+
+A Diary that runs the strict model selection refuses every answer when its configured chat or aux id is not
+served by the chat router and no explicit fallback is set. Set the Diary's model settings (or
+`LLM_CHAT_FALLBACK_MODEL` / `LLM_AUX_FALLBACK_MODEL`, which the deployed Compose files must map into the
+Diary service) to served ids in the operator-owned environment file before the cutover. Both overlay scripts
+run `diary-models-check.sh` from the installed preflight directory before anything changes. It resolves the
+deployed Compose project with that environment file, reads the Diary service's effective environment, and
+compares it with the router's model list using one read-only request. It never wakes a model, and it refuses
+on an unserved id, a fallback that the Diary service does not receive, a missing key, an unreachable router or
+a Compose configuration that does not resolve. It is stricter than the Diary itself. See
+[deploy/preflight/README.md](../deploy/preflight/README.md).
+
 ## Release idle gate: Coding jobs (#1391)
 
 Use `deploy/tools/release-idle-jobs.sh` and its companion against the selected application
