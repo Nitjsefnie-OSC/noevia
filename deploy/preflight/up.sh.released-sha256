@@ -1,0 +1,13 @@
+# sha256 of every released deploy/preflight/up.sh, newest first (#2113). deploy/preflight/install.sh
+# replaces an installed up.sh without asking only when it is byte-identical to the new one or listed
+# here; any other installed up.sh carries local edits and the install refuses (see README.md).
+# Append the sha256 of up.sh (and the commit) whenever it changes; test_preflight_install_2113.py
+# fails until the current file is listed.
+6ccd9b3f27daefd6885540281f10acab52b90a47d8cab86e5f0bf8e47cab4ac2  c7b8420d 2026-10-17
+dad4dde38feba162c8724fc5b8b873ce910077095b69b1332335ff6172aaf9eb  6f0ba588 2026-10-15
+a72bf073d8acdddfbd106e0dd16e638728f851172861edfae80305660abe2b89  8b4b85d9 2026-10-12
+49d374408aebe624f2430ce7555617a6b7a10b1f609f514ddd8ad905311ebda8  be2d89e5 2026-10-05
+e72f110760d0da9b84c4fc8d9891015fd377d88d12de16170f455689e0c1039c  d16c4210 2026-09-28
+cf022e7279111d8b0f29162fd153c6936b1f99cbc8da66ada871c5509b7e757f  ff3d3bd9 2026-09-24
+36297f2536e0c2611ee324204efa20124dcdb4b2eb656a045a86e8239d500e10  dbf7fcd5 2026-09-15
+95c2033d0319bf1b5d3acc2489c00babc5bd9f930dac5311f69a71d6df4d61bb  325118ad 2026-09-13
