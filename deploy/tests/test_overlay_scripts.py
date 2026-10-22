@@ -24,7 +24,10 @@ BAD_SHAS = ['', 'ABCDEF1', 'abc12', 'abc123g', '../../etc', 'abc1234;touch x', '
 
 
 # Shaped like the release's Diary Dockerfile: dependencies first, then the three directories that land in /app.
-DIARY_DOCKERFILE = """FROM python:3.12-slim
+DIARY_DOCKERFILE = """FROM rust:slim AS tenant-assertion
+ADD https://example.invalid/source.tar.gz /tmp/source.tar.gz
+COPY tools/ ./tools/
+FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 COPY --from=tenant-assertion /src/target/release/tenant-assertion /usr/local/bin/tenant-assertion
@@ -220,6 +223,9 @@ case "$*" in
     if [ -n "${LATER_IMAGE:-}" ] && [ -e "$CALL_LOG.inspected" ]; then echo "$LATER_IMAGE"; else : > "$CALL_LOG.inspected"; echo "@OLD_ID@"; fi ;;
   "inspect cowork-diary-1 --format diary"*) echo "diary healthy restarts=0" ;;
   "exec cowork-diary-1 python -c"*) exit 1 ;;
+  "run --rm --network none --entrypoint sh cowork-diary:@OLD@ -c"*)
+    # The running image's /app/requirements.txt (#2112): the overlay installs no dependencies.
+    [ -f "$RUNNING_APP/requirements.txt" ] && sha256sum "$RUNNING_APP/requirements.txt" ;;
   "run --rm --entrypoint python"*) echo "candidate imports ok" ;;
   "build -q -t cowork-diary:@NEW@-candidate "*)
     # Emulate the build of the generated overlay Dockerfile on top of the running image's /app (#2112): `RUN rm -rf`
@@ -289,6 +295,9 @@ exec "@REAL_SED@" "$@"
         # The running image's /app: older agent code (with a file the release dropped), config and prompt.
         self.running_app = self.temp / 'running-app'
         self.cand_app = self.temp / 'candidate-app'
+        (self.release / 'requirements.txt').write_text('synthetic-dependency==1.0\n')
+        self.running_app.mkdir(parents=True, exist_ok=True)
+        (self.running_app / 'requirements.txt').write_text('synthetic-dependency==1.0\n')
         for rel, text in {'agent/app.py': 'x = 0\n', 'agent/static/old.js': 'gone\n', 'config/config.yaml': 'prompt: old\n',
                           'config/prompts/system.md': 'old system prompt\n', 'scripts/tool.py': 'y = 2\n'}.items():
             (self.running_app / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -461,6 +470,46 @@ exec "@REAL_SED@" "$@"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('this overlay ships scripts/ but the Dockerfile does not copy it', result.stderr)
         self.assertFalse([c for c in self.calls() if c.startswith(('docker build', 'docker stop', 'docker tag'))])
+
+    def assert_nothing_started(self):
+        self.assertFalse([c for c in self.calls() if c.startswith(('docker build', 'docker stop', 'docker tag', 'docker compose'))], self.calls())
+        self.assertIn(f'DIARY_VERSION={self.OLD}', self.config.read_text())
+
+    def test_every_other_copy_or_add_of_the_final_stage_refuses_instead_of_being_ignored(self):
+        # #2112 review: only `COPY <dir>/ ./<dir>/` was recognised, so these were silently left out of the overlay.
+        variants = ['COPY --chown=1000:1000 prompts/ ./prompts/', 'COPY gate ./gate', 'COPY web-assets/ ./web-assets/', 'ADD tools/ ./tools/',
+                    'COPY entry.sh ./', 'copy extra/ ./extra/', 'COPY ["extra/", "./extra/"]', 'COPY --from=other /x /y', 'COPY extra/ ./other/',
+                    'COPY extra/ \\\n  ./extra/', 'COPY /abs/ ./abs/', 'ADD agent/ ./agent/']
+        for line in variants:
+            with self.subTest(line=line):
+                self.dockerfile(DIARY_DOCKERFILE + line + '\n')
+                result = self.overlay()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('does not know how to ship', result.stderr)
+                self.assert_nothing_started()
+                self.log.unlink(missing_ok=True)
+
+    def test_copy_lines_of_the_first_stage_are_not_the_images(self):
+        self.dockerfile(DIARY_DOCKERFILE)   # its Rust stage has an ADD and a COPY of another directory
+        result = self.overlay()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_requirements_file_that_differs_from_the_running_images_refuses_before_anything_is_built(self):
+        (self.release / 'requirements.txt').write_text('synthetic-dependency==2.0\n')
+        result = self.overlay()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('requirements.txt', result.stderr)
+        self.assert_nothing_started()
+
+    def test_a_missing_requirements_file_refuses(self):
+        (self.release / 'requirements.txt').unlink()
+        result = self.overlay()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('requirements.txt', result.stderr)
+        self.assert_nothing_started()
+        (self.release / 'requirements.txt').write_text('synthetic-dependency==1.0\n')
+        (self.running_app / 'requirements.txt').unlink()
+        self.assertNotEqual(self.overlay().returncode, 0, 'one the running image cannot show is a refusal too')
 
     def test_a_missing_release_dockerfile_refuses(self):
         (self.release / 'Dockerfile').unlink()
@@ -705,7 +754,8 @@ class OverlayDirsInSync(unittest.TestCase):
 
     @staticmethod
     def dockerfile_dirs(text):
-        return set(re.findall(r'(?m)^COPY ([a-z_][a-z0-9_]*)/ \./\1/\s*$', text))
+        final_stage = re.split(r'(?mi)^[ \t]*FROM[ \t].*$', text)[-1]   # the image is its last stage
+        return set(re.findall(r'(?m)^COPY ([a-z_][a-z0-9_]*)/ \./\1/\s*$', final_stage))
 
     def test_the_list_is_exactly_agent_config_and_scripts(self):
         self.assertEqual(self.script_dirs(), {'agent', 'config', 'scripts'})

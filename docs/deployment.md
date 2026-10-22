@@ -95,7 +95,10 @@ Diary overlay directories: `agent/`, `config/`, `scripts/`
 
 Before anything is built, stopped or changed the script reads the release's own Diary `Dockerfile` and
 refuses when its `COPY <dir>/ ./<dir>/` lines name a different set of directories (it names the one it
-would leave out). After the build it compares each directory in the candidate with the release tree (file
+would leave out). Every `COPY` and `ADD` of the final stage counts: besides `COPY requirements.txt .` and the
+binaries taken from the Rust stage, any other copying line (a file, `--chown`, a hyphenated directory, `ADD`,
+JSON form) stops the overlay, because it would put content in the image that the overlay does not ship. It also
+refuses when the release's `requirements.txt` differs from the one in the running image. After the build it compares each directory in the candidate with the release tree (file
 names and sha256) and refuses on any difference, so a file the release dropped does not survive. A change to
 `requirements.txt` or to any other part of the `Dockerfile` (apart from the noevia-rs pin, whose binaries the
 script builds) needs a rebuild, not this overlay. A test
