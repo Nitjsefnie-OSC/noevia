@@ -53,9 +53,11 @@ services:
       HF_HOME: /tmp/hf
       DOCLING_ARTIFACTS_PATH: /opt/docling-models
       OMP_NUM_THREADS: ${DOCLING_THREADS:-2}
-      # NOEVIA_DOCLING_IMPL is retired (#1071): the native server is the only owner and the image
-      # fixes the selector itself, so it is deliberately not passed; a leftover value in .env
-      # cannot reach the container (deploy/tests/test_docling_impl_passthrough.py).
+      # NOEVIA_DOCLING_IMPL is retired (#1071): the native server is the only owner. It is pinned
+      # here, never read from .env, so a leftover NOEVIA_DOCLING_IMPL=python cannot reach the
+      # container, and an image built before the retirement (whose own default was python) still
+      # starts the native server (deploy/tests/test_docling_impl_passthrough.py).
+      NOEVIA_DOCLING_IMPL: rust
       # #1867: ranged-convert body cap; empty keeps the image default (96 MiB, fits the 1 GiB /tmp).
       DOCLING_RANGED_MAX_BYTES: ${DOCLING_RANGED_MAX_BYTES:-}
     tmpfs:
