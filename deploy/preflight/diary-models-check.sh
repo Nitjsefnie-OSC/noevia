@@ -26,12 +26,18 @@
 # flag, the same test the diary applies. Being asleep still counts as served: the check is read-only. It makes
 # one GET of the model list per router and nothing else (no slot query, no completion, no load), so it can
 # never wake a model.
+# Router addresses that are Compose service names: the GET runs on the host first (curl). When the host cannot
+# resolve the name (curl exit 6) the very same single GET is made from inside the running `diary` container
+# (`docker exec -i`, python from the Diary image, no redirects, bounded timeouts, the address and the credential
+# on stdin, never argv), so the name resolves as the Diary resolves it (#2111). When no diary container is
+# running the check refuses: it will not guess an address or start anything.
 # Fails closed on: an unreadable env file, no docker or jq or curl, a Compose config that does not resolve, no
 # `diary` service, a missing key above, a router that is unreachable, answers with a status other than 200
 # (redirects are not followed), or sends a body that is not a model list.
 # Secrets: the resolved config (it holds tokens) stays in a private temp file and only the keys above are read
 # from it. The credential travels on a curl config pipe, never argv. No value is printed, neither ids,
-# addresses nor credentials; messages name keys only. Needs bash, docker, curl and jq.
+# addresses nor credentials; messages name keys only. Needs bash, docker, curl and jq (python only inside the
+# diary container, and only for the in-network read).
 { set +x; } 2>/dev/null
 set -uo pipefail
 
@@ -118,6 +124,41 @@ if [ "$refused" != 0 ]; then
   exit 1
 fi
 
+# The in-network read: the same single GET as curl makes (no redirects, 10 s, 4 MiB cap), made by python inside the
+# running diary container. stdin: the URL, then the credential (possibly empty). stdout: the HTTP status, a newline,
+# then the body. Exit non-zero when the router cannot be read at all.
+NET_GET='import sys, urllib.request, urllib.error
+u = sys.stdin.readline().rstrip("\n"); k = sys.stdin.readline().rstrip("\n")
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **kw):
+        return None
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+try:
+    r = opener.open(urllib.request.Request(u, headers={"Authorization": "Bearer " + k} if k else {}, method="GET"), timeout=10)
+except urllib.error.HTTPError as e:
+    r = e
+except Exception:
+    sys.exit(7)
+body = r.read(4194305)
+if len(body) > 4194304:
+    sys.exit(8)
+sys.stdout.buffer.write(str(r.getcode()).encode() + b"\n" + body)'
+
+# in_network_get URL KEY: sets status and writes $work/body; returns 70 when no diary container is running, else
+# the exit code of the exec.
+in_network_get() {
+  local url="$1" key="$2" cid out="$work/netbody" bound=()
+  cid="$(docker compose --env-file "$env_file" ps -q diary 2>/dev/null | head -n 1)"
+  [ -n "$cid" ] || return 70
+  command -v timeout >/dev/null 2>&1 && bound=(timeout 20)
+  printf '%s\n%s\n' "$url" "$key" | ${bound[@]+"${bound[@]}"} docker exec -i "$cid" python -c "$NET_GET" > "$out" 2>/dev/null
+  local rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  status="$(head -n 1 "$out")"
+  tail -n +2 "$out" > "$work/body"
+  return 0
+}
+
 # fetch_chat_ids LABEL URL KEY OUTFILE: one read-only GET <URL>/models; writes the served chat-capable ids, one per
 # line. LABEL names the setting that holds the address, for messages. Returns 0, or 1 after reporting why.
 fetch_chat_ids() {
@@ -137,6 +178,18 @@ fetch_chat_ids() {
     status="$(printf 'header = "Authorization: Bearer %s"\n' "$key" | curl "${curl_args[@]}" -K - -- "$base/models" 2>/dev/null)"; rc=$?
   else
     status="$(curl "${curl_args[@]}" -- "$base/models" 2>/dev/null)"; rc=$?
+  fi
+  if [ "$rc" -eq 6 ]; then
+    # The host cannot resolve the name: it is probably a Compose service name. Read it the way the diary does.
+    rm -f "$work/body"
+    in_network_get "$base/models" "$key"; rc=$?
+    case "$rc" in
+      0) echo "NOTICE: the address in $label does not resolve on the host; its model list was read from inside the diary container's network" ;;
+      70) refuse "the address in $label does not resolve on the host (curl exit 6) and no diary container is running to resolve it as the diary does; start the diary or use an address the host can reach"
+          return 1 ;;
+      *) refuse "the router named by $label could not be reached from inside the diary container either (exit $rc); a router that cannot be read blocks the cutover"
+         return 1 ;;
+    esac
   fi
   if [ "$rc" -ne 0 ]; then
     refuse "the router named by $label could not be reached (curl exit $rc); a router that cannot be read blocks the cutover"
