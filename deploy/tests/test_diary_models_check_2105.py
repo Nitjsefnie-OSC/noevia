@@ -46,11 +46,11 @@ case "${1:-}" in
     # `docker exec -i <container> python -c <script>`: runs the script here with stdin passed through. Inside the
     # diary container the Compose service name resolves; here the alias is mapped to the loopback interface.
     [ -z "${STUB_EXEC_FAIL:-}" ] || exit "$STUB_EXEC_FAIL"
-    [ "${2:-}" = -i ] && [ "${3:-}" = "${STUB_DIARY_CID:-none}" ] && [ "${4:-}" = python ] && [ "${5:-}" = -c ] || exit 64
+    [ "${2:-}" = -i ] && [ "${3:-}" = "${STUB_DIARY_CID:-none}" ] && [ "${4:-}" = python ] && [ "${5:-}" = -I ] && [ "${6:-}" = -c ] || exit 64
     exec python3 -c 'import socket, sys
 _g = socket.getaddrinfo
 socket.getaddrinfo = lambda h, *a, **k: _g("127.0.0.1" if h == "router-relay" else h, *a, **k)
-exec(sys.argv[1])' "$6"
+exec(sys.argv[1])' "$7"
     ;;
   *) exit 64 ;;
 esac
@@ -421,7 +421,8 @@ class ComposeServiceRouter(CheckTestCase):
             self.assert_no_values(result, KEY, TOKEN, CHAT, AUX, ALIAS)
         calls = self.exec_calls()
         self.assertEqual(len(calls), 1, calls)
-        self.assertIn(f'|exec -i {CID} python -c ', calls[0])
+        self.assertIn(f'|exec -i {CID} python -I -c ', calls[0])   # isolated: the container's PYTHON* settings and /app are not used
+        self.assertIn('signal.alarm(15)', calls[0], 'a total deadline inside the container, whatever happens to the exec client')
         for secret in (KEY, TOKEN, ALIAS, CHAT, '/v1/models'):
             self.assertNotIn(secret, '\n'.join(self.docker_log.read_text().splitlines()[1:]), 'the credential and the address stay off argv')
 
@@ -491,6 +492,18 @@ class ComposeServiceRouter(CheckTestCase):
             url = router.url
         self.assert_refused(self.run_check(diary_env(url=url), diary_cid=CID), 'curl exit 7')
         self.assertEqual(self.exec_calls(), [])
+
+    def test_a_key_with_a_backslash_or_a_quote_is_sent_as_it_is_on_both_paths(self):
+        # The host path escapes the key for curl's config syntax; the container path must send the raw key.
+        tricky = 'synthetic"key\\x'
+        with Router([CHAT, AUX]) as host_router:
+            self.assertEqual(self.run_check(diary_env(host_router, LLM_API_KEY=tricky)).returncode, 0)
+            self.assertEqual(host_router.auth, [f'Bearer {tricky}'])
+        with Router([CHAT, AUX]) as router:
+            result = self.run_check(diary_env(url=self.alias_url(router), LLM_API_KEY=tricky), diary_cid=CID)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(router.auth, [f'Bearer {tricky}'])
+            self.assert_no_values(result, tricky)
 
     def test_a_separate_aux_router_by_service_name_uses_its_own_credential(self):
         aux_key = KEY + '-aux'
