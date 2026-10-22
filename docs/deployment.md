@@ -144,6 +144,91 @@ Keep exact backup paths, host/service inventories, recovery manifests, and deplo
 outside version control. Public release notes should describe software behavior and validation
 limits rather than the private state of an installation.
 
+## Inference gate (#2115)
+
+The chat router holds one model at a time. Before this gate, a request for another model unloaded
+the one in use, even while it was answering another chat. The gate sits in front of the router and
+admits one chat model at a time:
+
+- A turn for another model waits in the gate's queue, and web shows that it is waiting.
+- The gate unloads the previous model only once nothing is using it.
+- An unload of a model that is answering a request is refused. An administrator can force it with
+  the gate's admin token.
+
+It ships in the model manager image (`noevia-inference-gate`) and runs as its own service, so a
+model-manager restart never touches it. Its contract is in the pinned Rust
+`bins/noevia-inference-gate` crate.
+
+**Layout.**
+
+- *One host.* `compose.llamacpp.yaml` (and `deploy/examples/unraid-llamacpp.override.yml`)
+  run `inference-gate` beside `llama`.
+  - Web and Diary use `http://inference-gate:8080`.
+  - The router is on the `models` network only: the gate reaches it there, and the model manager
+    reaches it there for presets.
+  - In the Unraid layout, set `INFERENCE_BASE_URL` and `MODEL_MANAGER_BASE_URL` to the gate
+    (`.env.example`).
+- *Separate inference machine.* Add `deploy/examples/inference-gate.override.yml` to that
+  machine's Compose files.
+  - The gate takes over the address and port that web and Diary already use for the router
+    (`INFERENCE_GATE_PUBLISH`), so nothing changes on the web host.
+  - The router's host port is removed (`ports: !reset []`, Compose 2.24 or later).
+
+**Configuration.** Use key names only; the values belong in the operator's environment file.
+
+- `INFERENCE_GATE_ADMIN_TOKEN` is one secret, read by the gate (as `GATE_ADMIN_TOKEN`) and by
+  web. Give the same value on both hosts. Blank means nobody can unload a model that is answering.
+- Every `GATE_*` limit is optional (`.env.example` lists them with their defaults). An invalid
+  value stops the gate before it listens, and the error names the variable, never its value.
+
+**Release.**
+
+- Release the core gate client (noevia-core), the model manager image that ships the gate
+  (noevia-services) and this Compose change together. The core release deletes the old eviction
+  code, so there is no shadow mode.
+- The web interface change can ship with them or before them.
+- Check model activity first, as for any release.
+
+**Read-only verification.**
+
+- `GET /gate/v1/health` answers 200 from the gate's address.
+- `GET /gate/v1/status` lists the resident model and any leases.
+- The router answers only on the Compose network.
+- A chat turn shows the waiting line while another chat's model answers, then answers.
+- Do not send loads, unloads or generations to a live router to check this.
+
+**Rollback.** Restore the previous Compose files and the previous web image (core pin) together:
+
+- the router publishes its port again;
+- `inference-gate` is stopped and removed;
+- web goes back to the release that still has its own eviction.
+
+Two half-states lose protection, so avoid both:
+
+- New web without the gate keeps working, but nothing stops one chat unloading another's model.
+  Its client treats a missing gate as no gate and logs it once.
+- Old web behind the gate gets refusals instead of eviction for a model in use.
+
+The model manager image can stay, since its default command is unchanged.
+
+**Host firewall (#2122). Document it; do not change it as part of this release.**
+
+- The gate's published port is the router's old one. It is reachable from every host that
+  could reach the router before.
+- Unpublishing the router closes the router's direct port. It does not restrict the gate's port.
+- Allow the gate's port only from the web host, as the installation already does for the other
+  model ports: a `DOCKER-USER` rule that rejects new connections to that published address and
+  port from any other source. For example, with operator-local values:
+
+  ```sh
+  rule=(-p tcp -m conntrack --ctstate NEW --ctorigdst "$INFERENCE_ADDRESS" --ctorigdstport "$GATE_PORT" \
+        ! -s "$WEB_HOST_ADDRESS" -j REJECT --reject-with tcp-reset)
+  iptables -C DOCKER-USER "${rule[@]}" 2>/dev/null || iptables -I DOCKER-USER 1 "${rule[@]}"
+  ```
+
+- Keep the rule in the installation's firewall unit, not in a one-off shell.
+- The other published model ports are a separate decision under #2122.
+
 ## Services on other Inference machines (#1843)
 
 Services assigned to another inference machine are not counted against this host's budget.

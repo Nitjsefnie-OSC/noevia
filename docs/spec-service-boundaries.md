@@ -114,7 +114,8 @@ membership (a Mermaid node can sit in only one subgraph, so the diagram does not
 | diary | `cowork-diary:${DIARY_VERSION:?}` | default | none (`expose: 8010`) | Python runtime, irreplaceable corpus state | `compose.yaml` |
 | ocr | `cowork-ocr:${OCR_VERSION:?}` | ocr (internal) | none | read-only root, `cap_drop: ALL`, 1 GiB, 64 pids | `compose.yaml` |
 | laya | `cowork-laya:0.3.5-noevia1` | laya (internal) | none | read-only, uid 1000, 6 GiB, own model | `compose.yaml` (profile `laya`) |
-| llama | llama.cpp Vulkan, digest-pinned | default, models | none | GPU render/card devices, 14 GiB | `compose.llamacpp.yaml` |
+| llama | llama.cpp Vulkan, digest-pinned | models (behind inference-gate, #2115) | none | GPU render/card devices, 14 GiB | `compose.llamacpp.yaml` |
+| inference-gate | `cowork-model-loader:${MODEL_MANAGER_VERSION:?}`, `noevia-inference-gate` | default, models | none (one host) | read-only, uid 65534, `cap_drop: ALL`, 512 MiB, no socket or model files | `compose.llamacpp.yaml` |
 | model-loader | `cowork-model-loader:${MODEL_MANAGER_VERSION:?}` | models only | none | `/var/run/docker.sock`, token-gated | `compose.llamacpp.yaml` |
 | docling | `cowork-docling:${DOCLING_VERSION}` | ocr (internal) | none | read-only, offline models, 6 GiB | `compose.docling.yaml` |
 | kiwix | `kiwix-serve:3.7.0` | kiwix (internal) | none | read-only ZIMs | `deploy/examples/kiwix.override.yml` |
