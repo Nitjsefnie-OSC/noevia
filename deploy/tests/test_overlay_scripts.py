@@ -697,15 +697,16 @@ class RsStage(unittest.TestCase):
         return '\n'.join(lines[start + 1:end])
 
     def stage(self, dockerfile):
-        temp = pathlib.Path(tempfile.mkdtemp(prefix='noevia-rs-stage-'))
-        (temp / 'releases/abc1234/services/diary').mkdir(parents=True)
-        if dockerfile is not None:
-            (temp / 'releases/abc1234/services/diary/Dockerfile').write_text(dockerfile)
-        (temp / 'ctx').mkdir()
-        script = 'set -euo pipefail\nbase=$1; V=abc1234; ctx=$1/ctx\n' + self.block('overlay-dirs') + '\n' + self.block() + '\necho "STAGE $rs_stage"'
-        result = subprocess.run(['bash', '-c', script, 'x', str(temp)], capture_output=True, text=True, timeout=30)
-        out = (temp / 'ctx/Dockerfile').read_text() if (temp / 'ctx/Dockerfile').exists() else None
-        return result, out
+        with tempfile.TemporaryDirectory(prefix='noevia-rs-stage-') as directory:
+            temp = pathlib.Path(directory)
+            (temp / 'releases/abc1234/services/diary').mkdir(parents=True)
+            if dockerfile is not None:
+                (temp / 'releases/abc1234/services/diary/Dockerfile').write_text(dockerfile)
+            (temp / 'ctx').mkdir()
+            script = 'set -euo pipefail\nbase=$1; V=abc1234; ctx=$1/ctx\n' + self.block('overlay-dirs') + '\n' + self.block() + '\necho "STAGE $rs_stage"'
+            result = subprocess.run(['bash', '-c', script, 'x', str(temp)], capture_output=True, text=True, timeout=30)
+            out = (temp / 'ctx/Dockerfile').read_text() if (temp / 'ctx/Dockerfile').exists() else None
+            return result, out
 
     def test_a_pinned_release_builds_the_binary_from_exactly_that_pin(self):
         result, df = self.stage(f'FROM rust AS x\nARG NOEVIA_RS_REF={self.REF}\nARG NOEVIA_RS_SHA256={self.SUM}\nRUN pip install evil\n')
