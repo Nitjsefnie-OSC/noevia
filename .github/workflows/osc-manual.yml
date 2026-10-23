@@ -1,0 +1,60 @@
+name: OSS Manual CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Fork branch or ref to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Deploy tooling shell/wrapper tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout candidate ref
+        uses: actions/checkout@v4
+        with:
+          repository: Nitjsefnie-OSC/noevia
+          ref: ${{ inputs.target_ref }}
+
+      - name: Report checked-out SHA
+        run: |
+          echo "checked-out SHA: $(git rev-parse HEAD)"
+
+      # php-cli: deploy/preflight/test_check.php. rclone (flock is part of util-linux):
+      # deploy/tests/test_rclone_sync.py, which skips itself without both and would otherwise
+      # pass here without running a single case.
+      - name: Install php-cli, rclone and jq
+        run: sudo apt-get update && sudo apt-get install -y php-cli rclone jq
+
+      - run: python3 deploy/preflight/test_wrapper.py
+      - run: php deploy/preflight/test_check.php
+      - run: python3 deploy/nextcloud/test_repair_push.py
+      - run: python3 -m unittest discover -v -s deploy/tests -p 'test_*.py'
+      - run: bash deploy/tools/test-code-actions-qualification.sh
+      - run: bash deploy/tools/test-build-web-release.sh
+      # #1148: build/tag helpers refuse cowork-diary:* outside diary-overlay.sh (stub docker).
+      - run: bash deploy/tools/test-diary-image-guard.sh
+      - run: bash deploy/tools/test-assemble-release.sh
+      - run: bash deploy/tools/test-web-supervisor.sh
+      # #1318 step 1c: the trusted-sets seed (stub docker; needs jq, installed above).
+      - run: bash deploy/tools/test-seed-search-trusted.sh
+      - run: bash deploy/tools/test-sidecar-restart-alert.sh
+      - run: bash deploy/tools/test-flags.sh
+      # #2005: bash -x must not print the remote auth key (remote-services.sh).
+      - run: bash deploy/tools/test-remote-services-xtrace.sh
+      # The pinned core's jobs.cjs loads dav-parse.wasm, which the test builds at core's pinned
+      # noevia-rs ref; that needs cargo with the wasm target, at the toolchain the other jobs use.
+      - uses: dtolnay/rust-toolchain@70dec6087f2cb6bab9fbac4da23160afbe848e91 # 1.99.0
+        with:
+          targets: wasm32-unknown-unknown
+      # #1391: an unreadable Coding job directory makes the release idle gate refuse (pinned core jobs.cjs).
+      - run: bash deploy/tools/test-release-idle-jobs.sh
+      # Every Compose file the repo ships must still parse (no containers are started).
+      - run: make compose-check
