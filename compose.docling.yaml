@@ -24,8 +24,8 @@ services:
     image: cowork-docling:${DOCLING_VERSION:-dev}
     restart: unless-stopped
     # A reaping PID 1. When the server kills a conversion that ran past its deadline (#854) it
-    # takes the whole process group, tesseract included; without an init those orphans reparent to
-    # `python server.py`, which never wait()s, and stay as zombies counted against pids_limit. After
+    # takes the whole process group, tesseract included; without an init any orphan reparents to the
+    # server, which reaps only its own worker, and stays a zombie counted against pids_limit. After
     # ~100 kills every fork fails and documents are cached as permanently unreadable.
     init: true
     read_only: true
@@ -53,9 +53,11 @@ services:
       HF_HOME: /tmp/hf
       DOCLING_ARTIFACTS_PATH: /opt/docling-models
       OMP_NUM_THREADS: ${DOCLING_THREADS:-2}
-      # Native extraction switch (#1322, #1690). The image defaults to python; without this line
-      # NOEVIA_DOCLING_IMPL=rust in .env never reaches the container. Owner flips it.
-      NOEVIA_DOCLING_IMPL: ${NOEVIA_DOCLING_IMPL:-python}
+      # NOEVIA_DOCLING_IMPL is retired (#1071): the native server is the only owner. It is pinned
+      # here, never read from .env, so a leftover NOEVIA_DOCLING_IMPL=python cannot reach the
+      # container, and an image built before the retirement (whose own default was python) still
+      # starts the native server (deploy/tests/test_docling_impl_passthrough.py).
+      NOEVIA_DOCLING_IMPL: rust
       # #1867: ranged-convert body cap; empty keeps the image default (96 MiB, fits the 1 GiB /tmp).
       DOCLING_RANGED_MAX_BYTES: ${DOCLING_RANGED_MAX_BYTES:-}
     tmpfs:
