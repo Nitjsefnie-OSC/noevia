@@ -11,6 +11,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -160,13 +161,32 @@ class GateServiceTests(unittest.TestCase):
                 self.assertNotRegex(text, rf'(?m)^{key}=')
         self.assertIn('# INFERENCE_BASE_URL=http://inference-gate:8080/v1\n', text)
 
-    def test_docs_give_rollback_and_the_firewall_change_without_applying_it(self):
+    def test_docs_give_rollback_the_firewall_release_step_and_known_limitations(self):
         text = read('docs/deployment.md')
         section = text[text.index('## Inference gate (#2115)'):]
         section = section[:section.index('\n## ', 1)]
-        for phrase in ['**Rollback.**', 'Host firewall (#2122)', 'do not change it as part of this release',
-                       'INFERENCE_GATE_ADMIN_TOKEN', 'deploy/examples/inference-gate.override.yml']:
-            self.assertIn(phrase, section)
+        flat = ' '.join(section.split())
+        for phrase in ['**Rollback.**', 'Host firewall (#2122)', 'INFERENCE_GATE_ADMIN_TOKEN',
+                       'deploy/examples/inference-gate.override.yml',
+                       # #2122: the firewall change is a release step, with a refused/allowed check.
+                       "Release step: add the gate's port to the host's model-port firewall script.",
+                       "add port 18000 to the host's model-port firewall script",
+                       'from a LAN host that should be refused',
+                       'from the allowed peer (the web host), the same request answers 200',
+                       # #2133 item 6: the router's own reload after a download is invisible to the gate.
+                       'the router can reload its presets on its own at the next request. The gate does not see this reload',
+                       'Expect that request to wait on the reload',
+                       # The model manager's direct paths are a stated limitation (#2138).
+                       'backend restart', 'backend test', 'benchmark runner', 'sbstndalton/noevia#2138',
+                       # Without the admin token the watchdog cannot unload a busy model.
+                       'Set `INFERENCE_GATE_ADMIN_TOKEN` on both hosts',
+                       'must name the same gate', "The web host's addresses stay unchanged",
+                       '`AUX_INFERENCE_BASE_URL`', '`pull_policy: never`']:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, flat)
+        for gone in ['do not change it as part of this release', 'reaches it there for presets']:
+            self.assertNotIn(gone, flat)
+        self.assertNotRegex(section, r'(?:^|\s)/(?:mnt|boot|etc|usr|home)/', 'no absolute server paths')
         self.assertNotRegex(section, r'\b(?:10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d+\.\d+\.\d+\b', 'no installation address')
 
 
@@ -227,3 +247,69 @@ class RenderedComposeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+OVERLAY = ROOT / 'deploy/examples/overlay-release.sh'
+
+
+def overlay_block(name):
+    text = OVERLAY.read_text()
+    start = text.index(f'# BEGIN {name}')
+    return text[start:text.index(f'# END {name}', start)]
+
+
+class OverlayReleaseGateStep(unittest.TestCase):
+    """The one-host release starts inference-gate before the Diary model check; the split layout is unchanged."""
+
+    def run_block(self, services, up_status=0):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            log = tmp / 'docker.log'
+            fake = tmp / 'bin' / 'docker'
+            fake.parent.mkdir()
+            fake.write_text('#!/bin/bash\necho "$*" >> "$DOCKER_LOG"\n'
+                            'case "$*" in *"config --services"*) printf "%s\\n" $FAKE_SERVICES ;;'
+                            ' *" up "*) exit "$UP_STATUS" ;; esac\n')
+            fake.chmod(0o755)
+            (tmp / 'manager').mkdir()
+            script = 'set -euo pipefail\nmanager="$1"; config="$2"\n' + overlay_block('inference-gate') + 'echo BLOCK_DONE\n'
+            env = dict(os.environ, PATH=f"{fake.parent}:{os.environ['PATH']}", DOCKER_LOG=str(log),
+                       FAKE_SERVICES=' '.join(services), UP_STATUS=str(up_status))
+            result = subprocess.run(['bash', '-c', script, 'x', str(tmp / 'manager'), str(tmp / '.env')],
+                                    env=env, capture_output=True, text=True, timeout=30)
+            calls = log.read_text().splitlines() if log.exists() else []
+            return result, calls
+
+    def test_one_host_release_starts_the_gate_by_name(self):
+        result, calls = self.run_block(['web', 'diary', 'ocr', 'llama', 'model-loader', 'inference-gate'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ups = [c for c in calls if ' up ' in f' {c} ']
+        self.assertEqual(len(ups), 1, calls)
+        self.assertIn('--no-deps', ups[0])
+        self.assertIn('--no-build', ups[0])
+        self.assertEqual(ups[0].split()[-1], 'inference-gate')
+        for other in ['llama', 'model-loader', 'web', 'diary', 'ocr']:
+            self.assertNotIn(other, ups[0].split())
+
+    def test_one_host_release_stops_when_the_gate_does_not_come_up(self):
+        result, _ = self.run_block(['web', 'diary', 'inference-gate'], up_status=1)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('BLOCK_DONE', result.stdout)
+        self.assertIn('not deploying', result.stderr)
+
+    def test_split_layout_release_starts_nothing_new(self):
+        result, calls = self.run_block(['web', 'diary', 'ocr', 'docling'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('BLOCK_DONE', result.stdout)
+        self.assertFalse([c for c in calls if ' up ' in f' {c} '], calls)
+
+    def test_gate_step_runs_before_the_diary_model_check_and_the_cutover(self):
+        text = OVERLAY.read_text()
+        gate = text.index('# BEGIN inference-gate')
+        self.assertLess(gate, text.index('# BEGIN diary-models-check'))
+        self.assertLess(gate, text.index('--wait-timeout 180 web diary ocr'))
+        # The cutover's own service set is unchanged in both layouts.
+        self.assertEqual(text.count('--no-deps --wait --wait-timeout 180 web diary ocr\n'), 1)
+        self.assertEqual(text.count('--no-deps --wait --wait-timeout 180 web diary ocr'), 2)
+        self.assertIn("grep -xE 'docling|code-sandbox'", text)
+        self.assertIn('for c in web diary ocr inference-gate llama model-loader; do', text)

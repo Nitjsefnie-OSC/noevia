@@ -21,16 +21,15 @@ services:
       LLAMA_CACHE: /cache
     mem_limit: ${LLAMACPP_MEMORY_LIMIT:-14g}
     memswap_limit: ${LLAMACPP_MEMORY_LIMIT:-14g}
-    # noevia#2115: on models only. Web and Diary reach it through inference-gate; the model
-    # manager reaches it directly for presets. No published ports.
+    # noevia#2115: on models only. Web and Diary reach it through inference-gate. The model
+    # manager reaches it directly, outside the gate: presets, and also its backend restart, backend
+    # test and benchmark runner (known limitation, noevia#2138). No published ports.
     networks: [models]
   # noevia#2115: the inference gate, from the model manager's image but its own service, so a
   # model-manager restart never touches it. Every chat client (web and Diary) reaches the router
   # through it: a turn waits for the model in use instead of unloading it mid-answer. It holds no
   # Docker socket and no model files.
   inference-gate:
-    build:
-      context: ${COWORK_SOURCE_DIR:-..}/services/model-manager
     image: cowork-model-loader:${MODEL_MANAGER_VERSION:?Set MODEL_MANAGER_VERSION to the built model manager image tag}
     restart: unless-stopped
     command: ["noevia-inference-gate"]

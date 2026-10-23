@@ -32,8 +32,6 @@ services:
   # through it: a turn waits for the model in use instead of unloading it mid-answer. It holds no
   # Docker socket and no model files.
   inference-gate:
-    build:
-      context: ${COWORK_SOURCE_DIR:-.}/services/model-manager
     image: cowork-model-loader:${MODEL_MANAGER_VERSION:?Set MODEL_MANAGER_VERSION to the built model manager image tag}
     restart: unless-stopped
     command: ["noevia-inference-gate"]

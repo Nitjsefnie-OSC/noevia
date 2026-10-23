@@ -164,20 +164,35 @@ model-manager restart never touches it. Its contract is in the pinned Rust
 - *One host.* `compose.llamacpp.yaml` (and `deploy/examples/unraid-llamacpp.override.yml`)
   run `inference-gate` beside `llama`.
   - Web and Diary use `http://inference-gate:8080`.
-  - The router is on the `models` network only: the gate reaches it there, and the model manager
-    reaches it there for presets.
-  - In the Unraid layout, set `INFERENCE_BASE_URL` and `MODEL_MANAGER_BASE_URL` to the gate
-    (`.env.example`).
+  - The router is on the `models` network only. The gate reaches it there, and so does the model
+    manager (see "Known limitations" below for what the model manager sends it).
+  - In the Unraid one-host layout, set `INFERENCE_BASE_URL` and `MODEL_MANAGER_BASE_URL` to the gate
+    (`.env.example`). If `AUX_INFERENCE_BASE_URL` names the router directly, point it at the gate
+    too: the router is no longer on Diary's network.
+  - Both web inference addresses, `INFERENCE_BASE_URL` and `MODEL_MANAGER_BASE_URL`, must name the
+    same gate. Web sends the lease header only to the origin of `MODEL_MANAGER_BASE_URL`.
 - *Separate inference machine.* Add `deploy/examples/inference-gate.override.yml` to that
   machine's Compose files.
   - The gate takes over the address and port that web and Diary already use for the router
     (`INFERENCE_GATE_PUBLISH`), so nothing changes on the web host.
   - The router's host port is removed (`ports: !reset []`, Compose 2.24 or later).
+  - The web host's addresses stay unchanged: `INFERENCE_BASE_URL`, `MODEL_MANAGER_BASE_URL` and,
+    when it is set, `AUX_INFERENCE_BASE_URL`. Do not add the one-host gate service on the web host.
+  - The inference machine's environment file needs `MODEL_MANAGER_VERSION`,
+    `INFERENCE_GATE_PUBLISH` and `INFERENCE_GATE_ADMIN_TOKEN` (names only here), plus any `GATE_*`
+    limits.
+  - The gate uses `pull_policy: never`: load the release-built model manager image onto the
+    inference machine before applying.
+  - Apply order on the inference machine: recreate `llama` first, then `inference-gate`, each by
+    name with `--no-deps`. This frees the shared address before the gate binds it and leaves
+    intentionally stopped services alone.
 
 **Configuration.** Use key names only; the values belong in the operator's environment file.
 
 - `INFERENCE_GATE_ADMIN_TOKEN` is one secret, read by the gate (as `GATE_ADMIN_TOKEN`) and by
   web. Give the same value on both hosts. Blank means nobody can unload a model that is answering.
+  That includes the memory watchdog (#697): without the token it falls back to a plain unload,
+  which the gate refuses for a busy model. Set `INFERENCE_GATE_ADMIN_TOKEN` on both hosts.
 - Every `GATE_*` limit is optional (`.env.example` lists them with their defaults). An invalid
   value stops the gate before it listens, and the error names the variable, never its value.
 
@@ -188,6 +203,13 @@ model-manager restart never touches it. Its contract is in the pinned Rust
   code, so there is no shadow mode.
 - The web interface change can ship with them or before them.
 - Check model activity first, as for any release.
+- On one host, `deploy/examples/overlay-release.sh` starts `inference-gate` by name, with
+  `--no-deps`, before the Diary model check and the web cutover. The split layout's release is
+  unchanged: the gate runs on the inference machine.
+- A project-wide `up -d` after a `MODEL_MANAGER_VERSION` bump also recreates the gate, which cuts
+  open streams. Recreate services by name instead.
+- Add the gate's port to the host's model-port firewall script as part of the release (see "Host
+  firewall" below).
 
 **Read-only verification.**
 
@@ -211,23 +233,39 @@ Two half-states lose protection, so avoid both:
 
 The model manager image can stay, since its default command is unchanged.
 
-**Host firewall (#2122). Document it; do not change it as part of this release.**
+**Known limitations.**
 
-- The gate's published port is the router's old one. It is reachable from every host that
-  could reach the router before.
+- After a model download finishes, the router can reload its presets on its own at the next
+  request. The gate does not see this reload, so it cannot protect a model in use from it. Expect
+  that request to wait on the reload, and the resident model may be unloaded. Run downloads while
+  chat is idle.
+- The model manager still reaches the router directly, outside the gate, for more than presets:
+  its backend restart (which restarts the router and cuts every stream), its backend test (a chat
+  completion) and its benchmark runner (loads and completions). These are admin-only paths. Use
+  them only while the engine is idle. Routing them through the gate is tracked in
+  sbstndalton/noevia#2138.
+
+**Host firewall (#2122). Release step: add the gate's port to the host's model-port firewall script.**
+
+- The gate's published port is the router's old one, 18000 on the inference host. Without a rule
+  it is reachable from every host that could reach the router before.
 - Unpublishing the router closes the router's direct port. It does not restrict the gate's port.
-- Allow the gate's port only from the web host, as the installation already does for the other
-  model ports: a `DOCKER-USER` rule that rejects new connections to that published address and
-  port from any other source. For example, with operator-local values:
+- As part of this release, add port 18000 to the host's model-port firewall script, beside the
+  other model ports it already restricts. The rule is a `DOCKER-USER` rule that rejects new
+  connections to that published address and port from any source but the web host. For example,
+  with operator-local values:
 
   ```sh
-  rule=(-p tcp -m conntrack --ctstate NEW --ctorigdst "$INFERENCE_ADDRESS" --ctorigdstport "$GATE_PORT" \
+  rule=(-p tcp -m conntrack --ctstate NEW --ctorigdst "$INFERENCE_ADDRESS" --ctorigdstport 18000 \
         ! -s "$WEB_HOST_ADDRESS" -j REJECT --reject-with tcp-reset)
   iptables -C DOCKER-USER "${rule[@]}" 2>/dev/null || iptables -I DOCKER-USER 1 "${rule[@]}"
   ```
 
-- Keep the rule in the installation's firewall unit, not in a one-off shell.
-- The other published model ports are a separate decision under #2122.
+- Keep the rule in that script, so it survives restarts, not in a one-off shell.
+- Verify after applying:
+  - from a LAN host that should be refused, `curl -sS -m 5 http://$INFERENCE_ADDRESS:18000/gate/v1/health`
+    fails with a refused or reset connection;
+  - from the allowed peer (the web host), the same request answers 200.
 
 ## Services on other Inference machines (#1843)
 
