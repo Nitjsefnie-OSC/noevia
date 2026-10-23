@@ -297,6 +297,22 @@ project_routes_rs() {
 rust_auth_unswitched() {
   routes_toml "$1" | awk -F'\t' '$1 == "/api/auth/session" && $2 == "rust" && $3 == "-" { found = 1 } END { exit(found ? 0 : 1) }'
 }
+# Whether routes.toml gives GET /api/chats/{chatId}/history to Rust (sbstndalton/noevia#1071
+# slice 2): owner rust with GET among its methods, or with all methods.
+rust_owns_history_get() {
+  routes_toml "$1" | awk -F'\t' '
+    $1 ~ /^\/api\/chats\/\{[^}]*\}\/history$/ && $2 == "rust" {
+      if ($4 == "-") found = 1
+      n = split($4, m, /[^A-Z]+/)
+      for (i = 1; i <= n; i++) if (m[i] == "GET") found = 1
+    }
+    END { exit(found ? 0 : 1) }'
+}
+# Whether the pinned front reads NOEVIA_START_ID: a Rust source under rs/bins names it, or a
+# FEATURES list there carries "start-id".
+rs_reads_start_id() {
+  grep -rqs --include='*.rs' -e 'NOEVIA_START_ID' -e '"start-id"' "$tree/rs/bins"
+}
 # "<switch> <path>" for every route that carries a switch.
 switched_routes() {
   routes_toml "$1" | awk -F'\t' '$3 != "-" { print $3 " " $1 }'
@@ -343,10 +359,25 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
   fi
   # sbstndalton/noevia#1071: a front that reads NOEVIA_START_ID (the per-start id in a running
   # reply's partial file) refuses to start beside Node without it, so this release's own web
-  # supervisor must make one and hand it to both processes.
-  if grep -q 'NOEVIA_START_ID' "$tree/rs/bins/noevia-server/src/config.rs" 2>/dev/null \
+  # supervisor must make one and hand it to both processes. Keyed on any Rust source of the
+  # front's binaries naming the variable, or on its `start-id` --features entry, so a moved or
+  # renamed config.rs cannot make the check pass unseen (sbstndalton/noevia#2146).
+  if rs_reads_start_id \
      && [ "$(grep -c 'NOEVIA_START_ID="\$start_id"' "$tree/noevia/build/web-supervisor.sh" 2>/dev/null)" -lt 2 ]; then
     die "noevia-rs at $rs_ref needs NOEVIA_START_ID, but this release's build/web-supervisor.sh does not hand it to both processes (sbstndalton/noevia#1071)"
+  fi
+  # sbstndalton/noevia#1071 slice 2: a front that answers GET /api/chats/{chatId}/history tells a
+  # running reply's partial from an interrupted one only by the `running: { start }` marker the
+  # pinned core writes into every save (noevia-core#245), and needs that core to take the marker
+  # out when a finished reply's partial cannot be removed (endPartial, sbstndalton/noevia#2146).
+  # An older core would have the front offer half-streamed replies as interrupted, or hide an
+  # ended one until the next start.
+  if rust_owns_history_get "$routes_file"; then
+    partial_js="$tree/core/server/chat-partial.cjs"
+    grep -q 'running: { start: START_ID }' "$partial_js" 2>/dev/null \
+      || die "noevia-rs at $rs_ref answers GET /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) does not mark a running reply's partial (server/chat-partial.cjs running: { start: START_ID }); pin a core with noevia-core#245 (sbstndalton/noevia#1071)"
+    grep -q '^function endPartial' "$partial_js" 2>/dev/null \
+      || die "noevia-rs at $rs_ref answers GET /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) can leave a finished reply's running marker behind (no endPartial in server/chat-partial.cjs); pin a core with the sbstndalton/noevia#2146 fix"
   fi
   # #2096: no other switch is accepted either. routes.toml carries none since #1071 (it says so),
   # this supervisor passes none, and a switched route is excluded from the ownership comparison

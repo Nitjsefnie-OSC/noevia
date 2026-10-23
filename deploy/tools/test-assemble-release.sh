@@ -280,8 +280,26 @@ printf '%s\n' 'NOEVIA_START_ID="$start_id" "$bin" &' >> "$repo/build/web-supervi
 g add -A && g commit -qm rs-start-id-both; ps2="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ps2" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "#1071: ...and assembles once the supervisor hands it to both" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ps2.tar.gz" ]'
-rm -f "$work/remote/noevia-rs-y/bins/noevia-server/src/config.rs"
-g rm -q build/web-supervisor.sh && g commit -qm supervisor-plain-again
+# #2146 (NIT): the check is not fooled by the file moving: the variable named in another source
+# of the front, or only its `start-id` --features entry, needs the supervisor just the same.
+printf '%s\n' 'NOEVIA_START_ID="$start_id" node server/index.cjs &' > "$repo/build/web-supervisor.sh"
+g add -A && g commit -qm rs-start-id-one-again
+for moved in "settings.rs:let start_id = get(\"NOEVIA_START_ID\");" "lib.rs:pub const FEATURES: &[&str] = &[\"start-id\"];"; do
+  rm -f "$work/remote/noevia-rs-y/bins/noevia-server/src/"*.rs
+  printf '%s\n' "${moved#*:}" > "$work/remote/noevia-rs-y/bins/noevia-server/src/${moved%%:*}"
+  tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+  rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+  printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+  g commit -qam "rs-start-id-${moved%%:*}"; pm="$(g rev-parse --short HEAD)"
+  PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pm" "$out" >/dev/null 2>"$work/err"; rc=$?
+  check "#2146: a start-id front keyed by ${moved%%:*} (config.rs gone) is still refused with a one-process supervisor" \
+    '[ $rc -ne 0 ] && grep -q "does not hand it to both processes" "$work/err" && [ ! -f "$out/noevia-release-$pm.tar.gz" ]'
+done
+rm -f "$work/remote/noevia-rs-y/bins/noevia-server/src/"*.rs
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g rm -q build/web-supervisor.sh && g commit -qam supervisor-plain-again
 # The free-chat slice: a front that also owns GET/POST /api/freechats over a core whose
 # OWNED_ROUTES lacks them (from before noevia-core#76, whose free-list writers would drop the
 # front's saves by a whole-file write) is refused, naming only those; the core that lists them
@@ -319,6 +337,38 @@ JS
 g add -A && g commit -qm core-free-chats; pe="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pe" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "the same front over a core that lists the free-chat routes assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pe.tar.gz" ]'
+# #1071 slice 2: a front that answers GET /api/chats/{chatId}/history needs a core that marks a
+# running reply's partial (noevia-core#245) and unmarks an unremovable finished one (#2146).
+cat >> "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
+
+[[route]]
+path = "/api/chats/{chatId}/history"
+owner = "rust"
+methods = ["GET"]
+TOML
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g commit -qam rs-history-get; ph1="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph1" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071: a history-GET front over a core without the running marker is refused" \
+  '[ $rc -ne 0 ] && grep -q "does not mark a running reply" "$work/err" && [ ! -f "$out/noevia-release-$ph1.tar.gz" ]'
+printf '%s\n' "fs.writeFileSync(tmp, JSON.stringify({ ...bounded(entry), interrupted: true, running: { start: START_ID } }));" > "$w/server/chat-partial.cjs"
+g add -A && g commit -qm core-marker; ph2="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph2" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#2146: ...and over a core that marks it but can leave a finished reply's marker behind" \
+  '[ $rc -ne 0 ] && grep -q "no endPartial" "$work/err" && [ ! -f "$out/noevia-release-$ph2.tar.gz" ]'
+printf '%s\n' 'function endPartial(dir, chatId) {}' >> "$w/server/chat-partial.cjs"
+g add -A && g commit -qm core-end-partial; ph3="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph3" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071: ...and assembles over a core with both" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ph3.tar.gz" ]'
+sed -i.bak 's/methods = \["GET"\]$/methods = ["POST"]/' "$work/remote/noevia-rs-y/contracts/http/routes.toml" && rm -f "$work/remote/noevia-rs-y/contracts/http/routes.toml.bak"
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g rm -q apps/web/server/chat-partial.cjs && g commit -qam rs-history-post-only; ph4="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph4" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071: a front that owns only another history method needs no marker" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ph4.tar.gz" ]'
 # #1264/#1071: context is permanent. Old switched Rust must be refused even
 # with a core listing its old conditional routes; no confirmation can rescue it.
 cat >> "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
