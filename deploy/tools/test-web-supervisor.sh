@@ -41,6 +41,7 @@ echo "\$name WCONF=\${NOEVIA_RUST_PROJECT_WRITES_CONFIRMED:-} WRITES=\${NOEVIA_R
 echo "\$name SSTORE=\${NOEVIA_RUST_PROJECT_STORE_CONFIRMED:-} SPORT=\${NOEVIA_PROJECT_STORE_PORT:-} STOKLEN=\${#NOEVIA_PROJECT_STORE_TOKEN}" >> "$work/log"
 echo "\$name AUTH=\${NOEVIA_RUST_AUTH-unset}" >> "$work/log"
 echo "\$name LCLAIM=\${NOEVIA_LEGACY_CLAIM_BIN:-}" >> "$work/log"
+echo "\$name START=\${NOEVIA_START_ID-unset}" >> "$work/log"
 echo "\$name KCONF=\${NOEVIA_FRONT_CLIENT_IP:-}" >> "$work/log"
 trap 'echo "\$name TERM" >> "$work/log"; exit 0' TERM
 # The supervisor TERMs the survivor as soon as one child exits. A front told to die at once would
@@ -158,6 +159,15 @@ for v in "" 0 1; do
   run UI_PORT=8021 NOEVIA_RUST_PROJECT_STORE="$v" NOEVIA_PROJECT_STORE_TOKEN=inherited-secret-0123456789abcdef0123456789 NOEVIA_PROJECT_STORE_PORT=1 NOEVIA_RUST_PROJECT_STORE_CONFIRMED=1 >/dev/null 2>&1
   check "store (retired switch '$v'): both get UI_PORT+2000 and a fresh 64-character secret, never the inherited one or a confirmation" 'grep -q "^node SSTORE= SPORT=10021 STOKLEN=64$" "$work/log" && grep -q "^front SSTORE= SPORT=10021 STOKLEN=64$" "$work/log"'
 done
+# The start id (#1071): one fresh 32-hex id per start, the same for both processes, never inherited.
+start_of() { sed -n "s/^$1 START=//p" "$work/log"; }
+reset; touch "$work/die-front"
+run NOEVIA_START_ID=0123456789abcdef0123456789abcdef >/dev/null 2>&1
+first="$(start_of node)"
+check "start id: both processes get the same fresh 32-hex id, not the inherited one" '[[ "$first" =~ ^[0-9a-f]{32}$ ]] && [ "$(start_of front)" = "$first" ] && [ "$first" != 0123456789abcdef0123456789abcdef ]'
+reset; touch "$work/die-front"
+run >/dev/null 2>&1
+check "start id: the next start gets a different one" '[[ "$(start_of node)" =~ ^[0-9a-f]{32}$ ]] && [ "$(start_of node)" != "$first" ] && [ "$(start_of front)" = "$(start_of node)" ]'
 reset
 run UI_PORT=64000 >/dev/null 2>"$work/err"; rc=$?
 check "a UI_PORT with no room for UI_PORT+2000 is refused, nothing started" '[ $rc -eq 2 ] && grep -q "no room for the project store port" "$work/err" && [ ! -s "$work/log" ]'
