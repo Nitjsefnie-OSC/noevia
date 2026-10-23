@@ -346,6 +346,15 @@ rs_serves_change_journal() {
 core_tails_change_journal() {
   grep -q "'noevia-chat-change-journal-reader/1'" "$tree/core/server/chat-change-journal.cjs" 2>/dev/null
 }
+# Whether the pinned core builds a chat's brain only for journal entries with origin "history"
+# (sbstndalton/noevia#2153: then it no longer nudges the brain itself while the front journals).
+core_needs_journal_origin() {
+  grep -q "e.origin === 'history'" "$tree/core/server/chat-change-journal.cjs" 2>/dev/null
+}
+# Whether the pinned front's journal entries carry that origin (crates/server-projects journal.rs).
+rs_journals_origin() {
+  grep -qs '"origin"' "$tree/rs/crates/server-projects/src/journal.rs"
+}
 # Whether the pinned front reads NOEVIA_START_ID: a Rust source under rs/bins names it, or a
 # FEATURES list there carries "start-id".
 rs_reads_start_id() {
@@ -439,6 +448,14 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
       || die "noevia-rs at $rs_ref answers POST /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) does not tail the chat change journal (no noevia-chat-change-journal-reader/1 in server/chat-change-journal.cjs), so the chat mirror and brain would stop following saves; pin a core with the sbstndalton/noevia#2153 reader"
     rs_serves_change_journal \
       || die "noevia-rs at $rs_ref answers POST /api/chats/{chatId}/history but does not journal transcript changes (no /v1/changes/read under rs/bins), so the chat mirror and brain would stop following saves; pin a noevia-rs with the sbstndalton/noevia#2153 journal"
+  fi
+  # sbstndalton/noevia#2153: a core that builds brains only for origin "history" entries, beside a
+  # front whose journal names no origin, would build no brain at all (every entry is mirror-only
+  # and Node stops its own nudge once the journal answers). The origin field itself is safe either
+  # way: the front's store ops ignore request fields they do not know.
+  if core_tails_change_journal && core_needs_journal_origin && rs_serves_change_journal; then
+    rs_journals_origin \
+      || die "noevia-core at $(lock_value NOEVIA_CORE_REF) builds a chat's brain only for change-journal entries with origin \"history\", but noevia-rs at $rs_ref journals no origin (none in crates/server-projects/src/journal.rs), so no brain would ever be built; pin a noevia-rs with the journal origin (sbstndalton/noevia#2153)"
   fi
   # #2096: no other switch is accepted either. routes.toml carries none since #1071 (it says so),
   # this supervisor passes none, and a switched route is excluded from the ownership comparison

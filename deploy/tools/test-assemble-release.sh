@@ -409,6 +409,20 @@ printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_
 g commit -qam rs-change-journal; ph10="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph10" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "#1071 slice 5: ...and assembles once the core refuses the save, writes only through the store and tails the journal the front writes" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ph10.tar.gz" ]'
+# #2153: a core that builds brains only for origin "history" entries needs a front that journals it.
+printf '%s\n' "const JOURNAL_READER_MARKER = 'noevia-chat-change-journal-reader/1';" "function isHistorySave(e) { return !!e && e.op === 'write' && e.origin === 'history'; }" > "$w/server/chat-change-journal.cjs"
+g add -A && g commit -qm core-journal-origin; ph10o="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph10o" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#2153: ...but a core that needs the journal origin is refused beside a front that journals none" \
+  '[ $rc -ne 0 ] && grep -q "journals no origin" "$work/err" && [ ! -f "$out/noevia-release-$ph10o.tar.gz" ]'
+mkdir -p "$work/remote/noevia-rs-y/crates/server-projects/src"
+printf '%s\n' '        "origin": origin.as_str(),' >> "$work/remote/noevia-rs-y/crates/server-projects/src/journal.rs"
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g commit -qam rs-journal-origin; ph10p="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph10p" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#2153: ...and assembles once the front journals the origin" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ph10p.tar.gz" ]'
 # The history route goes back to Node for the checks below (they swap the core's guard files).
 hn="$(grep -n '^path = "/api/chats/{chatId}/history"$' "$work/remote/noevia-rs-y/contracts/http/routes.toml" | cut -d: -f1)"
 sed -i.bak "$((hn-2)),$((hn+2))d" "$work/remote/noevia-rs-y/contracts/http/routes.toml" && rm -f "$work/remote/noevia-rs-y/contracts/http/routes.toml.bak"
