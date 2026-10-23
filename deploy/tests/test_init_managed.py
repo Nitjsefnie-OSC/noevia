@@ -31,7 +31,7 @@ exit 0
             if not existing and not docker_state and not env_override:
                 self.assertEqual(result.returncode,0,result.stderr)
                 content=(root/'.env').read_text();self.assertIn('COWORK_WEB_STORAGE=web-data',content);self.assertIn('COWORK_DIARY_STORAGE=diary-data',content)
-                self.assertIn('NOEVIA_OCR_IMPL=python',content)
+                self.assertNotIn('NOEVIA_OCR_IMPL',content)
                 for key in ['DIARY_VERSION','OCR_VERSION','MODEL_MANAGER_VERSION']:self.assertRegex(content,rf'(?m)^{key}=\S')
                 self.assertEqual((root/'.env').stat().st_mode&0o777,0o600)
             else:

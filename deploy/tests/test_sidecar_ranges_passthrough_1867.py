@@ -1,7 +1,7 @@
 """The OCR and Docling ranged-body caps reach their sidecars from .env, unset by default (#1867).
 
-noevia-services' ocr/server.py and noevia-rs' noevia-ocr read OCR_EXTRACT_MAX_BYTES; docling/server.py
-and docling-service read DOCLING_RANGED_MAX_BYTES. Both default to 96 MiB when the value is unset,
+noevia-rs' noevia-ocr reads OCR_EXTRACT_MAX_BYTES and docling-service reads DOCLING_RANGED_MAX_BYTES
+(the Python servers that also read them are retired, #1071). Both default to 96 MiB when the value is unset,
 empty, not a number or not positive. Every compose copy that defines the sidecar must pass the key with
 an empty default, so the image default applies today and the owner can lower it later. Only key names
 and default expressions are read here; no .env value is ever read.

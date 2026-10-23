@@ -256,7 +256,9 @@ services:
       context: ${COWORK_SOURCE_DIR:?Set COWORK_SOURCE_DIR}/services/ocr
     image: cowork-ocr:${OCR_VERSION:?Set OCR_VERSION to the built OCR image tag}
     environment:
-      NOEVIA_OCR_IMPL: ${NOEVIA_OCR_IMPL:-python}
+      # #1071: retired selector, pinned to the native server and never read from .env. An image
+      # built before the retirement defaults to python, so the key stays rather than being dropped.
+      NOEVIA_OCR_IMPL: rust
       # #1867: ranged-extract body cap; empty keeps the image default (96 MiB).
       OCR_EXTRACT_MAX_BYTES: ${OCR_EXTRACT_MAX_BYTES:-}
     restart: unless-stopped
