@@ -3,6 +3,7 @@
 The release SHA becomes a path component, an image tag and a sed replacement, so both scripts
 refuse anything but a hex SHA before touching anything. The Diary overlay archives its own state
 (#1487) and may stop or recreate only the Diary container; it never runs the Appdata Backup plugin.
+Synthetic Dockerfiles exercise the final-stage COPY/ADD contract in both parsers.
 """
 import json
 import os
@@ -30,7 +31,7 @@ COPY tools/ ./tools/
 FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
-COPY --from=tenant-assertion /src/target/release/tenant-assertion /usr/local/bin/tenant-assertion
+COPY --from=tenant-assertion /out/ /usr/local/bin/
 COPY agent/ ./agent/
 COPY config/ ./config/
 COPY scripts/ ./scripts/
@@ -744,6 +745,80 @@ class RsStage(unittest.TestCase):
                 self.assertIsNone(df)
 
 
+class DiaryCopyContract(unittest.TestCase):
+    """Run the final-stage check and the CI parser on the same synthetic instructions."""
+
+    def check(self, dockerfile):
+        with tempfile.TemporaryDirectory(prefix='noevia-copy-contract-') as temp:
+            path = pathlib.Path(temp) / 'Dockerfile'
+            path.write_text(dockerfile)
+            block = RsStage().block('dockerfile-copy-check')
+            script = ('set -euo pipefail\ndiary_df_check=$1; overlay_dirs="agent config scripts"\n'
+                      + block + '\nprintf "CHECKED\\n%s\\n" "$df_dirs"')
+            return subprocess.run(['bash', '-c', script, 'x', str(path)],
+                                  capture_output=True, text=True, timeout=30)
+
+    def accepted(self, dockerfile):
+        result = self.check(dockerfile)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['CHECKED', 'agent', 'config', 'scripts'])
+        self.assertEqual(OverlayDirsInSync.dockerfile_dirs(dockerfile), {'agent', 'config', 'scripts'})
+
+    def refused(self, instruction):
+        # Keep the directory set valid: only the instruction under test can cause refusal.
+        dockerfile = DIARY_DOCKERFILE + instruction + '\n'
+        with self.subTest(parser='production', instruction=instruction):
+            result = self.check(dockerfile)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn(instruction.splitlines()[0], result.stderr)
+        with self.subTest(parser='CI', instruction=instruction):
+            with self.assertRaises(ValueError):
+                OverlayDirsInSync.dockerfile_dirs(dockerfile)
+
+    def test_requirements_copy_exception(self):
+        self.accepted(DIARY_DOCKERFILE.replace('COPY --from=tenant-assertion /out/ /usr/local/bin/\n', ''))
+
+    def test_binary_copy_exception(self):
+        self.accepted(DIARY_DOCKERFILE.replace('COPY requirements.txt .\n', ''))
+
+    def test_directory_copies_and_whitespace(self):
+        text = DIARY_DOCKERFILE.replace('COPY requirements.txt .\n', '').replace(
+            'COPY --from=tenant-assertion /out/ /usr/local/bin/\n', '')
+        self.accepted(text.replace('COPY ', ' \tCOPY ').replace('/\n', '/ \t\n'))
+
+    def test_builder_copies_are_ignored_before_final_stage(self):
+        self.accepted('FROM builder\nCOPY unknown /elsewhere\nADD other /other\n  fRoM runtime\n'
+                      + DIARY_DOCKERFILE.split('FROM python:3.12-slim\n')[1])
+
+    def test_binary_copy_stage_must_match(self):
+        self.refused('COPY --from=other /out/ /usr/local/bin/')
+
+    def test_binary_copy_source_must_match(self):
+        self.refused('COPY --from=tenant-assertion /elsewhere/ /usr/local/bin/')
+
+    def test_binary_copy_destination_must_match(self):
+        self.refused('COPY --from=tenant-assertion /out/ /elsewhere/')
+
+    def test_binary_copy_has_no_extra_operand(self):
+        self.refused('COPY --from=tenant-assertion /out/ /extra/ /usr/local/bin/')
+
+    def test_unknown_final_stage_copy_and_add_refuse(self):
+        for instruction in ['COPY --chown=1000:1000 agent/ ./agent/', 'COPY agent ./agent',
+                            'COPY web-assets/ ./web-assets/', 'ADD agent/ ./agent/',
+                            'COPY entry.sh ./', 'copy agent/ ./agent/', 'COPY ["agent/", "./agent/"]',
+                            'COPY agent/ ./config/', 'COPY /agent/ ./agent/', 'COPY', 'ADD',
+                            'COPY requirements.txt ./', 'COPY agent/ \\\n  ./agent/']:
+            self.refused(instruction)
+
+    def test_generated_binary_copy_spans_both_parsers(self):
+        result, generated = RsStage().stage(
+            f'ARG NOEVIA_RS_REF={RsStage.REF}\nARG NOEVIA_RS_SHA256={RsStage.SUM}\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        copies = [line for line in generated.splitlines() if line.startswith('COPY --from=')]
+        self.assertEqual(copies, ['COPY --from=tenant-assertion /out/ /usr/local/bin/'])
+        self.accepted(generated)
+
+
 class OverlayDirsInSync(unittest.TestCase):
     """#2112: the directory list of diary-overlay.sh, its documentation and the Diary Dockerfile stay one list."""
 
@@ -755,7 +830,20 @@ class OverlayDirsInSync(unittest.TestCase):
     @staticmethod
     def dockerfile_dirs(text):
         final_stage = re.split(r'(?mi)^[ \t]*FROM[ \t].*$', text)[-1]   # the image is its last stage
-        return set(re.findall(r'(?m)^COPY ([a-z_][a-z0-9_]*)/ \./\1/\s*$', final_stage))
+        dirs = set()
+        for line in final_stage.splitlines():
+            line = line.strip()
+            if not re.match(r'(?i)^(COPY|ADD)(\s|$)', line):
+                continue
+            if line == 'COPY requirements.txt .':
+                continue
+            if line == 'COPY --from=tenant-assertion /out/ /usr/local/bin/':
+                continue
+            match = re.fullmatch(r'COPY ([a-z_][a-z0-9_]*)/ \./\1/', line)
+            if not match:
+                raise ValueError(f'unsupported final-stage COPY/ADD: {line}')
+            dirs.add(match[1])
+        return dirs
 
     def test_the_list_is_exactly_agent_config_and_scripts(self):
         self.assertEqual(self.script_dirs(), {'agent', 'config', 'scripts'})
