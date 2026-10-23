@@ -166,6 +166,8 @@ model-manager restart never touches it. Its contract is in the pinned Rust
   - Web and Diary use `http://inference-gate:8080`.
   - The router is on the `models` network only. The gate reaches it there, and so does the model
     manager (see "Known limitations" below for what the model manager sends it).
+  - Install: recreate `llama` by name (`up -d --no-deps llama`) while chat is idle, so it drops its
+    host port, then start `inference-gate` by name. Recreating `llama` cuts every stream.
   - In the Unraid one-host layout, set `INFERENCE_BASE_URL` and `MODEL_MANAGER_BASE_URL` to the gate
     (`.env.example`). If `AUX_INFERENCE_BASE_URL` names the router directly, point it at the gate
     too: the router is no longer on Diary's network.
@@ -174,7 +176,7 @@ model-manager restart never touches it. Its contract is in the pinned Rust
 - *Separate inference machine.* Add `deploy/examples/inference-gate.override.yml` to that
   machine's Compose files.
   - The gate takes over the address and port that web and Diary already use for the router
-    (`INFERENCE_GATE_PUBLISH`), so nothing changes on the web host.
+    (`INFERENCE_GATE_PUBLISH`, required), so nothing changes on the web host.
   - The router's host port is removed (`ports: !reset []`, Compose 2.24 or later).
   - The web host's addresses stay unchanged: `INFERENCE_BASE_URL`, `MODEL_MANAGER_BASE_URL` and,
     when it is set, `AUX_INFERENCE_BASE_URL`. Do not add the one-host gate service on the web host.
@@ -247,8 +249,9 @@ The model manager image can stay, since its default command is unchanged.
 
 **Host firewall (#2122). Release step: add the gate's port to the host's model-port firewall script.**
 
-- The gate's published port is the router's old one, 18000 on the inference host. Without a rule
-  it is reachable from every host that could reach the router before.
+- The gate's published port is the router's old one: 18000 by default on the inference host, and
+  configurable through `INFERENCE_GATE_PUBLISH`. Use the port you set wherever 18000 appears below.
+  Without a rule it is reachable from every host that could reach the router before.
 - Unpublishing the router closes the router's direct port. It does not restrict the gate's port.
 - As part of this release, add port 18000 to the host's model-port firewall script, beside the
   other model ports it already restricts. The rule is a `DOCKER-USER` rule that rejects new

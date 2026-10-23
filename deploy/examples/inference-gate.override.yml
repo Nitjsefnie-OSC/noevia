@@ -3,8 +3,9 @@
 # on a `models` network and publishes the address web and Diary use for it:
 #   docker compose -f <the machine's Compose files> -f inference-gate.override.yml config --quiet
 # The gate takes over that address (INFERENCE_GATE_PUBLISH), so web and Diary need no change; the
-# router keeps no host port and is reachable only on `models` (through the gate, and by the model
-# manager for presets). Keep the previous Compose files for rollback.
+# router keeps no host port and is reachable only on `models`: through the gate, and directly by the
+# model manager for presets and for backend restart, test and benchmark, which bypass the gate
+# (noevia#2138). Keep the previous Compose files for rollback.
 services:
   llama:
     ports: !reset []

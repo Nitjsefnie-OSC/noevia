@@ -92,6 +92,8 @@ def gate_problems(text):
                         ('devices:', 'has a device'), ('privileged', 'is privileged')]:
         if needle in block:
             found.append(f'the gate {why}')
+    if not all(re.search(rf'(?m)^      {k}: \S+', block) for k in ('interval', 'timeout', 'retries')):
+        found.append('the gate healthcheck is not bounded (interval, timeout, retries)')
     for needle in ['read_only: true', 'user: "65534:65534"', 'cap_drop: [ALL]', '"no-new-privileges:true"',
                    'mem_limit: 512m', '/gate/v1/health']:
         if needle not in block:
@@ -245,10 +247,6 @@ class RenderedComposeTests(unittest.TestCase):
         self.assertIn('INFERENCE_GATE_PUBLISH', result.stderr)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 OVERLAY = ROOT / 'deploy/examples/overlay-release.sh'
 
 
@@ -287,6 +285,7 @@ class OverlayReleaseGateStep(unittest.TestCase):
         self.assertEqual(len(ups), 1, calls)
         self.assertIn('--no-deps', ups[0])
         self.assertIn('--no-build', ups[0])
+        self.assertIn('--wait', ups[0].split())
         self.assertEqual(ups[0].split()[-1], 'inference-gate')
         for other in ['llama', 'model-loader', 'web', 'diary', 'ocr']:
             self.assertNotIn(other, ups[0].split())
@@ -313,3 +312,7 @@ class OverlayReleaseGateStep(unittest.TestCase):
         self.assertEqual(text.count('--no-deps --wait --wait-timeout 180 web diary ocr'), 2)
         self.assertIn("grep -xE 'docling|code-sandbox'", text)
         self.assertIn('for c in web diary ocr inference-gate llama model-loader; do', text)
+
+
+if __name__ == '__main__':
+    unittest.main()
