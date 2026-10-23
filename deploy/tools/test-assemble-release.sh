@@ -395,7 +395,20 @@ check "#1071 slice 5: ...and refused while the core keeps a local writeHistory" 
   '[ $rc -ne 0 ] && grep -q "still writes transcripts itself" "$work/err" && [ ! -f "$out/noevia-release-$ph7.tar.gz" ]'
 g rm -q apps/web/server/projects.cjs && g commit -qm core-history-store-only; ph8="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph8" "$out" >/dev/null 2>"$work/err"; rc=$?
-check "#1071 slice 5: ...and assembles once the core refuses the save and writes only through the store" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ph8.tar.gz" ]'
+check "#2153: ...but is refused while the core does not tail the chat change journal" \
+  '[ $rc -ne 0 ] && grep -q "does not tail the chat change journal" "$work/err" && [ ! -f "$out/noevia-release-$ph8.tar.gz" ]'
+printf '%s\n' "const JOURNAL_READER_MARKER = 'noevia-chat-change-journal-reader/1';" > "$w/server/chat-change-journal.cjs"
+g add -A && g commit -qm core-journal-reader; ph9="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph9" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#2153: ...and refused while the front does not journal transcript changes" \
+  '[ $rc -ne 0 ] && grep -q "does not journal transcript changes" "$work/err" && [ ! -f "$out/noevia-release-$ph9.tar.gz" ]'
+printf '%s\n' '.route("/v1/changes/read", post(handle_changes))' >> "$work/remote/noevia-rs-y/bins/noevia-server/src/project_store.rs"
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g commit -qam rs-change-journal; ph10="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph10" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071 slice 5: ...and assembles once the core refuses the save, writes only through the store and tails the journal the front writes" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ph10.tar.gz" ]'
 # The history route goes back to Node for the checks below (they swap the core's guard files).
 hn="$(grep -n '^path = "/api/chats/{chatId}/history"$' "$work/remote/noevia-rs-y/contracts/http/routes.toml" | cut -d: -f1)"
 sed -i.bak "$((hn-2)),$((hn+2))d" "$work/remote/noevia-rs-y/contracts/http/routes.toml" && rm -f "$work/remote/noevia-rs-y/contracts/http/routes.toml.bak"
