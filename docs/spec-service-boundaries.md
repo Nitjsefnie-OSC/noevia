@@ -286,7 +286,7 @@ State: `/app/data` (`COWORK_DIARY_STORAGE` or `COWORK_STATE_DIR/diary`), holding
 
 | Sidecar | Caller file | Contract | Auth | Timeout | Why it is separate |
 | --- | --- | --- | --- | --- | --- |
-| OCR | `ocr.cjs` | `POST OCR_BASE_URL` with bytes; `/health` (`services/ocr/server.py`) | none; internal `ocr` network | 610 s | Untrusted PDFs/images parsed by Poppler/Tesseract; read-only, 1 GiB cap |
+| OCR | `ocr.cjs` | `POST OCR_BASE_URL` with bytes; `/health` (native `noevia-ocr`, #1071) | none; internal `ocr` network | 610 s | Untrusted PDFs/images parsed by Poppler/Tesseract; read-only, 1 GiB cap |
 | Docling | `docling.cjs` (off unless `DOCLING_BASE_URL`) | `POST` document; `/health` (native `noevia-docling`, #1071) | none; internal `ocr` network | 3,900 s | Untrusted Office/PDF parsing, 669 MB of models, measured 4.8 GB peak, offline |
 | Kiwix | `kiwix.cjs` (off unless `features.kiwix` and `KIWIX_URL`) | kiwix-serve HTTP, `redirect: 'error'` | none; internal `kiwix` network | 10 s | Third-party image, read-only data |
 | Laya | `decision-endpoint.cjs` via `decision-settings.cjs` | `/health` and decision calls (`services/laya/server.py`) | none; internal `laya` network | 1.5 s default | Separate CPU model, 6 GiB |
@@ -423,7 +423,7 @@ section says so.
 | web | Dockerfile `HEALTHCHECK` on `/api/setup/status` (`apps/web/Dockerfile`) | **Fixed (#297).** Unauthenticated `GET /api/ready`, mounted before the session gate (`routes/health.cjs`), returns only `{ ready, version }` — no tenant data, no upstream detail; `ready` is true once the process has finished startup wiring. `/api/health` remains per-user and behind the session gate | Keep `/api/setup/status` as liveness; `/api/ready` covers the proposed readiness contract |
 | diary | `/api/health`, bearer-gated, no tenant needed (`app.py`, `compose.yaml` healthcheck) | tenant detail only with a valid tenant header | Keep; add `api: 1` to the body |
 | model-loader | `/api/v1/health`, token-exempt (`main.py`) | — | Keep token exemption for health only |
-| ocr, docling, laya | `/health` (ocr and laya `server.py`, docling native `noevia-docling`; Dockerfile `HEALTHCHECK`) | — | Keep |
+| ocr, docling, laya | `/health` (laya `server.py`, ocr native `noevia-ocr`, docling native `noevia-docling`; Dockerfile `HEALTHCHECK`) | — | Keep |
 | llama, embed | router `/health`, `/v1/models` | `/v1/models` through `routes/health.cjs` | Keep |
 | code-sandbox | none (connection-per-task) | first ACP line | Keep; failure is reported per task |
 

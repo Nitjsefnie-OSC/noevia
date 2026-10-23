@@ -40,10 +40,11 @@ COMPOSE_STUBS = LLAMACPP_RENDER_DEVICE=/dev/dri/renderD128 LLAMACPP_CARD_DEVICE=
 	MODEL_LOADER_TOKEN=stub-not-a-secret MODEL_LOADER_DATA_DIR=/stub/loader \
 	EMBED_MODEL_FILE=stub-embed.gguf RERANK_MODEL_DIR=/stub/rerank
 compose-check:
+	@# #1071: a leftover NOEVIA_OCR_IMPL in the environment never reaches the container; it is pinned to rust.
 	@for impl in python rust; do \
 		for template in compose.yaml deploy/examples/unraid-compose-manager.yml; do \
 			rendered=$$(NOEVIA_OCR_IMPL=$$impl COWORK_SOURCE_DIR=/stub/source COWORK_STATE_DIR=/stub/state docker compose $(COMPOSE_ENV) -f $$template config --format json) || exit 1; \
-			printf '%s\n' "$$rendered" | jq -e --arg impl "$$impl" '.services.ocr.environment.NOEVIA_OCR_IMPL == $$impl and .services.ocr.read_only == true and .networks.ocr.internal == true and (.services.ocr.ports == null) and (.services.ocr.volumes == null)' >/dev/null || exit 1; \
+			printf '%s\n' "$$rendered" | jq -e '.services.ocr.environment.NOEVIA_OCR_IMPL == "rust" and (.services.ocr.environment.DOCX_TEXT_IMPL == null) and .services.ocr.read_only == true and .networks.ocr.internal == true and (.services.ocr.ports == null) and (.services.ocr.volumes == null)' >/dev/null || exit 1; \
 		done; \
 	done
 	docker compose $(COMPOSE_ENV) -f compose.yaml config --quiet
