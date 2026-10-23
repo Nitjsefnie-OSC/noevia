@@ -103,10 +103,13 @@ RUN_ID=$(docker inspect cowork-diary-1 --format '{{.Image}}')
 [ "$OLD_ID" = "$RUN_ID" ] || { echo "running Diary is not cowork-diary:$OLD"; exit 1; }
 echo "current cowork-diary:$OLD $OLD_ID"
 # #2112: the overlay keeps the running image's dependencies, so requirements.txt must be the one the release has.
+# BEGIN requirements-check (deploy/tests/test_overlay_scripts.py runs this block with stub docker)
+# Read the existing image without network access, a writable root filesystem or an image pull.
 req_want=$(sha256sum "$base/releases/$V/services/diary/requirements.txt" 2>/dev/null | cut -d' ' -f1) || req_want=""
-req_have=$(docker run --rm --network none --entrypoint sh cowork-diary:$OLD -c 'sha256sum /app/requirements.txt' 2>/dev/null | cut -d' ' -f1) || req_have=""
+req_have=$(docker run --rm --network none --read-only --pull never --entrypoint sh cowork-diary:$OLD -c 'sha256sum /app/requirements.txt' 2>/dev/null | cut -d' ' -f1) || req_have=""
 [ -n "$req_want" ] && [ "$req_want" = "$req_have" ] \
   || { echo "requirements.txt in releases/$V/services/diary is missing or differs from the running image's (or could not be read there): the overlay installs no dependencies, rebuild the image instead; not deploying" >&2; exit 1; }
+# END requirements-check
 # The scoped backup below needs both; checked here so a bad layout fails before anything is built (#1487).
 backup_root=${BACKUP_ROOT:-/mnt/disk3/noevia-backups}
 [ -d "$backup_root" ] || { echo "backup root $backup_root is missing; not deploying" >&2; exit 1; }

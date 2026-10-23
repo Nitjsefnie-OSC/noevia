@@ -4,7 +4,9 @@ The release SHA becomes a path component, an image tag and a sed replacement, so
 refuse anything but a hex SHA before touching anything. The Diary overlay archives its own state
 (#1487) and may stop or recreate only the Diary container; it never runs the Appdata Backup plugin.
 Synthetic Dockerfiles exercise the final-stage COPY/ADD contract in both parsers.
+The requirements probe's argv and hash refusals are checked with a recording docker stub.
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -224,7 +226,7 @@ case "$*" in
     if [ -n "${LATER_IMAGE:-}" ] && [ -e "$CALL_LOG.inspected" ]; then echo "$LATER_IMAGE"; else : > "$CALL_LOG.inspected"; echo "@OLD_ID@"; fi ;;
   "inspect cowork-diary-1 --format diary"*) echo "diary healthy restarts=0" ;;
   "exec cowork-diary-1 python -c"*) exit 1 ;;
-  "run --rm --network none --entrypoint sh cowork-diary:@OLD@ -c"*)
+  "run --rm "*"--entrypoint sh cowork-diary:@OLD@ -c"*)
     # The running image's /app/requirements.txt (#2112): the overlay installs no dependencies.
     [ -f "$RUNNING_APP/requirements.txt" ] && sha256sum "$RUNNING_APP/requirements.txt" ;;
   "run --rm --entrypoint python"*) echo "candidate imports ok" ;;
@@ -817,6 +819,64 @@ class DiaryCopyContract(unittest.TestCase):
         copies = [line for line in generated.splitlines() if line.startswith('COPY --from=')]
         self.assertEqual(copies, ['COPY --from=tenant-assertion /out/ /usr/local/bin/'])
         self.accepted(generated)
+
+
+class DiaryRequirementsProbe(unittest.TestCase):
+    """Exercise the requirements check with a recording docker stub, without an engine."""
+
+    REQUIREMENTS = b'synthetic-dependency==1.0\n'
+    HASH = hashlib.sha256(REQUIREMENTS).hexdigest()
+
+    def probe(self, output=None, status=0, missing=False):
+        with tempfile.TemporaryDirectory(prefix='noevia-requirements-probe-') as temp:
+            base = pathlib.Path(temp)
+            release = base / 'releases/abc1234/services/diary'
+            release.mkdir(parents=True)
+            if not missing:
+                (release / 'requirements.txt').write_bytes(self.REQUIREMENTS)
+            docker = base / 'docker'
+            docker.write_text('#!/usr/bin/env python3\nimport json, os, sys\n'
+                              'with open(os.environ["ARGV_LOG"], "w") as log: json.dump(sys.argv[1:], log)\n'
+                              'print(os.environ["PROBE_OUTPUT"])\nsys.exit(int(os.environ["PROBE_STATUS"]))\n')
+            docker.chmod(0o755)
+            block = RsStage().block('requirements-check')
+            script = 'set -euo pipefail\nbase=$1; V=abc1234; OLD=def5678\n' + block + '\necho PROBED'
+            result = subprocess.run(['bash', '-c', script, 'x', str(base)],
+                                    env=dict(os.environ, PATH=f'{base}:{os.environ["PATH"]}',
+                                             ARGV_LOG=str(base / 'argv.json'),
+                                             PROBE_OUTPUT=output if output is not None else self.HASH + '  /app/requirements.txt',
+                                             PROBE_STATUS=str(status)),
+                                    capture_output=True, text=True, timeout=30)
+            return result, json.loads((base / 'argv.json').read_text())
+
+    def successful_probe(self):
+        result, argv = self.probe()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ['PROBED'])
+        return argv
+
+    def test_requirements_probe_is_read_only(self):
+        self.assertIn('--read-only', self.successful_probe())
+
+    def test_requirements_probe_never_pulls(self):
+        argv = self.successful_probe()
+        self.assertIn('--pull', argv)
+        self.assertEqual(argv[argv.index('--pull') + 1], 'never')
+
+    def test_requirements_probe_command_preserves_its_restrictions(self):
+        self.assertEqual(self.successful_probe(), [
+            'run', '--rm', '--network', 'none', '--read-only', '--pull', 'never',
+            '--entrypoint', 'sh', 'cowork-diary:def5678', '-c', 'sha256sum /app/requirements.txt'])
+
+    def test_requirements_probe_refuses_missing_mismatched_or_unreadable_hashes(self):
+        self.successful_probe()
+        for kwargs in [{'missing': True}, {'output': 'c' * 64 + '  /app/requirements.txt'},
+                       {'output': ''}, {'output': 'not-a-hash'}, {'status': 1}]:
+            with self.subTest(kwargs=kwargs):
+                result, argv = self.probe(**kwargs)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('PROBED', result.stdout)
+                self.assertEqual(argv[-2:], ['-c', 'sha256sum /app/requirements.txt'])
 
 
 class OverlayDirsInSync(unittest.TestCase):
