@@ -180,6 +180,9 @@ services:
       MODEL_MANAGER_KIND: ${MODEL_MANAGER_KIND:-none}
       MODEL_MANAGER_BASE_URL: ${MODEL_MANAGER_BASE_URL:-http://host.docker.internal:11434}
       MODEL_MANAGER_API_KEY: ${MODEL_MANAGER_API_KEY:-}
+      # noevia#2115: the inference gate's admin token (the same secret as the gate's). Blank: an
+      # administrator cannot unload a model that is answering a request.
+      INFERENCE_GATE_ADMIN_TOKEN: ${INFERENCE_GATE_ADMIN_TOKEN:-}
       LLAMACPP_PRESET_PATH: ${LLAMACPP_PRESET_PATH:-}
       # Optional MCP server (step 15). Empty = no MCP toolboxes, which is a
       # healthy state, not a degraded one.

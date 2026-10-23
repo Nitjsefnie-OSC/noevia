@@ -10,7 +10,7 @@
 #
 # THIS IS NOT A WEB-ONLY RELEASE. Besides web, it recreates diary and ocr
 # (`up -d --no-build --no-deps --wait web diary ocr`) and brings up docling and code-sandbox
-# when the deployment defines them. The sidecars keep their own DIARY_VERSION / OCR_VERSION /
+# when the deployment defines them. On one host it first starts inference-gate (#2115), by name. The sidecars keep their own DIARY_VERSION / OCR_VERSION /
 # MODEL_MANAGER_VERSION / DOCLING_VERSION / CODE_SANDBOX_VERSION tags (nothing is retagged
 # forward), but each recreate is a restart. When the sidecars must stay up, release web by hand
 # instead: layer dist/, server/ and contracts/ onto the previous cowork-web:<sha>, point `current` and
@@ -62,6 +62,17 @@ done
 # Any required tag the deployment's compose files use but .env lacks fails here, before anything changes.
 (cd "$manager" && docker compose --env-file "$config" --profile code config -q) \
   || { echo "compose config fails with $config; set the missing *_VERSION keys first" >&2; exit 1; }
+# BEGIN inference-gate (deploy/tests/test_inference_gate_2115.py runs this block with a fake docker)
+# noevia#2115: on one host, web and Diary reach the chat router only through inference-gate, so it must be
+# running before the Diary model check below (which resolves it from the Diary side) and before the cutover.
+# Start it by name with --no-deps: the router (llama) is already on the models network and is never
+# recreated here, and the model loader is not needed by the gate. A split layout runs the gate on the
+# inference machine, defines no inference-gate service here, and this step does nothing.
+if (cd "$manager" && docker compose --env-file "$config" --profile code config --services) | grep -x inference-gate >/dev/null; then
+  (cd "$manager" && docker compose --env-file "$config" --profile code up -d --no-build --no-deps --wait --wait-timeout 120 inference-gate) \
+    || { echo "inference-gate did not become healthy; chat and the Diary model check need it (#2115); not deploying" >&2; exit 1; }
+fi
+# END inference-gate
 # BEGIN diary-models-check (deploy/tests/test_diary_models_check_2105.py)
 # #2105: the diary refuses every answer when the chat or aux model id it receives is not served by the chat router
 # (services#2099). Resolve the Compose project this cutover deploys with the same .env, read the diary service's
@@ -174,7 +185,7 @@ if ! { bash "$base/tools/preflight/up.sh" --env-file "$config" -- -d --no-build 
   ln -sfn "$base/releases/$OLD" "$base/current"
   cp -p "$config.bak.before-$NEW" "$config"
   bash "$base/tools/preflight/up.sh" --env-file "$config" -- -d --no-build --no-deps --wait --wait-timeout 180 web diary ocr
-  echo "ROLLED BACK to $OLD" >&2; exit 1
+  echo "ROLLED BACK to $OLD (web, diary and ocr only; inference-gate is not rolled back and stays in front of the router, so the old web runs behind the gate, #2115)" >&2; exit 1
 fi
 new_native=$(container_id cowork-llama-1) || { echo "cannot confirm the engine is untouched; check it by hand" >&2; exit 1; }
 [ "$new_native" = "$old_native" ] || { echo "the engine container changed during this release (was ${old_native:-absent}, now ${new_native:-absent}); check it by hand" >&2; exit 1; }
@@ -188,7 +199,7 @@ if [ -n "$sidecars" ]; then
   for s in $sidecars; do docker inspect "cowork-$s-1" --format "{{.Name}} {{.State.Status}}"; done
 fi
 present=()
-for c in web diary ocr llama model-loader; do
+for c in web diary ocr inference-gate llama model-loader; do
   docker inspect "cowork-$c-1" >/dev/null 2>&1 && present+=("cowork-$c-1")
 done
 docker inspect "${present[@]}" \

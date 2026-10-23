@@ -144,6 +144,132 @@ Keep exact backup paths, host/service inventories, recovery manifests, and deplo
 outside version control. Public release notes should describe software behavior and validation
 limits rather than the private state of an installation.
 
+## Inference gate (#2115)
+
+The chat router holds one model at a time. Before this gate, a request for another model unloaded
+the one in use, even while it was answering another chat. The gate sits in front of the router and
+admits one chat model at a time:
+
+- A turn for another model waits in the gate's queue, and web shows that it is waiting.
+- The gate unloads the previous model only once nothing is using it.
+- An unload of a model that is answering a request is refused. An administrator can force it with
+  the gate's admin token.
+
+It ships in the model manager image (`noevia-inference-gate`) and runs as its own service, so a
+model-manager restart never touches it. Its contract is in the pinned Rust
+`bins/noevia-inference-gate` crate.
+
+**Layout.**
+
+- *One host.* `compose.llamacpp.yaml` (and `deploy/examples/unraid-llamacpp.override.yml`)
+  run `inference-gate` beside `llama`.
+  - Web and Diary use `http://inference-gate:8080`.
+  - The router is on the `models` network only. The gate reaches it there, and so does the model
+    manager (see "Known limitations" below for what the model manager sends it).
+  - Install: recreate `llama` by name (`up -d --no-deps llama`) while chat is idle, so it drops its
+    host port, then start `inference-gate` by name. Recreating `llama` cuts every stream.
+  - In the Unraid one-host layout, set `INFERENCE_BASE_URL` and `MODEL_MANAGER_BASE_URL` to the gate
+    (`.env.example`). If `AUX_INFERENCE_BASE_URL` names the router directly, point it at the gate
+    too: the router is no longer on Diary's network.
+  - Both web inference addresses, `INFERENCE_BASE_URL` and `MODEL_MANAGER_BASE_URL`, must name the
+    same gate. Web sends the lease header only to the origin of `MODEL_MANAGER_BASE_URL`.
+- *Separate inference machine.* Add `deploy/examples/inference-gate.override.yml` to that
+  machine's Compose files.
+  - The gate takes over the address and port that web and Diary already use for the router
+    (`INFERENCE_GATE_PUBLISH`, required), so nothing changes on the web host.
+  - The router's host port is removed (`ports: !reset []`, Compose 2.24 or later).
+  - The web host's addresses stay unchanged: `INFERENCE_BASE_URL`, `MODEL_MANAGER_BASE_URL` and,
+    when it is set, `AUX_INFERENCE_BASE_URL`. Do not add the one-host gate service on the web host.
+  - The inference machine's environment file needs `MODEL_MANAGER_VERSION`,
+    `INFERENCE_GATE_PUBLISH` and `INFERENCE_GATE_ADMIN_TOKEN` (names only here), plus any `GATE_*`
+    limits.
+  - The gate uses `pull_policy: never`: load the release-built model manager image onto the
+    inference machine before applying.
+  - Apply order on the inference machine: recreate `llama` first, then `inference-gate`, each by
+    name with `--no-deps`. This frees the shared address before the gate binds it and leaves
+    intentionally stopped services alone.
+
+**Configuration.** Use key names only; the values belong in the operator's environment file.
+
+- `INFERENCE_GATE_ADMIN_TOKEN` is one secret, read by the gate (as `GATE_ADMIN_TOKEN`) and by
+  web. Give the same value on both hosts. Blank means nobody can unload a model that is answering.
+  That includes the memory watchdog (#697): without the token it falls back to a plain unload,
+  which the gate refuses for a busy model. Set `INFERENCE_GATE_ADMIN_TOKEN` on both hosts.
+- Every `GATE_*` limit is optional (`.env.example` lists them with their defaults). An invalid
+  value stops the gate before it listens, and the error names the variable, never its value.
+
+**Release.**
+
+- Release the core gate client (noevia-core), the model manager image that ships the gate
+  (noevia-services) and this Compose change together. The core release deletes the old eviction
+  code, so there is no shadow mode.
+- The web interface change can ship with them or before them.
+- Check model activity first, as for any release.
+- On one host, `deploy/examples/overlay-release.sh` starts `inference-gate` by name, with
+  `--no-deps`, before the Diary model check and the web cutover. The split layout's release is
+  unchanged: the gate runs on the inference machine.
+- A project-wide `up -d` after a `MODEL_MANAGER_VERSION` bump also recreates the gate, which cuts
+  open streams. Recreate services by name instead.
+- Add the gate's port to the host's model-port firewall script as part of the release (see "Host
+  firewall" below).
+
+**Read-only verification.**
+
+- `GET /gate/v1/health` answers 200 from the gate's address.
+- `GET /gate/v1/status` lists the resident model and any leases.
+- The router answers only on the Compose network.
+- A chat turn shows the waiting line while another chat's model answers, then answers.
+- Do not send loads, unloads or generations to a live router to check this.
+
+**Rollback.** Restore the previous Compose files and the previous web image (core pin) together:
+
+- the router publishes its port again;
+- `inference-gate` is stopped and removed;
+- web goes back to the release that still has its own eviction.
+
+Two half-states lose protection, so avoid both:
+
+- New web without the gate keeps working, but nothing stops one chat unloading another's model.
+  Its client treats a missing gate as no gate and logs it once.
+- Old web behind the gate gets refusals instead of eviction for a model in use.
+
+The model manager image can stay, since its default command is unchanged.
+
+**Known limitations.**
+
+- After a model download finishes, the router can reload its presets on its own at the next
+  request. The gate does not see this reload, so it cannot protect a model in use from it. Expect
+  that request to wait on the reload, and the resident model may be unloaded. Run downloads while
+  chat is idle.
+- The model manager still reaches the router directly, outside the gate, for more than presets:
+  its backend restart (which restarts the router and cuts every stream), its backend test (a chat
+  completion) and its benchmark runner (loads and completions). These are admin-only paths. Use
+  them only while the engine is idle. Routing them through the gate is tracked in
+  sbstndalton/noevia#2138.
+
+**Host firewall (#2122). Release step: add the gate's port to the host's model-port firewall script.**
+
+- The gate's published port is the router's old one: 18000 by default on the inference host, and
+  configurable through `INFERENCE_GATE_PUBLISH`. Use the port you set wherever 18000 appears below.
+  Without a rule it is reachable from every host that could reach the router before.
+- Unpublishing the router closes the router's direct port. It does not restrict the gate's port.
+- As part of this release, add port 18000 to the host's model-port firewall script, beside the
+  other model ports it already restricts. The rule is a `DOCKER-USER` rule that rejects new
+  connections to that published address and port from any source but the web host. For example,
+  with operator-local values:
+
+  ```sh
+  rule=(-p tcp -m conntrack --ctstate NEW --ctorigdst "$INFERENCE_ADDRESS" --ctorigdstport 18000 \
+        ! -s "$WEB_HOST_ADDRESS" -j REJECT --reject-with tcp-reset)
+  iptables -C DOCKER-USER "${rule[@]}" 2>/dev/null || iptables -I DOCKER-USER 1 "${rule[@]}"
+  ```
+
+- Keep the rule in that script, so it survives restarts, not in a one-off shell.
+- Verify after applying:
+  - from a LAN host that should be refused, `curl -sS -m 5 http://$INFERENCE_ADDRESS:18000/gate/v1/health`
+    fails with a refused or reset connection;
+  - from the allowed peer (the web host), the same request answers 200.
+
 ## Services on other Inference machines (#1843)
 
 Services assigned to another inference machine are not counted against this host's budget.
