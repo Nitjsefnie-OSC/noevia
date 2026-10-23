@@ -263,6 +263,25 @@ JS
 g add -A && g commit -qm core-chats; pc="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$pc" "$out" >/dev/null 2>"$work/err"; rc=$?
 check "the same front over a core that lists the chat routes assembles" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$pc.tar.gz" ]'
+# #1071: a front that reads NOEVIA_START_ID needs this release's supervisor to hand it to both
+# processes; without that the release is refused, with it the same pins assemble.
+mkdir -p "$work/remote/noevia-rs-y/bins/noevia-server/src"
+echo 'let start_id = get("NOEVIA_START_ID");' > "$work/remote/noevia-rs-y/bins/noevia-server/src/config.rs"
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+mkdir -p "$repo/build"
+printf '%s\n' 'NOEVIA_START_ID="$start_id" node server/index.cjs &' > "$repo/build/web-supervisor.sh"
+g add -A && g commit -qm rs-start-id-one; ps1="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ps1" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071: a start-id front whose supervisor hands the id to only one process is refused" \
+  '[ $rc -ne 0 ] && grep -q "does not hand it to both processes" "$work/err" && [ ! -f "$out/noevia-release-$ps1.tar.gz" ]'
+printf '%s\n' 'NOEVIA_START_ID="$start_id" "$bin" &' >> "$repo/build/web-supervisor.sh"
+g add -A && g commit -qm rs-start-id-both; ps2="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ps2" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071: ...and assembles once the supervisor hands it to both" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ps2.tar.gz" ]'
+rm -f "$work/remote/noevia-rs-y/bins/noevia-server/src/config.rs"
+g rm -q build/web-supervisor.sh && g commit -qm supervisor-plain-again
 # The free-chat slice: a front that also owns GET/POST /api/freechats over a core whose
 # OWNED_ROUTES lacks them (from before noevia-core#76, whose free-list writers would drop the
 # front's saves by a whole-file write) is refused, naming only those; the core that lists them

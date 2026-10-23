@@ -19,7 +19,7 @@ set -uo pipefail
 # Only this script may hand out the project store (below);
 # never trust a value from the environment. (The retired confirmations, rust-auth's, the projects'
 # and the front routes', are scrubbed too, so an inherited value can never reach a Node of either age.)
-unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED NOEVIA_RUST_PROJECT_WRITES_CONFIRMED NOEVIA_RUST_PROJECT_STORE_CONFIRMED NOEVIA_PROJECT_STORE_PORT NOEVIA_PROJECT_STORE_TOKEN NOEVIA_FRONT_CLIENT_IP NOEVIA_LEGACY_CLAIM_BIN
+unset NOEVIA_RUST_AUTH_CONFIRMED NOEVIA_RUST_PROJECTS_CONFIRMED NOEVIA_RUST_PROJECT_CHATS_CONFIRMED NOEVIA_RUST_FREE_CHATS_CONFIRMED NOEVIA_RUST_USAGE_CONFIRMED NOEVIA_RUST_SAMPLING_SETTINGS_CONFIRMED NOEVIA_RUST_REASONING_SETTINGS_CONFIRMED NOEVIA_RUST_ROUTING_MODE_CONFIRMED NOEVIA_RUST_ROUTING_DEFAULT_CONFIRMED NOEVIA_RUST_STATS_CONFIRMED NOEVIA_RUST_EXPORT_CONFIRMED NOEVIA_RUST_STORAGE_READS_CONFIRMED NOEVIA_RUST_STORAGE_BROWSE_CONFIRMED NOEVIA_RUST_CHATGPT_STATUS_CONFIRMED NOEVIA_RUST_PROJECT_WRITES_CONFIRMED NOEVIA_RUST_PROJECT_STORE_CONFIRMED NOEVIA_PROJECT_STORE_PORT NOEVIA_PROJECT_STORE_TOKEN NOEVIA_FRONT_CLIENT_IP NOEVIA_LEGACY_CLAIM_BIN NOEVIA_START_ID
 FRONT_ROUTE_FEATURES="rust-chatgpt-status rust-storage-reads rust-storage-browse rust-export rust-free-chats rust-usage rust-stats rust-routing-default rust-sampling-settings rust-reasoning-settings rust-routing-mode rust-projects rust-project-chats rust-project-writes project-store"
 # Their old switches only earn a warning now (noevia-server says the same), and neither process
 # gets them (each would only warn again).
@@ -118,6 +118,17 @@ if [ "${#store_token}" -ne 64 ]; then
   exit 2
 fi
 
+# The start id (sbstndalton/noevia#1071): one random id per container start, made here and handed
+# to both processes (never taken from the environment). Node writes it into a running reply's
+# partial file (core chat-partial.cjs `running: { start }`), so the front can tell a reply still
+# running in this start from one a crash or restart cut off; a front that reads it (--features
+# start-id) refuses to start beside Node without it.
+start_id="$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')"
+if ! [[ "$start_id" =~ ^[0-9a-f]{32}$ ]]; then
+  echo "web-supervisor: could not make the start id" >&2
+  exit 2
+fi
+
 # Node binds UI_HOST for the UI listener AND the Diary file-sharing (DAV) listener. With DAV off
 # the legacy port is loopback-only; with DAV on, Node keeps UI_HOST so DAV stays reachable, and
 # the legacy port is then reachable from the container's networks too (never published by
@@ -142,10 +153,11 @@ UI_HOST="$node_host" UI_PORT="$legacy" \
   NOEVIA_FRONT_CLIENT_IP="$client_ip_confirmed" \
   NOEVIA_LEGACY_CLAIM_BIN="$legacy_claim_bin" \
   NOEVIA_PROJECT_STORE_PORT="$store_port" NOEVIA_PROJECT_STORE_TOKEN="$store_token" \
+  NOEVIA_START_ID="$start_id" \
   node server/index.cjs &
 node_pid=$!
 NOEVIA_PROJECT_STORE_PORT="$store_port" NOEVIA_PROJECT_STORE_TOKEN="$store_token" \
-  NOEVIA_LEGACY_UPSTREAM="http://127.0.0.1:$legacy" "$bin" &
+  NOEVIA_START_ID="$start_id" NOEVIA_LEGACY_UPSTREAM="http://127.0.0.1:$legacy" "$bin" &
 front_pid=$!
 
 # Whichever exits first (or a signal) ends the wait.

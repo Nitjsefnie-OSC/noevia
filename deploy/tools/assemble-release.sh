@@ -341,6 +341,13 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
      && ! grep -q '^function refuseOwned' "$tree/core/server/rust-auth.cjs" 2>/dev/null; then
     die "noevia-rs at $rs_ref owns sign-in with no switch, but noevia-core at $(lock_value NOEVIA_CORE_REF) still gates its rust-auth guard on NOEVIA_RUST_AUTH (pin a core with an unconditional server/rust-auth.cjs, sbstndalton/noevia#1071)"
   fi
+  # sbstndalton/noevia#1071: a front that reads NOEVIA_START_ID (the per-start id in a running
+  # reply's partial file) refuses to start beside Node without it, so this release's own web
+  # supervisor must make one and hand it to both processes.
+  if grep -q 'NOEVIA_START_ID' "$tree/rs/bins/noevia-server/src/config.rs" 2>/dev/null \
+     && [ "$(grep -c 'NOEVIA_START_ID="\$start_id"' "$tree/noevia/build/web-supervisor.sh" 2>/dev/null)" -lt 2 ]; then
+    die "noevia-rs at $rs_ref needs NOEVIA_START_ID, but this release's build/web-supervisor.sh does not hand it to both processes (sbstndalton/noevia#1071)"
+  fi
   # #2096: no other switch is accepted either. routes.toml carries none since #1071 (it says so),
   # this supervisor passes none, and a switched route is excluded from the ownership comparison
   # above, so one that slipped in would be silently unchecked: refuse it, fail closed.
