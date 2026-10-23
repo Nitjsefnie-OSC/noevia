@@ -337,6 +337,15 @@ core_writes_history_via_store() {
 core_uses_history_ops() {
   grep -q 'historyAppendIfLast' "$tree/core/server/project-store-client.cjs" 2>/dev/null
 }
+# Whether the pinned front journals transcript changes for Node (sbstndalton/noevia#2153): a Rust
+# source under rs/bins names the changes read op.
+rs_serves_change_journal() {
+  grep -rqs --include='*.rs' -e '/v1/changes/read' "$tree/rs/bins"
+}
+# Whether the pinned core tails that journal (server/chat-change-journal.cjs carries its marker).
+core_tails_change_journal() {
+  grep -q "'noevia-chat-change-journal-reader/1'" "$tree/core/server/chat-change-journal.cjs" 2>/dev/null
+}
 # Whether the pinned front reads NOEVIA_START_ID: a Rust source under rs/bins names it, or a
 # FEATURES list there carries "start-id".
 rs_reads_start_id() {
@@ -423,6 +432,13 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
       || die "noevia-rs at $rs_ref answers POST /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) still writes transcripts itself (no store ops in server/project-store-client.cjs, chat-interrupted-turn.cjs, conversation-import.cjs, or projects.cjs writeHistory still there); pin a core with the #1071 slice 4 writers"
     project_routes_core "$tree/core/server/rust-projects.cjs" | grep -qx 'POST /api/chats/{}/history' \
       || die "noevia-rs at $rs_ref answers POST /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) does not refuse it (not in server/rust-projects.cjs OWNED_ROUTES); pin a core that hands the save to the front (sbstndalton/noevia#1071 slice 5)"
+    # sbstndalton/noevia#2153 (slice 5a): Node never sees a save the front answers, so the chat's
+    # Diary mirror and brain follow it only through the front's change journal, which the core must
+    # tail and the front must write.
+    core_tails_change_journal \
+      || die "noevia-rs at $rs_ref answers POST /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) does not tail the chat change journal (no noevia-chat-change-journal-reader/1 in server/chat-change-journal.cjs), so the chat mirror and brain would stop following saves; pin a core with the sbstndalton/noevia#2153 reader"
+    rs_serves_change_journal \
+      || die "noevia-rs at $rs_ref answers POST /api/chats/{chatId}/history but does not journal transcript changes (no /v1/changes/read under rs/bins), so the chat mirror and brain would stop following saves; pin a noevia-rs with the sbstndalton/noevia#2153 journal"
   fi
   # #2096: no other switch is accepted either. routes.toml carries none since #1071 (it says so),
   # this supervisor passes none, and a switched route is excluded from the ownership comparison
