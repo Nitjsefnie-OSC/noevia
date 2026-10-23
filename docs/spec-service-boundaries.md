@@ -114,7 +114,8 @@ membership (a Mermaid node can sit in only one subgraph, so the diagram does not
 | diary | `cowork-diary:${DIARY_VERSION:?}` | default | none (`expose: 8010`) | Python runtime, irreplaceable corpus state | `compose.yaml` |
 | ocr | `cowork-ocr:${OCR_VERSION:?}` | ocr (internal) | none | read-only root, `cap_drop: ALL`, 1 GiB, 64 pids | `compose.yaml` |
 | laya | `cowork-laya:0.3.5-noevia1` | laya (internal) | none | read-only, uid 1000, 6 GiB, own model | `compose.yaml` (profile `laya`) |
-| llama | llama.cpp Vulkan, digest-pinned | default, models | none | GPU render/card devices, 14 GiB | `compose.llamacpp.yaml` |
+| llama | chat router, digest-pinned | models (behind inference-gate, #2115) | none | GPU render/card devices, 14 GiB | `compose.llamacpp.yaml` |
+| inference-gate | `cowork-model-loader:${MODEL_MANAGER_VERSION:?}`, `noevia-inference-gate` | default, models | none (one host) | read-only, uid 65534, `cap_drop: ALL`, 512 MiB, no socket or model files | `compose.llamacpp.yaml` |
 | model-loader | `cowork-model-loader:${MODEL_MANAGER_VERSION:?}` | models only | none | `/var/run/docker.sock`, token-gated | `compose.llamacpp.yaml` |
 | docling | `cowork-docling:${DOCLING_VERSION}` | ocr (internal) | none | read-only, offline models, 6 GiB | `compose.docling.yaml` |
 | kiwix | `kiwix-serve:3.7.0` | kiwix (internal) | none | read-only ZIMs | `deploy/examples/kiwix.override.yml` |
@@ -219,9 +220,9 @@ keeps it together.
 
 | Edge | Caller file | Target | Auth | Timeout |
 | --- | --- | --- | --- | --- |
-| Chat completions | `chat.cjs`, `research` tools in `index.cjs`, `auto-router.cjs` | provider base (`INFERENCE_BASE_URL`, live `http://llama:8080/v1` per `compose.llamacpp.yaml`) | `Authorization: Bearer INFERENCE_API_KEY` unless `local` (`providerHeaders`, `providers.cjs`) | 180 s / 300 s (`chat.cjs`), 120 s research |
+| Chat completions | `chat.cjs`, `research` tools in `index.cjs`, `auto-router.cjs` | provider base (`INFERENCE_BASE_URL`, live `http://inference-gate:8080/v1` per `compose.llamacpp.yaml` (#2115)) | `Authorization: Bearer INFERENCE_API_KEY` unless `local` (`providerHeaders`, `providers.cjs`) | 180 s / 300 s (`chat.cjs`), 120 s research |
 | Embeddings | `rag.cjs` | `EMBEDDING_BASE_URL` (live `http://embed:8080/v1` **[live: verify]**) or inference base | **no** `Authorization` when `EMBEDDING_BASE_URL` is set (`rag.cjs`, `rag-embedding-endpoint.test.cjs`); `inferenceHeaders` (`index.cjs`) only on fallback to the inference base | in `rag.cjs` |
-| Router lifecycle (load, unload, presets, calibration, autotune) | `llamacpp-manager.cjs` via `model-manager.cjs` (`MODEL_MANAGER_KIND=llamacpp`) | `MODEL_MANAGER_BASE_URL` = `http://llama:8080` | bearer as above | 60–120 s per verb |
+| Router lifecycle (load, unload, presets, calibration, autotune) | `llamacpp-manager.cjs` via `model-manager.cjs` (`MODEL_MANAGER_KIND=llamacpp`) | `MODEL_MANAGER_BASE_URL` = `http://inference-gate:8080` (#2115) | bearer as above | 60–120 s per verb |
 | Preset file | `llamacpp-presets.cjs` (atomic temp-file rename) | `LLAMACPP_PRESET_PATH` = `/llamacpp-config/models.ini` (bind of `LLAMACPP_CONFIG_DIR`) | filesystem | — |
 | Model-loader JSON API | `models.cjs` `managerFetch`, `routes/models.cjs` `/api/model-manager/*` proxy (admin only, path allowlist, system-model guards) | `MODEL_LOADER_URL` = `http://model-loader:8090/api/v1/*` | `X-Model-Loader-Token: MODEL_LOADER_TOKEN` (`services/model-manager/app/main.py` middleware; `/api/v1/health` exempt) | via `fetchJson` |
 | Folder sync | `model-folder-sync.cjs` | model-loader `models`, `sections/{stem}/safe-defaults` | token | — |

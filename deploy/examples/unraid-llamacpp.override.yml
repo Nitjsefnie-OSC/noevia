@@ -24,8 +24,59 @@ services:
     labels:
       net.unraid.docker.managed: composeman
       net.unraid.docker.shell: sh
+    # noevia#2115: on models only, behind inference-gate. Set INFERENCE_BASE_URL and
+    # MODEL_MANAGER_BASE_URL to the gate (.env.example). No host ports and no Docker socket.
+    networks: [models]
+  # noevia#2115: the inference gate, from the model manager's image but its own service, so a
+  # model-manager restart never touches it. Every chat client (web and Diary) reaches the router
+  # through it: a turn waits for the model in use instead of unloading it mid-answer. It holds no
+  # Docker socket and no model files.
+  inference-gate:
+    image: cowork-model-loader:${MODEL_MANAGER_VERSION:?Set MODEL_MANAGER_VERSION to the built model manager image tag}
+    restart: unless-stopped
+    command: ["noevia-inference-gate"]
+    environment:
+      # noevia#2115: the gate admits one chat model at a time and never unloads a model that is
+      # answering; see docs/deployment.md "Inference gate". Blank values take the gate's defaults.
+      GATE_UPSTREAM: http://llama:8080
+      GATE_ADMIN_TOKEN: ${INFERENCE_GATE_ADMIN_TOKEN:-}
+      GATE_CHAT_SLOTS: ${GATE_CHAT_SLOTS:-}
+      GATE_EXEMPT_MODELS: ${GATE_EXEMPT_MODELS:-}
+      GATE_MAX_WAIT_SECONDS: ${GATE_MAX_WAIT_SECONDS:-}
+      GATE_FAIR_HOLD_SECONDS: ${GATE_FAIR_HOLD_SECONDS:-}
+      GATE_RESIDENCY_GRACE_SECONDS: ${GATE_RESIDENCY_GRACE_SECONDS:-}
+      GATE_LEASE_IDLE_SECONDS: ${GATE_LEASE_IDLE_SECONDS:-}
+      GATE_LEASE_HARD_SECONDS: ${GATE_LEASE_HARD_SECONDS:-}
+      GATE_UNLOAD_TIMEOUT_SECONDS: ${GATE_UNLOAD_TIMEOUT_SECONDS:-}
+      GATE_ROUTER_DOWN_GRACE_SECONDS: ${GATE_ROUTER_DOWN_GRACE_SECONDS:-}
+      GATE_SESSION_HOLD_SECONDS: ${GATE_SESSION_HOLD_SECONDS:-}
+      GATE_MAX_WAITERS: ${GATE_MAX_WAITERS:-}
+      GATE_MAX_LEASES: ${GATE_MAX_LEASES:-}
+      GATE_MAX_BODY_BYTES: ${GATE_MAX_BODY_BYTES:-}
+      GATE_MAX_BUFFERED_BYTES: ${GATE_MAX_BUFFERED_BYTES:-}
+      GATE_BODY_TIMEOUT_SECONDS: ${GATE_BODY_TIMEOUT_SECONDS:-}
+      GATE_UPSTREAM_HEADER_TIMEOUT_SECONDS: ${GATE_UPSTREAM_HEADER_TIMEOUT_SECONDS:-}
+      GATE_HEADER_READ_TIMEOUT_SECONDS: ${GATE_HEADER_READ_TIMEOUT_SECONDS:-}
+      GATE_MAX_CONNECTIONS: ${GATE_MAX_CONNECTIONS:-}
+    read_only: true
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # Request bodies are buffered up to GATE_MAX_BUFFERED_BYTES (default 256 MiB) in total.
+    mem_limit: 512m
+    pids_limit: 256
+    # The image's own healthcheck probes the model manager; this one asks the gate.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /gate/v1/health HTTP/1.0\\r\\nHost: gate\\r\\n\\r\\n' >&3 && timeout 4 head -n 1 <&3 | grep -q ' 200 '"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Web (models) and Diary (default) reach it; the router behind it is on models only.
     networks: [default, models]
-    # Internal Compose network only; no host ports and no Docker socket.
+    labels:
+      net.unraid.docker.managed: composeman
+
   # Model manager (Model Loader by scratchhax, MIT, folded into services/model-manager):
   # downloads, the models.ini editor, autoconfig, telemetry, benchmarks and backend
   # restarts. It has no login and holds the Docker socket, so it publishes no port;
@@ -138,5 +189,5 @@ services:
       - ${LLAMACPP_CACHE_DIR}:/cache:ro
 
 networks:
-  # Web, the engine and the model manager only. The Diary sidecar is not attached.
+  # Web, the engine, the gate and the model manager only. The Diary sidecar is not attached.
   models: {}

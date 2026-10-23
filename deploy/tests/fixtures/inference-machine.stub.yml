@@ -1,0 +1,10 @@
+# Synthetic stand-in for an inference machine's own Compose files (deploy/tests/test_inference_gate_2115.py):
+# the chat router as `llama` on a `models` network, publishing the address web uses for it. Nothing is run.
+name: stub-inference
+services:
+  llama:
+    image: stub-router:0
+    networks: [models]
+    ports: ["192.0.2.10:18000:8080"]
+networks:
+  models: {}
