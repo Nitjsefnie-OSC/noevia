@@ -308,6 +308,35 @@ rust_owns_history_get() {
     }
     END { exit(found ? 0 : 1) }'
 }
+# Whether routes.toml gives POST /api/chats/{chatId}/history to Rust (sbstndalton/noevia#1071
+# slice 5): owner rust with POST among its methods, or with all methods.
+rust_owns_history_post() {
+  routes_toml "$1" | awk -F'\t' '
+    $1 ~ /^\/api\/chats\/\{[^}]*\}\/history$/ && $2 == "rust" {
+      if ($4 == "-") found = 1
+      n = split($4, m, /[^A-Z]+/)
+      for (i = 1; i <= n; i++) if (m[i] == "POST") found = 1
+    }
+    END { exit(found ? 0 : 1) }'
+}
+# Whether the pinned front's internal store serves the transcript ops (sbstndalton/noevia#1071
+# slice 4): a Rust source under rs/bins names the append route.
+rs_serves_history_ops() {
+  grep -rqs --include='*.rs' -e '/v1/history/append-if-last' "$tree/rs/bins"
+}
+# Whether the pinned core writes transcripts only through the store ops (sbstndalton/noevia#1071
+# slice 4): the client has them, the interrupted-reply path and the import use them, and the
+# local writer projects.cjs writeHistory is gone.
+core_writes_history_via_store() {
+  grep -q 'historyAppendIfLast' "$tree/core/server/project-store-client.cjs" 2>/dev/null \
+    && grep -q 'transcripts.appendIfLast(' "$tree/core/server/chat-interrupted-turn.cjs" 2>/dev/null \
+    && grep -q 'ctx.transcripts.write(' "$tree/core/server/conversation-import.cjs" 2>/dev/null \
+    && ! grep -q 'function writeHistory' "$tree/core/server/projects.cjs" 2>/dev/null
+}
+# Whether the pinned core calls the transcript ops at all (then the front must serve them).
+core_uses_history_ops() {
+  grep -q 'historyAppendIfLast' "$tree/core/server/project-store-client.cjs" 2>/dev/null
+}
 # Whether the pinned front reads NOEVIA_START_ID: a Rust source under rs/bins names it, or a
 # FEATURES list there carries "start-id".
 rs_reads_start_id() {
@@ -378,6 +407,22 @@ if [ -f "$tree/rs/contracts/http/routes.toml" ]; then
       || die "noevia-rs at $rs_ref answers GET /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) does not mark a running reply's partial (server/chat-partial.cjs running: { start: START_ID }); pin a core with noevia-core#245 (sbstndalton/noevia#1071)"
     grep -q '^function endPartial' "$partial_js" 2>/dev/null \
       || die "noevia-rs at $rs_ref answers GET /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) can leave a finished reply's running marker behind (no endPartial in server/chat-partial.cjs); pin a core with the sbstndalton/noevia#2146 fix"
+  fi
+  # sbstndalton/noevia#1071 slice 4: a core that saves transcripts through the front's store ops
+  # (history-<id>.json written by Rust only) needs a front that serves them, or every transcript
+  # save, interrupted reply and import fails (Node has no local fallback, by design).
+  if core_uses_history_ops && ! rs_serves_history_ops; then
+    die "noevia-core at $(lock_value NOEVIA_CORE_REF) saves transcripts through the project store's history ops, but noevia-rs at $rs_ref does not serve them (no /v1/history/append-if-last under rs/bins); pin a noevia-rs with the #1071 slice 4 store ops"
+  fi
+  # sbstndalton/noevia#1071 slice 5: a front that answers POST /api/chats/{chatId}/history writes
+  # the transcript itself. The core beside it must write it only through the front's store (or
+  # two processes write the file, the interrupted-reply path with no lock), and must refuse the
+  # POST (rust-projects.cjs OWNED_ROUTES) so there is never a window where both answer it.
+  if rust_owns_history_post "$routes_file"; then
+    core_writes_history_via_store \
+      || die "noevia-rs at $rs_ref answers POST /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) still writes transcripts itself (no store ops in server/project-store-client.cjs, chat-interrupted-turn.cjs, conversation-import.cjs, or projects.cjs writeHistory still there); pin a core with the #1071 slice 4 writers"
+    project_routes_core "$tree/core/server/rust-projects.cjs" | grep -qx 'POST /api/chats/{}/history' \
+      || die "noevia-rs at $rs_ref answers POST /api/chats/{chatId}/history, but noevia-core at $(lock_value NOEVIA_CORE_REF) does not refuse it (not in server/rust-projects.cjs OWNED_ROUTES); pin a core that hands the save to the front (sbstndalton/noevia#1071 slice 5)"
   fi
   # #2096: no other switch is accepted either. routes.toml carries none since #1071 (it says so),
   # this supervisor passes none, and a switched route is excluded from the ownership comparison

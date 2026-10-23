@@ -368,7 +368,44 @@ rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") 
 printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
 g rm -q apps/web/server/chat-partial.cjs && g commit -qam rs-history-post-only; ph4="$(g rev-parse --short HEAD)"
 PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph4" "$out" >/dev/null 2>"$work/err"; rc=$?
-check "#1071: a front that owns only another history method needs no marker" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ph4.tar.gz" ]'
+check "#1071 slice 5: a front that owns only the history save needs no marker, but is refused over a core that writes transcripts itself" \
+  '[ $rc -ne 0 ] && ! grep -q "running reply" "$work/err" && grep -q "still writes transcripts itself" "$work/err" && [ ! -f "$out/noevia-release-$ph4.tar.gz" ]'
+# #1071 slice 4: a core whose writers use the store's history ops needs a front that serves them.
+printf '%s\n' 'async historyAppendIfLast(user, chat, message, entry) {}' > "$w/server/project-store-client.cjs"
+printf '%s\n' 'return workspace.transcripts.appendIfLast(id, message, entry);' > "$w/server/chat-interrupted-turn.cjs"
+printf '%s\n' 'let published = await ctx.transcripts.write(chat.id, history, { ifAbsent: true });' > "$w/server/conversation-import.cjs"
+g add -A && g commit -qm core-history-store; ph5="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph5" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071 slice 4: a core saving transcripts through the store over a front without the history ops is refused" \
+  '[ $rc -ne 0 ] && grep -q "does not serve them" "$work/err" && [ ! -f "$out/noevia-release-$ph5.tar.gz" ]'
+mkdir -p "$work/remote/noevia-rs-y/bins/noevia-server/src"
+printf '%s\n' '.route("/v1/history/append-if-last", history_route(Op::Append))' > "$work/remote/noevia-rs-y/bins/noevia-server/src/project_store.rs"
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g commit -qam rs-history-ops; ph6="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph6" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071 slice 5: ...a save-owning front over that core is still refused while Node answers the save too" \
+  '[ $rc -ne 0 ] && grep -q "does not refuse it" "$work/err" && [ ! -f "$out/noevia-release-$ph6.tar.gz" ]'
+printf '%s\n' 'function writeHistory(spaceId, history) {}' > "$w/server/projects.cjs"
+sed -i.bak "s#  'POST /api/freechats',#  'POST /api/freechats',\n  'POST /api/chats/{chatId}/history',#" "$w/server/rust-projects.cjs" && rm -f "$w/server/rust-projects.cjs.bak"
+g add -A && g commit -qm core-refuses-history-post-but-writes; ph7="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph7" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071 slice 5: ...and refused while the core keeps a local writeHistory" \
+  '[ $rc -ne 0 ] && grep -q "still writes transcripts itself" "$work/err" && [ ! -f "$out/noevia-release-$ph7.tar.gz" ]'
+g rm -q apps/web/server/projects.cjs && g commit -qm core-history-store-only; ph8="$(g rev-parse --short HEAD)"
+PATH="$work/bin:$PATH" bash "$repo/deploy/tools/assemble-release.sh" "$ph8" "$out" >/dev/null 2>"$work/err"; rc=$?
+check "#1071 slice 5: ...and assembles once the core refuses the save and writes only through the store" '[ $rc -eq 0 ] && [ -f "$out/noevia-release-$ph8.tar.gz" ]'
+# The history route goes back to Node for the checks below (they swap the core's guard files).
+hn="$(grep -n '^path = "/api/chats/{chatId}/history"$' "$work/remote/noevia-rs-y/contracts/http/routes.toml" | cut -d: -f1)"
+sed -i.bak "$((hn-2)),$((hn+2))d" "$work/remote/noevia-rs-y/contracts/http/routes.toml" && rm -f "$work/remote/noevia-rs-y/contracts/http/routes.toml.bak"
+! grep -q 'chats/{chatId}/history' "$work/remote/noevia-rs-y/contracts/http/routes.toml" || { echo "FAIL - the history route was not taken out of the fixture"; fails=$((fails+1)); }
+tar -czf "$work/rs.tgz" -C "$work/remote" noevia-rs-y
+rsum="$( (sha256sum "$work/rs.tgz" 2>/dev/null || shasum -a 256 "$work/rs.tgz") | cut -d' ' -f1)"
+printf 'NOEVIA_RS_REF=%s\nNOEVIA_RS_SHA256=%s\nNOEVIA_WEB_REF=self\nNOEVIA_CORE_REF=self\n' "$rref" "$rsum" > "$repo/release/versions.lock"
+g commit -qam rs-history-node-again
+# ...and the core's history-op client goes too, since the fronts below serve no history ops.
+g rm -q apps/web/server/project-store-client.cjs && g commit -qm core-no-history-ops
 # #1264/#1071: context is permanent. Old switched Rust must be refused even
 # with a core listing its old conditional routes; no confirmation can rescue it.
 cat >> "$work/remote/noevia-rs-y/contracts/http/routes.toml" <<'TOML'
